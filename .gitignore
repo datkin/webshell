@@ -1,4 +1,6 @@
+_build
 a.out
 *.dSYM
 *.swp
 *.o
+*.native

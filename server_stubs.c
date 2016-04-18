@@ -33,39 +33,22 @@ value fork_in_pty( value v_working_dir, value v_prog, value v_args, value v_env)
       args[i] = String_val(Field(v_args, i));
     }
 
-    //int n_env = Wosize(v_env);
-    //char
+    int n_env = Wosize_val(v_env);
+    char* env[n_env+1];
+    env[n_env+1] = NULL;
 
+    for (int i = 0; i <n_env; i++) {
+      env[i] = String_val(Field(v_env, i));
+    }
+
+    char* prog = String_val(v_prog);
+
+    execve(prog, args, env);
   }
-
 
   value v_res = caml_alloc_small(4, 0);
   Field(v_res, 0) = Val_int(master_fd);
   Field(v_res, 1) = Val_int(child_pid);
 
   return v_res;
-}
-
-int main(int argc, char** argv) {
-  int master_fd = -1;
-  pid_t pid = forkpty(&master_fd, NULL, NULL, NULL);
-  if (pid == 0) {
-    execve("/usr/bin/clear", argv, envp);
-  } else {
-    int* stat_loc = NULL;
-    size_t buf_size = 1024;
-    char* buf = malloc(buf_size);
-    size_t size_read = 0;
-    unsigned int total = 0;
-    while ((size_read = read(master_fd, buf, buf_size)) > 0) {
-      for (int i = 0; i < size_read; i++) {
-        if (total % 10 == 0) { printf("\n"); }
-        printf(" %02x (%c)", buf[i], buf[i]);
-        total++;
-      }
-    }
-    printf("\ndone\n");
-    waitpid(pid, stat_loc, 0);
-    return 0;
-  }
 }
