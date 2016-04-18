@@ -27,8 +27,8 @@ let command =
       (* CR datkin: Get name and return it for info. *)
       let reader = Reader.create (Fd.create Char fd (Info.of_string "term")) in
       Pipe.iter_without_pushback (Reader.pipe reader) ~f:(fun str ->
-        String.iter str ~f:(fun n ->
-          printf " %02x" (Char.to_int n))
+        String.iter str ~f:(fun char ->
+          printf " %02x (%c)" (Char.to_int char) char)
       )
       >>= fun () ->
       Core.Std.printf "\n";
