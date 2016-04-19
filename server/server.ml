@@ -4,6 +4,7 @@ open Async.Std
 type pty_child = {
   fd : Core.Std.Unix.File_descr.t;
   pid : Pid.t;
+  name : string;
 } (*[@@deriving sexp_of]*)
 
 external fork_in_pty :
@@ -17,13 +18,14 @@ let command =
       empty
     )
     (fun () ->
-      let { fd; pid; } =
+      let { fd; pid; name } =
         fork_in_pty
           ~cwd:"/tmp"
           ~exe:"/bin/bash"
           ~argv:[| "bash"; "-l"; |]
           ~env:[|"TERM=xterm"; "PATH=/bin";|]
       in
+      Core.Std.printf "name: %s\n%!" name;
       (* CR datkin: Get name and return it for info. *)
       let fd = Fd.create Char fd (Info.of_string "term") in
       let reader = Reader.create fd in

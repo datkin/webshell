@@ -21,7 +21,9 @@ value fork_in_pty(
   int master_fd = -1;
   pid_t child_pid = -1;
 
-  if ((child_pid = forkpty(&master_fd, NULL, NULL, NULL)) == 0) {
+  char* name = malloc(sizeof(char)*1024);
+
+  if ((child_pid = forkpty(&master_fd, name, NULL, NULL)) == 0) {
 
     char* working_dir = String_val(v_working_dir);
     if (chdir(working_dir) < 0) {
@@ -49,9 +51,11 @@ value fork_in_pty(
     execve(prog, args, env);
   }
 
+  value v_name = caml_copy_string(name);
   value v_res = caml_alloc_small(4, 0);
   Field(v_res, 0) = Val_int(master_fd);
   Field(v_res, 1) = Val_int(child_pid);
+  Field(v_res, 2) = v_name;
 
   return v_res;
 }
