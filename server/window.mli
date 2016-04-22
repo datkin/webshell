@@ -17,7 +17,7 @@ val create : dim -> t
 val set_dimensions : t -> dim -> unit
 
 (* CR datkin: Return deltas to the screen? *)
-val update : t -> string -> units
+val update : t -> string -> unit
 
 val cursor : t -> coord
 

@@ -1,6 +1,8 @@
 open Core.Std
 open Async.Std
 
+let () = let open Window in ()
+
 type pty_child = {
   fd : Core.Std.Unix.File_descr.t;
   pid : Pid.t;
