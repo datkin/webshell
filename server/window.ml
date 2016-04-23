@@ -78,7 +78,9 @@ let incr { x; y; } { width; height = _; } =
 
 (* Write char to the current cursor and move the cursor. *)
 let putc t chr =
-  assert false
+  set t t.cursor chr;
+  t.cursor <- incr t.cursor;
+  ()
 
 let update t buf =
   let rec copy i =
