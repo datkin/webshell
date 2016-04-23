@@ -79,7 +79,7 @@ let incr { x; y; } { width; height = _; } =
 (* Write char to the current cursor and move the cursor. *)
 let putc t chr =
   set t t.cursor chr;
-  t.cursor <- incr t.cursor;
+  t.cursor <- incr t.cursor t.dim;
   ()
 
 let update t buf =
