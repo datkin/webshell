@@ -84,7 +84,16 @@ let putc t chr =
 
 let update t buf =
   let rec copy i =
-    assert false
+    if i < String.length buf
+    then begin
+      let chr = String.get buf i in
+      begin
+        if chr = '\n'
+        then t.cursor <- incr t.cursor t.dim
+        else putc t chr
+      end;
+      copy (i+1)
+    end
   in
   copy 0
 
