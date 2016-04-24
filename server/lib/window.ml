@@ -113,9 +113,3 @@ let cursor t = t.cursor
 
 let render t out =
   assert false
-
-let () =
-  let open Ppx_inline_test_lib in
-  Runtime.summarize () |> Runtime.Test_result.record;
-  Runtime.Test_result.exit ();
-;;

@@ -12,6 +12,13 @@ ocamlbuild \
   -cflags -cclib,-lserver_stubs \
   -tag 'ppx(ppx-jane -as-ppx -inline-test-lib server_lib)' \
   -cflags -w,-40 \
-  lib/server_lib.cmxa
+  -verbose 3 \
+  lib/inline_test_runner.native
+
+./inline_test_runner.native \
+  inline-test-runner \
+  server_lib \
+  -list-test-names \
+  -show-counts
 
 echo done
