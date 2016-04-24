@@ -8,10 +8,10 @@ ocamlbuild \
   -use-ocamlfind \
   -pkg core \
   -pkg async \
-  -pkg ppx_expect \
   -tag thread \
   -cflags -cclib,-lserver_stubs \
   -tag 'ppx(ppx-jane -as-ppx -inline-test-lib window)' \
+  -cflags -w,-40 \
   window.native \
   server.native
 

@@ -76,14 +76,14 @@ let incr { x; y; } { width; height; } =
   let x = next mod width in
   { x; y; }
 
-let%test_unit _ =
+let%test_unit "incr coord" =
   [%test_result: coord]
     ~expect:origin
     (incr { x = 6; y = 10; } { width = 7; height = 11; })
 ;;
 
 (* CR datkin: This doesn't get run properly. *)
-let%expect_test _ =
+let%expect_test "expect test" =
   printf "hi\n%!";
   [%expect "bye"];
 ;;
