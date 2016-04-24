@@ -3,7 +3,7 @@ open Core_kernel.Std
 type dim = {
   width : int;
   height : int;
-}
+} [@@deriving sexp, compare]
 
 type coord = {
   x : int;
@@ -11,6 +11,105 @@ type coord = {
 } [@@deriving sexp, compare]
 
 let origin = { x = 0; y = 0; }
+
+let null_byte = '\000'
+
+module Grid : sig
+  type t [@@deriving sexp_of]
+
+  val create : dim -> t
+
+  val get : t -> coord -> Char.t
+  val set : t -> coord -> Char.t -> unit
+
+  val clear : t -> unit
+
+  val scroll : t -> int -> unit
+end = struct
+  type t = {
+    dim : dim;
+    data : Char.t array array; (* row major *)
+    mutable first_row : int;
+    mutable num_rows : int;
+  } [@@deriving sexp_of]
+
+  let create dim = {
+    dim;
+    (* This is a bit dumb/confusing. We're doing our array row-major, not column
+     * major. But here [dimx] corresponds to the major dimension. *)
+    data = Array.make_matrix ~dimx:dim.height ~dimy:dim.width null_byte;
+    first_row = 0;
+    num_rows = 0;
+  }
+
+  let _invariant _t =
+    assert false
+    (* check dim == data dim, *)
+  ;;
+
+  let clear t =
+    t.first_row <- 0;
+    t.num_rows <- 0;
+  ;;
+
+  let assert_in_bounds t ~x ~y =
+    assert (y >= 0);
+    assert (x >= 0);
+    assert (y < t.dim.height);
+    assert (x < t.dim.width);
+  ;;
+
+  let translate_y t ~y =
+    (t.first_row + y) mod t.dim.height
+
+  let get t { x; y; } =
+    assert_in_bounds t ~x ~y;
+    if y >= t.num_rows
+    then null_byte
+    else t.data.(translate_y t ~y).(x)
+
+  let clear_row t ~y =
+    let y = translate_y t ~y in
+    for x = 0 to t.dim.width - 1 do
+      t.data.(y).(x) <- null_byte;
+    done
+
+  let grow_rows t ~max_y =
+    assert (max_y < t.dim.height);
+    for y = t.num_rows to max_y do
+      clear_row t ~y
+    done;
+    t.num_rows <- max_y;
+  ;;
+
+  let set t { x; y; } chr =
+    assert_in_bounds t ~x ~y;
+    if y >= t.num_rows
+    then grow_rows t ~max_y:y;
+    assert (y < t.num_rows);
+    t.data.(translate_y t ~y).(x) <- chr
+
+  let scroll t n =
+    if abs n >= t.dim.height
+    then clear t
+    else begin
+      for y = n to 0 do
+        clear_row t ~y
+      done;
+      t.first_row <- (t.first_row + n) mod t.dim.height;
+      t.num_rows <- max 0 (min t.dim.height (t.num_rows - n));
+    end
+    (*
+      if n > 0 (* add rows below *)
+    then begin
+    end else if n < 0 (* add rows above *)
+    then begin
+      t.first_row <- (t.first_row + n) mod t.dim.height;
+      t.num_rows <- min (t.dim_height, t.num_rows - n);
+    end else assert n = 0
+    *)
+  ;;
+end
 
 type t = {
   (* Each row is an array. Last element list is always the top row. The list
@@ -40,8 +139,6 @@ let%test_unit "invariant on create" =
 
 let set_dimensions t dim = t.dim <- dim
 
-let null_byte = Char.of_int_exn 0
-
 let select_row_exn t y =
   let rec loop y rows =
     match t.num_rows - y, rows with
@@ -50,12 +147,13 @@ let select_row_exn t y =
     | _, [] -> assert false
   in
   assert (y >= 0);
+  (* CR datkin: bounds check on height. *)
   assert (y < t.num_rows);
   loop y t.rows
 
 (* Just set the character at the given coordinate. *)
 let set t { x; y; } chr =
-  if y >= t.num_rows
+  if y >= t.dim.height
   then ()
   else
     let row = select_row_exn t y in
@@ -64,7 +162,7 @@ let set t { x; y; } chr =
     else Array.set row x chr
 
 let get t { x; y; } =
-  if y >= t.num_rows
+  if y >= t.dim.height
   then null_byte
   else
     let row = select_row_exn t y in
