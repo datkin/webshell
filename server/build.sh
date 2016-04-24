@@ -13,7 +13,9 @@ ocamlbuild \
   -tag 'ppx(ppx-jane -as-ppx -inline-test-lib server_lib)' \
   -cflags -w,-40 \
   -verbose 3 \
-  lib/inline_test_runner.native
+  lib/server_lib.cmxa \
+  lib/inline_test_runner.native \
+  bin/main.native
 
 ./inline_test_runner.native \
   inline-test-runner \

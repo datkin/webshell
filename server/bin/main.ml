@@ -1,17 +1,7 @@
 open Core.Std
 open Async.Std
 
-let () = let open Window in ()
-
-type pty_child = {
-  fd : Core.Std.Unix.File_descr.t;
-  pid : Pid.t;
-  name : string;
-} (*[@@deriving sexp_of]*)
-
-external fork_in_pty :
-  cwd:string -> exe:string -> argv:string array -> env:string array -> pty_child =
-    "fork_in_pty"
+open Server_lib
 
 let command =
   Command.async
@@ -20,8 +10,8 @@ let command =
       empty
     )
     (fun () ->
-      let { fd; pid; name } =
-        fork_in_pty
+      let { Pty. fd; pid; name } =
+        Pty.fork_in_pty
           ~cwd:"/tmp"
           ~exe:"/bin/bash"
           ~argv:[| "bash"; "-l"; |]
