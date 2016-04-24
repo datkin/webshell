@@ -19,8 +19,6 @@ ocamlbuild \
 
 ./inline_test_runner.native \
   inline-test-runner \
-  server_lib \
-  -list-test-names \
-  -show-counts
+  server_lib
 
 echo done

@@ -31,7 +31,7 @@ let create dim = {
 
 let invariant t =
   assert (List.length t.rows = t.num_rows);
-  assert (t.dim.height <= t.num_rows);
+  assert (t.num_rows <= t.dim.height);
   assert (t.cursor.x <= t.dim.width && t.cursor.y <= t.dim.height);
 ;;
 
