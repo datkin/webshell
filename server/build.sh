@@ -10,15 +10,8 @@ ocamlbuild \
   -pkg async \
   -tag thread \
   -cflags -cclib,-lserver_stubs \
-  -tag 'ppx(ppx-jane -as-ppx -inline-test-lib window)' \
+  -tag 'ppx(ppx-jane -as-ppx -inline-test-lib server_lib)' \
   -cflags -w,-40 \
-  window.native \
-  server.native
-
-./window.native \
-  inline-test-runner \
-  window \
-  -show-counts \
-  -verbose
+  lib/server_lib.cmxa
 
 echo done
