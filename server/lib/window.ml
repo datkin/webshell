@@ -42,10 +42,19 @@ end = struct
     num_rows = 0;
   }
 
-  let _invariant _t =
-    assert false
-    (* check dim == data dim, *)
+  let invariant t =
+    assert (Array.length t.data = t.dim.height);
+    for y = 0 to t.dim.height - 1; do
+      assert (Array.length t.data.(y) = t.dim.width);
+    done;
+    assert (t.first_row >= 0);
+    assert (t.first_row < t.dim.height);
+    assert (t.num_rows >= 0);
+    assert (t.num_rows < t.dim.height);
   ;;
+
+  let%test_unit "invariant" =
+    invariant (create { height = 10; width = 5; })
 
   let clear t =
     t.first_row <- 0;
@@ -99,15 +108,6 @@ end = struct
       t.first_row <- (t.first_row + n) mod t.dim.height;
       t.num_rows <- max 0 (min t.dim.height (t.num_rows - n));
     end
-    (*
-      if n > 0 (* add rows below *)
-    then begin
-    end else if n < 0 (* add rows above *)
-    then begin
-      t.first_row <- (t.first_row + n) mod t.dim.height;
-      t.num_rows <- min (t.dim_height, t.num_rows - n);
-    end else assert n = 0
-    *)
   ;;
 end
 
