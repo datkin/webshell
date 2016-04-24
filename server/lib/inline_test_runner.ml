@@ -1,5 +1,7 @@
-(* Depend on the tests. *)
-let () = let open Server_lib in ()
+include struct
+  (* Depend on the tests. *)
+  open! Server_lib
+end
 
 let () =
   let open Ppx_inline_test_lib in

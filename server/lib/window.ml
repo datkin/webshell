@@ -35,6 +35,9 @@ let invariant t =
   assert (t.cursor.x <= t.dim.width && t.cursor.y <= t.dim.height);
 ;;
 
+let%test_unit "invariant on create" =
+  invariant (create { width = 10; height = 10; })
+
 let set_dimensions t dim = t.dim <- dim
 
 let null_byte = Char.of_int_exn 0
@@ -43,7 +46,7 @@ let select_row_exn t y =
   let rec loop y rows =
     match t.num_rows - y, rows with
     | 0, row :: _ -> row
-    | n, _ :: rows -> loop (y-1) rows
+    | _, _ :: rows -> loop (y-1) rows
     | _, [] -> assert false
   in
   assert (y >= 0);
@@ -111,5 +114,5 @@ let update t buf =
 
 let cursor t = t.cursor
 
-let render t out =
+let render _t _out =
   assert false
