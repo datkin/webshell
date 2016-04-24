@@ -24,3 +24,5 @@ val cursor : t -> coord
 (* CR datkin: Add style information. *)
 (* Returns null byte for out of bounds coords. *)
 val get : t -> coord -> Char.t
+
+val render : t -> out_channel -> unit

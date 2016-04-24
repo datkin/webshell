@@ -8,7 +8,7 @@ type dim = {
 type coord = {
   x : int;
   y : int;
-}
+} [@@deriving sexp, compare]
 
 let origin = { x = 0; y = 0; }
 
@@ -70,11 +70,23 @@ let get t { x; y; } =
     else Array.get row x
 
 (* CR datkin: What happens at out of bounds? *)
-let incr { x; y; } { width; height = _; } =
+let incr { x; y; } { width; height; } =
   let next = (y * width) + x + 1 in
-  let y = next / width in
+  let y = (next / width) mod height in
   let x = next mod width in
   { x; y; }
+
+let%test_unit _ =
+  [%test_result: coord]
+    ~expect:origin
+    (incr { x = 6; y = 10; } { width = 7; height = 11; })
+;;
+
+(* CR datkin: This doesn't get run properly. *)
+let%expect_test _ =
+  printf "hi\n%!";
+  [%expect "bye"];
+;;
 
 (* Write char to the current cursor and move the cursor. *)
 let putc t chr =
@@ -98,3 +110,12 @@ let update t buf =
   copy 0
 
 let cursor t = t.cursor
+
+let render t out =
+  assert false
+
+let () =
+  let open Ppx_inline_test_lib in
+  Runtime.summarize () |> Runtime.Test_result.record;
+  Runtime.Test_result.exit ();
+;;
