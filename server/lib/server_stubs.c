@@ -16,14 +16,19 @@ value fork_in_pty(
     value v_working_dir,
     value v_prog,
     value v_args,
-    value v_env
+    value v_env,
+    value v_dim
     ) {
   int master_fd = -1;
   pid_t child_pid = -1;
 
   char* name = malloc(sizeof(char)*1024);
 
-  if ((child_pid = forkpty(&master_fd, name, NULL, NULL)) == 0) {
+  struct winsize* winp = malloc(sizeof(struct winsize));
+  winp->ws_col = Int_val(Field(v_env, 1));
+  winp->ws_row = Int_val(Field(v_env, 2));
+
+  if ((child_pid = forkpty(&master_fd, name, NULL, winp)) == 0) {
 
     char* working_dir = String_val(v_working_dir);
     if (chdir(working_dir) < 0) {

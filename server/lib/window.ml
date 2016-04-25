@@ -236,5 +236,16 @@ let update t buf =
 
 let cursor t = t.cursor
 
-let render _t _out =
-  assert false
+let render t out =
+  Out_channel.output_string out "-- start --\n";
+  for y = 0 to (dim t).height - 1 do
+    for x = 0 to (dim t).width - 1 do
+      let chr = Grid.get t.grid { x; y; } in
+      if chr <> null_byte
+      then Out_channel.output_char out chr;
+    done;
+    Out_channel.newline out;
+  done;
+  Out_channel.output_string out "-- stop --\n";
+  Out_channel.flush out;
+;;
