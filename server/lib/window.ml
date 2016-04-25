@@ -19,19 +19,24 @@ module Grid : sig
 
   val create : dim -> t
 
+  val dim : t -> dim
+  val set_dim : t -> dim -> unit
+
   val get : t -> coord -> Char.t
   val set : t -> coord -> Char.t -> unit
 
+  (*
   val clear : t -> unit
+  *)
 
   val scroll : t -> int -> unit
 end = struct
   type t = {
-    dim : dim;
-    data : Char.t array array; (* row major *)
+    mutable dim : dim;
+    mutable data : Char.t array array; (* row major *)
     mutable first_row : int;
     mutable num_rows : int;
-  } [@@deriving sexp_of]
+  } [@@deriving sexp_of, fields]
 
   let create dim = {
     dim;
@@ -53,6 +58,8 @@ end = struct
     assert (t.num_rows < t.dim.height);
   ;;
 
+  let set_dim _t _dim = assert false
+
   let%test_unit "invariant" =
     invariant (create { height = 10; width = 5; })
 
@@ -69,7 +76,7 @@ end = struct
   ;;
 
   let translate_y t ~y =
-    (t.first_row + y) mod t.dim.height
+    (t.first_row + y) % t.dim.height
 
   let get t { x; y; } =
     assert_in_bounds t ~x ~y;
@@ -81,14 +88,15 @@ end = struct
     let y = translate_y t ~y in
     for x = 0 to t.dim.width - 1 do
       t.data.(y).(x) <- null_byte;
-    done
+    done;
+  ;;
 
   let grow_rows t ~max_y =
     assert (max_y < t.dim.height);
     for y = t.num_rows to max_y do
       clear_row t ~y
     done;
-    t.num_rows <- max_y;
+    t.num_rows <- max_y + 1;
   ;;
 
   let set t { x; y; } chr =
@@ -102,12 +110,58 @@ end = struct
     if abs n >= t.dim.height
     then clear t
     else begin
-      for y = n to 0 do
+      (* If scrolling down, we move the pointer back, and clear earlier rows.
+       * Then, we increase the number of rows.
+       *
+       * If scrolling up, we just move the pointer down, and decrease the number
+       * of rows. We don't have to clear anything b/c we always clear when we
+       * allocate new rows below. *)
+      for y = n to -1 do
         clear_row t ~y
       done;
-      t.first_row <- (t.first_row + n) mod t.dim.height;
+      t.first_row <- (t.first_row + n) % t.dim.height;
       t.num_rows <- max 0 (min t.dim.height (t.num_rows - n));
     end
+  ;;
+
+  let fold t ~init ~f =
+    let acc = ref init in
+    for y = 0 to t.num_rows - 1 do
+      for x = 0 to t.dim.width - 1 do
+        acc := f !acc ~x ~y t.data.(translate_y t ~y).(x)
+      done
+    done;
+    !acc
+
+  let find_all t target =
+    fold t ~init:[] ~f:(fun acc ~x ~y elt ->
+      if Char.(=) target elt
+      then { x; y; } :: acc
+      else acc)
+    |> List.rev
+
+  let%test_unit _ =
+    let dim = { width = 10; height = 5; } in
+    let t = create dim in
+    (*
+    [%test_result: int]
+      ~expect:(dim.width * dim.height)
+      (fold t ~init:0 ~f:(fun size ~x:_ ~y:_ _ -> size + 1));
+      *)
+    set t origin 'x';
+    [%test_result: coord list] ~expect:[origin] (find_all t 'x');
+    scroll t (-1);
+    [%test_result: coord list] ~expect:[{x = 0; y = 1}] (find_all t 'x');
+    invariant t;
+    scroll t 1;
+    [%test_result: coord list] ~expect:[{x = 0; y = 0}] (find_all t 'x');
+    invariant t;
+    set t { x = 2; y = 3; } 'y';
+    [%test_result: coord list] ~expect:[{x = 2; y = 3}] (find_all t 'y');
+    invariant t;
+    scroll t 2;
+    [%test_result: coord list] ~expect:[{x = 2; y = 1}] (find_all t 'y');
+    invariant t;
   ;;
 end
 
@@ -115,66 +169,35 @@ type t = {
   (* Each row is an array. Last element list is always the top row. The list
    * will only have elements for the top N populated rows. So if the bottom of
    * the screen is empty, there will be no rows. *)
-  mutable rows : Char.t Array.t List.t;
-  mutable num_rows : int;
-  mutable dim : dim;
+  mutable grid : Grid.t;
   mutable cursor : coord;
 }
 
 let create dim = {
-  rows = [];
-  num_rows = 0;
-  dim;
+  grid = Grid.create dim;
   cursor = origin;
 }
 
+let dim t = Grid.dim t.grid
+
 let invariant t =
-  assert (List.length t.rows = t.num_rows);
-  assert (t.num_rows <= t.dim.height);
-  assert (t.cursor.x <= t.dim.width && t.cursor.y <= t.dim.height);
+  assert (t.cursor.x <= (dim t).width && t.cursor.y <= (dim t).height);
 ;;
 
 let%test_unit "invariant on create" =
   invariant (create { width = 10; height = 10; })
 
-let set_dimensions t dim = t.dim <- dim
+let set_dimensions t dim =
+  Grid.set_dim t.grid dim;
+  (* CR datkin: Update cursor position. *)
+;;
 
-let select_row_exn t y =
-  let rec loop y rows =
-    match t.num_rows - y, rows with
-    | 0, row :: _ -> row
-    | _, _ :: rows -> loop (y-1) rows
-    | _, [] -> assert false
-  in
-  assert (y >= 0);
-  (* CR datkin: bounds check on height. *)
-  assert (y < t.num_rows);
-  loop y t.rows
+let get t coord = Grid.get t.grid coord
 
-(* Just set the character at the given coordinate. *)
-let set t { x; y; } chr =
-  if y >= t.dim.height
-  then ()
-  else
-    let row = select_row_exn t y in
-    if x >= Array.length row
-    then ()
-    else Array.set row x chr
-
-let get t { x; y; } =
-  if y >= t.dim.height
-  then null_byte
-  else
-    let row = select_row_exn t y in
-    if x >= Array.length row
-    then null_byte
-    else Array.get row x
-
-(* CR datkin: What happens at out of bounds? *)
 let incr { x; y; } { width; height; } =
   let next = (y * width) + x + 1 in
-  let y = (next / width) mod height in
-  let x = next mod width in
+  let y = (next / width) % height in
+  let x = next % width in
   { x; y; }
 
 let%test_unit "incr coord" =
@@ -191,24 +214,25 @@ let%expect_test "expect test" =
 
 (* Write char to the current cursor and move the cursor. *)
 let putc t chr =
-  set t t.cursor chr;
-  t.cursor <- incr t.cursor t.dim;
-  ()
+  if chr <> '\n'
+  then Grid.set t.grid t.cursor chr;
+  let will_scroll =
+    let is_newline = chr = '\n' || t.cursor.x = (dim t).width - 1 in
+    is_newline && t.cursor.y = (dim t).height - 1
+  in
+  begin
+    if will_scroll
+    then begin
+      Grid.scroll t.grid 1;
+      t.cursor <- { t.cursor with x = 0; }
+    end else t.cursor <- incr t.cursor (dim t)
+  end;
+  (* This means we wrapped, which we shouldn't have. *)
+  assert (t.cursor <> origin || (dim t).height = 1);
+;;
 
 let update t buf =
-  let rec copy i =
-    if i < String.length buf
-    then begin
-      let chr = String.get buf i in
-      begin
-        if chr = '\n'
-        then t.cursor <- incr t.cursor t.dim
-        else putc t chr
-      end;
-      copy (i+1)
-    end
-  in
-  copy 0
+  String.iter buf ~f:(fun chr -> putc t chr)
 
 let cursor t = t.cursor
 

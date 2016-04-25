@@ -19,6 +19,7 @@ ocamlbuild \
 
 ./inline_test_runner.native \
   inline-test-runner \
-  server_lib
+  server_lib \
+  -verbose
 
 echo done
