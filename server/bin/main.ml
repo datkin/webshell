@@ -31,7 +31,7 @@ let command =
       >>= fun () ->
       Writer.write writer "\n";
       Writer.write writer "ls -1\n";
-      Writer.write writer "echo \"hello\"";
+      Writer.write writer "echo \"'\t'\"";
       Clock.after (sec 0.1)
       >>= fun () ->
       Writer.write writer "\n";

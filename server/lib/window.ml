@@ -214,24 +214,27 @@ let%expect_test "expect test" =
 
 (* Write char to the current cursor and move the cursor. *)
 let putc t chr =
-  if chr <> '\n'
-  then Grid.set t.grid t.cursor chr;
-  let will_scroll =
-    let is_newline = chr = '\n' || t.cursor.x = (dim t).width - 1 in
-    is_newline && t.cursor.y = (dim t).height - 1
-  in
-  begin
-    if will_scroll
-    then begin
-      Grid.scroll t.grid 1;
-      t.cursor <- { t.cursor with x = 0; }
-    end
-    else if chr = '\n'
-    then t.cursor <- { x = 0; y = t.cursor.y + 1; }
-    else t.cursor <- incr t.cursor (dim t)
-  end;
+  match chr with
+  | '\n' ->
+    let y = t.cursor.y + 1 in
+    if y = (dim t).height
+    then Grid.scroll t.grid 1
+    else t.cursor <- { t.cursor with y }
+  | '\r' ->
+    t.cursor <- { t.cursor with x = 0 }
+    (*
+  | '\t' ->
+      *)
+  | _ ->
+    Grid.set t.grid t.cursor chr;
+    let cursor' = incr t.cursor (dim t) in
+    if cursor' = origin
+    then (Grid.scroll t.grid 1; t.cursor <- { t.cursor with x = 0; })
+    else t.cursor <- cursor'
+    (*
   (* This means we wrapped, which we shouldn't have. *)
   assert (t.cursor <> origin || (dim t).height = 1);
+  *)
 ;;
 
 let update t buf =
