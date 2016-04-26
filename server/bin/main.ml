@@ -27,8 +27,14 @@ let command =
       let fd = Fd.create Char fd (Info.of_string "term") in
       let reader = Reader.create fd in
       let writer = Writer.create fd in
+      Clock.after (sec 0.1)
+      >>= fun () ->
       Writer.write writer "\n";
-      Writer.write writer "ls\n";
+      Writer.write writer "ls -1\n";
+      Writer.write writer "echo \"hello\"";
+      Clock.after (sec 0.1)
+      >>= fun () ->
+      Writer.write writer "\n";
       let window = Window.create dim in
       Pipe.iter_without_pushback (Reader.pipe reader) ~f:(fun str ->
         String.iter str ~f:(fun char ->

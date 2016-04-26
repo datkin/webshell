@@ -250,10 +250,13 @@ let render t out =
         then (Out_channel.output_char out ']'; prev_was_cursor := false)
         else if coord = t.cursor
         then (Out_channel.output_char out '['; prev_was_cursor := true)
-        else Out_channel.output_char out ' '
+        else Out_channel.output_char out '|'
       end;
       let chr = Grid.get t.grid coord in
-      Out_channel.output_string out (sprintf "%02x" (Char.to_int chr));
+      let chr = if chr = null_byte then ' ' else chr in
+      (* Out_channel.output_string out (sprintf "%02x" (Char.to_int chr) *)
+      Out_channel.output_string out (sprintf "% 4s" (Char.escaped chr)
+      );
     done;
     Out_channel.newline out;
   done;
