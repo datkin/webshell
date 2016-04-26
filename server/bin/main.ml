@@ -33,8 +33,11 @@ let command =
       Pipe.iter_without_pushback (Reader.pipe reader) ~f:(fun str ->
         String.iter str ~f:(fun char ->
           Core.Std.printf " %02x" (Char.to_int char);
+          (*
           if Char.is_alphanum char
-          then Core.Std.printf " (%c)" char);
+          then Core.Std.printf " (%c)" char;
+          *)
+        );
         Core.Std.printf "\n%!";
         Window.update window str;
         Window.render window Out_channel.stdout;

@@ -225,7 +225,10 @@ let putc t chr =
     then begin
       Grid.scroll t.grid 1;
       t.cursor <- { t.cursor with x = 0; }
-    end else t.cursor <- incr t.cursor (dim t)
+    end
+    else if chr = '\n'
+    then t.cursor <- { x = 0; y = t.cursor.y + 1; }
+    else t.cursor <- incr t.cursor (dim t)
   end;
   (* This means we wrapped, which we shouldn't have. *)
   assert (t.cursor <> origin || (dim t).height = 1);
@@ -239,10 +242,18 @@ let cursor t = t.cursor
 let render t out =
   Out_channel.output_string out "-- start --\n";
   for y = 0 to (dim t).height - 1 do
+    let prev_was_cursor = ref false in
     for x = 0 to (dim t).width - 1 do
-      let chr = Grid.get t.grid { x; y; } in
-      if chr <> null_byte
-      then Out_channel.output_char out chr;
+      let coord = { x; y; } in
+      begin
+        if !prev_was_cursor
+        then (Out_channel.output_char out ']'; prev_was_cursor := false)
+        else if coord = t.cursor
+        then (Out_channel.output_char out '['; prev_was_cursor := true)
+        else Out_channel.output_char out ' '
+      end;
+      let chr = Grid.get t.grid coord in
+      Out_channel.output_string out (sprintf "%02x" (Char.to_int chr));
     done;
     Out_channel.newline out;
   done;
