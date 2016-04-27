@@ -11,15 +11,20 @@ let command =
     ~summary:"X"
     Command.Spec.(
       empty
+      +> flag "cwd" (required string) ~doc:"dir cwd"
+      +> flag "exe" (required string) ~doc:"exe exe"
+      +> flag "env" (listed string)
+        ~doc:"VAR=val environment variable to export"
+      +> flag "--" escape ~doc:"args"
     )
-    (fun () ->
+    (fun cwd exe env args () ->
       let dim = { Window. width = 20; height = 15; } in
       let { Pty. fd; pid; name } =
         Pty.fork_in_pty
-          ~cwd:"/tmp"
-          ~exe:"/bin/bash"
-          ~argv:[| "bash"; "-l"; |]
-          ~env:[|"TERM=xterm"; "PATH=/bin";|]
+          ~cwd
+          ~exe
+          ~argv:(Array.of_list (Option.value args ~default:[]))
+          ~env:(Array.of_list env)
           dim
       in
       Core.Std.printf "name: %s\n%!" name;
@@ -27,15 +32,11 @@ let command =
       let fd = Fd.create Char fd (Info.of_string "term") in
       let reader = Reader.create fd in
       let writer = Writer.create fd in
-      Clock.after (sec 0.1)
-      >>= fun () ->
-      Writer.write writer "\n";
-      Writer.write writer "ls -1\n";
-      Writer.write writer "echo \"'\t'\"";
-      Clock.after (sec 0.1)
-      >>= fun () ->
-      Writer.write writer "\n";
       let window = Window.create dim in
+      don't_wait_for (
+        Pipe.iter_without_pushback (Reader.lines (force Reader.stdin))
+          ~f:(fun str -> Writer.write writer (str ^ "\n"))
+      );
       Pipe.iter_without_pushback (Reader.pipe reader) ~f:(fun str ->
         String.iter str ~f:(fun char ->
           Core.Std.printf " %02x" (Char.to_int char);
