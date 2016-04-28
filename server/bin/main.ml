@@ -35,9 +35,20 @@ let command =
       let window = Window.create dim in
       don't_wait_for (
         Pipe.iter_without_pushback (Reader.lines (force Reader.stdin))
-          ~f:(fun str -> Writer.write writer (str ^ "\n"))
+          ~f:(fun str ->
+            let str =
+              if str = ""
+              then "\n"
+              else str
+            in
+            Core.Std.printf "writing: ";
+            String.iter str ~f:(fun char ->
+              Core.Std.printf " %02x" (Char.to_int char));
+            Core.Std.printf "\n";
+            Writer.write writer str)
       );
       Pipe.iter_without_pushback (Reader.pipe reader) ~f:(fun str ->
+        Core.Std.printf "receiving: ";
         String.iter str ~f:(fun char ->
           Core.Std.printf " %02x" (Char.to_int char);
           (*

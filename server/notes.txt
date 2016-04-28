@@ -1,0 +1,5 @@
+ - Tab is weird:
+   * If we send `echo "\t"\n` in one go, then \a shows up on the line and in
+     the output.
+   * If we send `echo "\t` and `"\n` separately, then \a shows up on the line
+     but not in the output.
