@@ -3,3 +3,13 @@
      the output.
    * If we send `echo "\t` and `"\n` separately, then \a shows up on the line
      but not in the output.
+   * On the line editor, a \t is turned into spaces and the number of spaces
+     changes if you insert characters in front. However, if you, e.g. echo the
+     \t, a \t is emitted.
+
+ - Emulator references:
+   * http://invisible-island.net/xterm/ctlseqs/ctlseqs.html
+   * http://bjh21.me.uk/all-escapes/all-escapes.txt
+   * http://vt100.net/docs/vt100-ug/chapter3.html
+   * Relevant standards: ANSI X3.64, ECMA-48
+   * `man terminfo` and `infocmp`
