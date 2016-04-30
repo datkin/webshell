@@ -171,12 +171,53 @@ type t = {
    * the screen is empty, there will be no rows. *)
   mutable grid : Grid.t;
   mutable cursor : coord;
+  (* If we're in the middle of parsing an escape code, it goes here. *)
+  mutable escape_buffer : string option;
 }
 
 let create dim = {
   grid = Grid.create dim;
   cursor = origin;
+  escape_buffer = None;
 }
+
+type escape_parse =
+  | Needs_more
+  | Literal of string (* If it turns out not to be an escape code. *)
+  | Other (* CR datkin: Fill this in with the actual escape details. *)
+  | Unknown of string
+
+let rec consume_numbers ?acc xs =
+  match xs with
+  | [] -> acc, xs
+  | x :: xs ->
+    if x >= '0' && x <= '9'
+    then
+      let n = Char.to_int x - Char.to_int '0' in
+      consume_numbers ~acc:(n+(10*(Option.value acc ~default:0))) xs
+    else
+      acc, x :: xs
+  ;;
+
+let%test_unit _ =
+  [%test_result: int option * char list]
+  ~expect:(Some 541, ['a'; 'b'])
+  (consume_numbers (String.to_list "541ab"))
+;;
+
+let parse_escape_code buffer : escape_parse =
+  match String.to_list buffer with
+  | [] -> assert false
+  | [ '\x1b' ] -> Needs_more
+  | [ _ ] -> assert false (* Escape codes must start with '\x1b'. *)
+  | [ '\x1b'; '[' ] -> Needs_more
+  | '\x1b' :: _ -> Unknown buffer
+  | '\x1b' :: '[' :: rest ->
+    begin
+      match consume_numbers rest with
+      | _ -> assert false
+    end
+  | _ -> assert false
 
 let dim t = Grid.dim t.grid
 
