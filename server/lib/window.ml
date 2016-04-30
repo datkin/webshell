@@ -181,10 +181,23 @@ let create dim = {
   escape_buffer = None;
 }
 
+type dir =
+  | Up
+  | Down
+  | Left
+  | Right
+  [@@deriving sexp]
+
+type csi =
+  | Insert_blank of int
+  | Cursor_move_relative of dir * int
+  | Cursor_move_absolute of [ `row | `col ] * int
+  [@@deriving sexp]
+
 type escape_parse =
   | Needs_more
   | Literal of string (* If it turns out not to be an escape code. *)
-  | Other (* CR datkin: Fill this in with the actual escape details. *)
+  | CSI of csi
   | Unknown of string
 
 let rec consume_numbers ?acc xs =
@@ -215,6 +228,8 @@ let parse_escape_code buffer : escape_parse =
   | '\x1b' :: '[' :: rest ->
     begin
       match consume_numbers rest with
+      | x, [ 'A' ] -> CSI (Insert_blank (Option.value x ~default:1))
+      | None, [] -> Unknown buffer
       | _ -> assert false
     end
   | _ -> assert false
