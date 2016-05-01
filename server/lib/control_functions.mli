@@ -12,4 +12,4 @@ type t =
   | Insert_blank of int
   | Cursor of dir * int
 
-val parse : char list -> [ `code of t | `not_a_code | `need_more ]
+val parse : Reader.t -> [`literal of char | `function of t | `junk of string] Pipe.Reader.t
