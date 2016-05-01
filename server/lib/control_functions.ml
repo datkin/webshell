@@ -64,15 +64,18 @@ module Parser = struct
     node : node;
     current_number : int option;
     stack : int list;
+    chars : char list;
   }
 
   let init_state root = {
     node = root;
     current_number = None;
     stack = [];
+    chars = [];
   }
 
   let step state chr =
+    let chars = chr :: state.chars in
     if state.node.some_next_allows_number
     && chr >= '0' && chr <= '9'
     then
@@ -80,7 +83,7 @@ module Parser = struct
       let current_number =
         (Option.value state.current_number ~default:0) * 10 + digit
       in
-      `keep_going { state with current_number }
+      `keep_going { state with current_number; chars; }
     else
       match Map.find state.node.next chr with
       | None -> `no_match
@@ -96,8 +99,32 @@ module Parser = struct
           in
           match next.step with
           | `done fn -> `ok (fn (List.rev stack))
-          | `node node -> `keep_going { node; current_number = None; stack; }
+          | `node node ->
+            `keep_going { node; current_number = None; stack; chars; }
   ;;
 end
 
+let root = assert false
+
 let parse reader =
+  let init = Parser.empty_state root in
+  Pipe.init (fun writer ->
+    Reader.pipe reader
+    |> Pipe.fold_without_pushback ~init ~f:(fun state str ->
+      String.fold str ~init:state ~f:(fun state chr ->
+        match Parser.step state chr wit
+        | `keep_going state -> state
+        | `ok value ->
+          Pipe.write_without_pushback writer value;
+          empty
+        | `no_match ->
+          let value =
+            match state.chars with
+            | [] -> `literal chr;
+            | chars ->
+              let str = chr :: chars |> List.rev |> String.of_list in
+              `junk str
+          in
+          Pipe.write_without_pushback writer value;
+          empty)))
+  ;;
