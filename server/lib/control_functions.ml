@@ -13,13 +13,14 @@ type t =
   | Cursor of dir * int
 
 module Spec = struct
-  type parser =
-    | Constant of string
-    | Number
+  type helper =
+    | Constant of char list
+    | Number_optional
+    | Number_required
 
-  let c str = Constant str
+  let c str = Constant (Char.to_list str)
   let csi = c "\x1b["
-  let n = Number
+  let n = Number_optional
 
   let s t = (* simple *)
     function
@@ -43,12 +44,63 @@ module Spec = struct
     [csi; n; c "C"], n' (fun x -> Cursor (Left, n)) 1;
     [csi; n; c "D"], n' (fun x -> Cursor (Right, n)) 1;
   ]
+
+  type elt = {
+    preceeding_number : [ `none | `optional | `required ];
+    char : char;
+  }
+
+  type t = {
+    first_char : char;
+    elts : elt list;
+  }
+
+  let rec elts_of_helpers helpers =
+    match helper with
+    | [] -> []
+    | [ Number_optional ]
+    | [ Number_required ]
+      -> assert false (* Numbers must be followed by a char *)
+    | (Constant chars) :: rest ->
+      let elts =
+        List.map chars ~f:(fun char -> { preceeding_number = `none; char; })
+      in
+      elts @ (elts_of_helpers rest)
+    | Number_optional :: (Constant (char :: chars)) :: rest ->
+      let elts =
+        { preceeding_number = `optional; char; }
+        :: List.map chars ~f:(fun char -> { preceeding_number = `none; char; })
+      in
+      elts @ (elts_of_helpers rest)
+    | Number_required :: (Constant (char :: chars)) :: rest ->
+      let elts =
+        { preceeding_number = `required; char; }
+        :: List.map chars ~f:(fun char -> { preceeding_number = `none; char; })
+      in
+      elts @ (elts_of_helpers rest)
+  ;;
+
+  let of_helpers helpers =
+    match helpers with
+    | Constant (first_char :: chrs) :: rest ->
+      let elts =
+        ((Constant chrs) :: rest)
+        |> elts_of_helpers
+      in
+      { first_char; elts; }
+    | _ -> assert false (* Must start with a character. *)
+  ;;
+
+  let t =
+    List.map specs ~f:(fun (helpers, fn) -> of_helper helpers, fn)
 end
 
 module Parser = struct
-  type step = {
+  type next =
+    [ `done of (int list -> t) | `node of node ]
+  and step = {
     preceeding_number : [ `none | `optional | `required ];
-    next = [ `done of (int list -> t) | `node of node ];
+    next = next;
   }
   and node = {
     some_next_allows_number : bool;
@@ -59,6 +111,49 @@ module Parser = struct
     some_next_allows_number = false; (* Should never be true for root. *)
     next = Char.Map.empty;
   }
+
+  let rec init_stuff elts fn : next =
+    match elts with
+    | [] -> `done fn
+    | { preceeding_number; char; } :: elts ->
+      let some_next_allows_number =
+        match preceeding_number with
+        | `required | `optional -> true
+        | `none -> false
+      in
+      let step = init_stuff elts fn in
+      let next = Map.add Char.Map.empty ~key:char ~data:step in
+      `node { some_next_allows_number; next; }
+  and add_stuff node elts fn : step =
+    match elts with
+    | [] -> assert false (* trying to add a terminal where there's a non-terminal *)
+    | { preceeding_number; char; } :: elts ->
+      match Map.find node.next char with
+      | None ->
+        let some_next_allows_number =
+          match preceeding_number with
+          | `required | `optional -> true
+          | `none -> node.some_next_allows_number
+        in
+        let next = Map.add node.next ~key:char ~data:(init_stuff elts fn) in
+        { ...
+      | Some next ->
+  ;;
+
+  let add root { first_char; elts; } fn =
+    let step : step =
+      match Map.find root.next first_char with
+      | None ->
+        let next = init_stuff elts fn in
+        { preceeding_number = `none; next; }
+      | Some { preceeding_number; next; } ->
+        assert (preceeding_number = `none);
+        match next with
+        | `done _ -> assert false (* dupe definition *)
+        | `node node -> add_stuff node elts fn
+    in
+    { root with next = Map.put root.next ~key:first_char ~data:step; }
+  ;;
 
   type state = {
     node : node;
