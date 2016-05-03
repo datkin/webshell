@@ -104,47 +104,49 @@ module Parser = struct
   }
   and node = {
     some_next_allows_number : bool;
-    next : step Char.Map.t;
+    steps : step Char.Map.t;
   }
 
-  let empty = {
-    some_next_allows_number = false; (* Should never be true for root. *)
-    next = Char.Map.empty;
-  }
-
-  let rec init_stuff elts fn : next =
+  let rec make_next elts fn : next =
     match elts with
     | [] -> `done fn
     | { preceeding_number; char; } :: elts ->
+      let step =
+        let next = make_next elts fn in
+        { preceeding_number; next; }
+      in
+      let steps = Map.add Char.Map.empty ~key:char ~data:step in
       let some_next_allows_number =
         match preceeding_number with
         | `required | `optional -> true
         | `none -> false
       in
-      let step = init_stuff elts fn in
-      let next = Map.add Char.Map.empty ~key:char ~data:step in
-      `node { some_next_allows_number; next; }
-  and add_stuff node elts fn : step =
+      `node { some_next_allows_number; steps; }
+
+  let add_stuff { some_next_allows_number; steps; } elts fn : step =
     match elts with
     | [] -> assert false (* trying to add a terminal where there's a non-terminal *)
     | { preceeding_number; char; } :: elts ->
-      match Map.find node.next char with
+      let some_next_allows_number =
+        match preceeding_number with
+        | `required | `optional -> true
+        | `none -> some_next_allows_number
+      in
+      match Map.find steps char with
       | None ->
-        let some_next_allows_number =
-          match preceeding_number with
-          | `required | `optional -> true
-          | `none -> node.some_next_allows_number
-        in
-        let next = Map.add node.next ~key:char ~data:(init_stuff elts fn) in
-        { ...
-      | Some next ->
+        let steps = Map.add steps ~key:char ~data:(make_next elts fn) in
+        { some_next_allows_number; steps; }
+      | Some (`done _) -> assert false (* adding terminal or dupe def *)
+      | Some (`node node) ->
+        let step = add_stuff node elts fn in
+        { some_next_allows_number; steps; }
   ;;
 
   let add root { first_char; elts; } fn =
     let step : step =
-      match Map.find root.next first_char with
+      match Map.find root.steps first_char with
       | None ->
-        let next = init_stuff elts fn in
+        let next = make_next elts fn in
         { preceeding_number = `none; next; }
       | Some { preceeding_number; next; } ->
         assert (preceeding_number = `none);
@@ -152,8 +154,13 @@ module Parser = struct
         | `done _ -> assert false (* dupe definition *)
         | `node node -> add_stuff node elts fn
     in
-    { root with next = Map.put root.next ~key:first_char ~data:step; }
+    { root with steps = Map.put root.steps ~key:first_char ~data:step; }
   ;;
+
+  let empty = {
+    some_next_allows_number = false; (* Should never be true for root. *)
+    next = Char.Map.empty;
+  }
 
   type state = {
     node : node;
