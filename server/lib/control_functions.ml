@@ -18,7 +18,7 @@ module Spec = struct
     | Number_optional
     | Number_required
 
-  let c str = Constant (Char.to_list str)
+  let c str = Constant (String.to_list str)
   let csi = c "\x1b["
   let n = Number_optional
 
@@ -38,11 +38,11 @@ module Spec = struct
   let spec = [
     [c "\x06"], s Ack;
     [c "\x07"], s Bell;
-    [csi; n; c "@"], n' (fun x -> Insert_blank n) 1;
-    [csi; n; c "A"], n' (fun x -> Cursor (Up, n)) 1;
-    [csi; n; c "B"], n' (fun x -> Cursor (Down, n)) 1;
-    [csi; n; c "C"], n' (fun x -> Cursor (Left, n)) 1;
-    [csi; n; c "D"], n' (fun x -> Cursor (Right, n)) 1;
+    [csi; n; c "@"], n' (fun x -> Insert_blank x) 1;
+    [csi; n; c "A"], n' (fun x -> Cursor (Up, x)) 1;
+    [csi; n; c "B"], n' (fun x -> Cursor (Down, x)) 1;
+    [csi; n; c "C"], n' (fun x -> Cursor (Left, x)) 1;
+    [csi; n; c "D"], n' (fun x -> Cursor (Right, x)) 1;
   ]
 
   type elt = {
@@ -56,10 +56,11 @@ module Spec = struct
   }
 
   let rec elts_of_helpers helpers =
-    match helper with
+    match helpers with
     | [] -> []
     | [ Number_optional ]
     | [ Number_required ]
+    | [ Constant [] ]
       -> assert false (* Numbers must be followed by a char *)
     | (Constant chars) :: rest ->
       let elts =
@@ -78,6 +79,7 @@ module Spec = struct
         :: List.map chars ~f:(fun char -> { preceeding_number = `none; char; })
       in
       elts @ (elts_of_helpers rest)
+    | (Number_required | Number_optional) :: (Number_required | Number_optional | Constant []) :: _ -> assert false
   ;;
 
   let of_helpers helpers =
@@ -92,15 +94,15 @@ module Spec = struct
   ;;
 
   let t =
-    List.map specs ~f:(fun (helpers, fn) -> of_helper helpers, fn)
+    List.map spec ~f:(fun (helpers, fn) -> of_helpers helpers, fn)
 end
 
 module Parser = struct
   type next =
-    [ `done of (int list -> t) | `node of node ]
+    [ `finished of (int list -> t) | `node of node ]
   and step = {
     preceeding_number : [ `none | `optional | `required ];
-    next = next;
+    next : next;
   }
   and node = {
     some_next_allows_number : bool;
@@ -109,8 +111,8 @@ module Parser = struct
 
   let rec make_next elts fn : next =
     match elts with
-    | [] -> `done fn
-    | { preceeding_number; char; } :: elts ->
+    | [] -> `finished fn
+    | { Spec. preceeding_number; char; } :: elts ->
       let step =
         let next = make_next elts fn in
         { preceeding_number; next; }
@@ -126,7 +128,7 @@ module Parser = struct
   let add_stuff { some_next_allows_number; steps; } elts fn : step =
     match elts with
     | [] -> assert false (* trying to add a terminal where there's a non-terminal *)
-    | { preceeding_number; char; } :: elts ->
+    | { Spec. preceeding_number; char; } :: elts ->
       let some_next_allows_number =
         match preceeding_number with
         | `required | `optional -> true
@@ -136,7 +138,7 @@ module Parser = struct
       | None ->
         let steps = Map.add steps ~key:char ~data:(make_next elts fn) in
         { some_next_allows_number; steps; }
-      | Some (`done _) -> assert false (* adding terminal or dupe def *)
+      | Some (`finished _) -> assert false (* adding terminal or dupe def *)
       | Some (`node node) ->
         let step = add_stuff node elts fn in
         { some_next_allows_number; steps; }
@@ -151,7 +153,7 @@ module Parser = struct
       | Some { preceeding_number; next; } ->
         assert (preceeding_number = `none);
         match next with
-        | `done _ -> assert false (* dupe definition *)
+        | `finished _ -> assert false (* dupe definition *)
         | `node node -> add_stuff node elts fn
     in
     { root with steps = Map.put root.steps ~key:first_char ~data:step; }
@@ -200,7 +202,7 @@ module Parser = struct
             | Some n -> n :: state.stack
           in
           match next.step with
-          | `done fn -> `ok (fn (List.rev stack))
+          | `finished fn -> `ok (fn (List.rev stack))
           | `node node ->
             `keep_going { node; current_number = None; stack; chars; }
   ;;
@@ -208,13 +210,35 @@ end
 
 let root = assert false
 
+let init = Parser.empty_state root
+
+let parser () =
+  let state = ref init in
+  (fun chr ->
+    match Parser.step !state chr with
+    | `keep_going s -> state := s; `pending
+    | `ok value ->
+      state := init;
+      value
+    | `no_match ->
+      let value =
+        match state.chars with
+        | [] -> `literal chr;
+        | chars ->
+          let str = chr :: chars |> List.rev |> String.of_list in
+          `junk str
+      in
+      state := init;
+      value)
+
+open Async.Std
+
 let parse reader =
-  let init = Parser.empty_state root in
   Pipe.init (fun writer ->
     Reader.pipe reader
     |> Pipe.fold_without_pushback ~init ~f:(fun state str ->
       String.fold str ~init:state ~f:(fun state chr ->
-        match Parser.step state chr wit
+        match Parser.step state chr with
         | `keep_going state -> state
         | `ok value ->
           Pipe.write_without_pushback writer value;
@@ -229,4 +253,3 @@ let parse reader =
           in
           Pipe.write_without_pushback writer value;
           empty)))
-  ;;

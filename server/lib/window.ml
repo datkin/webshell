@@ -171,68 +171,14 @@ type t = {
    * the screen is empty, there will be no rows. *)
   mutable grid : Grid.t;
   mutable cursor : coord;
-  (* If we're in the middle of parsing an escape code, it goes here. *)
-  mutable escape_buffer : string option;
+  parse : (char -> [`literal of char | `func of Control_functions.t | `junk of string | `pending]);
 }
 
 let create dim = {
   grid = Grid.create dim;
   cursor = origin;
-  escape_buffer = None;
+  parse = Control_functions.parser () |> unstage;
 }
-
-type dir =
-  | Up
-  | Down
-  | Left
-  | Right
-  [@@deriving sexp]
-
-type csi =
-  | Insert_blank of int
-  | Cursor_move_relative of dir * int
-  | Cursor_move_absolute of [ `row | `col ] * int
-  [@@deriving sexp]
-
-type escape_parse =
-  | Needs_more
-  | Literal of string (* If it turns out not to be an escape code. *)
-  | CSI of csi
-  | Unknown of string
-
-let rec consume_numbers ?acc xs =
-  match xs with
-  | [] -> acc, xs
-  | x :: xs ->
-    if x >= '0' && x <= '9'
-    then
-      let n = Char.to_int x - Char.to_int '0' in
-      consume_numbers ~acc:(n+(10*(Option.value acc ~default:0))) xs
-    else
-      acc, x :: xs
-  ;;
-
-let%test_unit _ =
-  [%test_result: int option * char list]
-  ~expect:(Some 541, ['a'; 'b'])
-  (consume_numbers (String.to_list "541ab"))
-;;
-
-let parse_escape_code buffer : escape_parse =
-  match String.to_list buffer with
-  | [] -> assert false
-  | [ '\x1b' ] -> Needs_more
-  | [ _ ] -> assert false (* Escape codes must start with '\x1b'. *)
-  | [ '\x1b'; '[' ] -> Needs_more
-  | '\x1b' :: _ -> Unknown buffer
-  | '\x1b' :: '[' :: rest ->
-    begin
-      match consume_numbers rest with
-      | x, [ 'A' ] -> CSI (Insert_blank (Option.value x ~default:1))
-      | None, [] -> Unknown buffer
-      | _ -> assert false
-    end
-  | _ -> assert false
 
 let dim t = Grid.dim t.grid
 
@@ -293,8 +239,13 @@ let putc t chr =
   *)
 ;;
 
-let update t buf =
-  String.iter buf ~f:(fun chr -> putc t chr)
+let update t str =
+  String.iter str ~f:(fun chr ->
+    match t.parse chr with
+    | `literal chr -> putc t chr
+    | `pending
+    | `func _
+    | `junk _ -> ())
 
 let cursor t = t.cursor
 
