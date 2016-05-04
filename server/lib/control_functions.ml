@@ -101,6 +101,9 @@ module Parser = struct
   type next =
     [ `finished of (int list -> t) | `node of node ]
   and step = {
+    (* CR datkin: Hmm. This is tricky. If it's a branch point, some branches may
+     * require a number, and others may not allow a number. Can we expect that
+     * all prefixes will have the same number requirements here? *)
     preceeding_number : [ `none | `optional | `required ];
     next : next;
   }
@@ -125,7 +128,7 @@ module Parser = struct
       in
       `node { some_next_allows_number; steps; }
 
-  let add_stuff { some_next_allows_number; steps; } elts fn : step =
+  let add_stuff ~preceeding_number ~node:{ some_next_allows_number; steps; } elts fn : step =
     match elts with
     | [] -> assert false (* trying to add a terminal where there's a non-terminal *)
     | { Spec. preceeding_number; char; } :: elts ->
@@ -138,10 +141,12 @@ module Parser = struct
       | None ->
         let steps = Map.add steps ~key:char ~data:(make_next elts fn) in
         { some_next_allows_number; steps; }
-      | Some (`finished _) -> assert false (* adding terminal or dupe def *)
-      | Some (`node node) ->
-        let step = add_stuff node elts fn in
-        { some_next_allows_number; steps; }
+      | Some { preceeding_number; next; } ->
+        match next with
+        | `finished _ -> assert false (* adding terminal or dupe def *)
+        | `node node ->
+          let step = add_stuff ~preceeding_number ~node elts fn in
+          { some_next_allows_number; steps; }
   ;;
 
   let add root { first_char; elts; } fn =
@@ -154,7 +159,7 @@ module Parser = struct
         assert (preceeding_number = `none);
         match next with
         | `finished _ -> assert false (* dupe definition *)
-        | `node node -> add_stuff node elts fn
+        | `node node -> add_stuff ~preceeding_number ~node elts fn
     in
     { root with steps = Map.put root.steps ~key:first_char ~data:step; }
   ;;
