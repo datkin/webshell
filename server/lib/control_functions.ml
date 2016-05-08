@@ -128,10 +128,17 @@ module Parser = struct
       in
       `node { some_next_allows_number; steps; }
 
-  let add_stuff ~preceeding_number ~node:{ some_next_allows_number; steps; } elts fn : step =
+  let add_stuff ~preceeding_number:pn' ~node:{ some_next_allows_number; steps; } elts fn : step =
     match elts with
     | [] -> assert false (* trying to add a terminal where there's a non-terminal *)
     | { Spec. preceeding_number; char; } :: elts ->
+      begin
+        if pn' <> preceeding_number
+        then
+          (* For now, assume that the path must always be the same.
+           * What are the counter examples? *)
+          assert false
+      end;
       let some_next_allows_number =
         match preceeding_number with
         | `required | `optional -> true
