@@ -128,7 +128,7 @@ module Parser = struct
       in
       `node { some_next_allows_number; steps; }
 
-  let add_stuff ~preceeding_number:pn' ~node:{ some_next_allows_number; steps; } elts fn : step =
+  let rec update_step ~preceeding_number:pn' ~node:{ some_next_allows_number; steps; } elts fn : step =
     match elts with
     | [] -> assert false (* trying to add a terminal where there's a non-terminal *)
     | { Spec. preceeding_number; char; } :: elts ->
@@ -139,20 +139,31 @@ module Parser = struct
            * What are the counter examples? *)
           assert false
       end;
-      let some_next_allows_number =
-        match preceeding_number with
-        | `required | `optional -> true
-        | `none -> some_next_allows_number
-      in
+      begin
+        let implied =
+          match preceeding_number with
+          | `required | `optional -> true
+          | `none -> false
+        in
+        if implied <> some_next_allows_number
+        then
+          (* Again, assume they're the same. *)
+          assert false
+      end;
       match Map.find steps char with
       | None ->
-        let steps = Map.add steps ~key:char ~data:(make_next elts fn) in
-        { some_next_allows_number; steps; }
+        let steps =
+          let next = make_next elts fn in
+          let data = { preceeding_number; next; } in
+          Map.add steps ~key:char ~data
+        in
+        let next = `node { some_next_allows_number; steps; } in
+        { preceeding_number = pn'; next; }
       | Some { preceeding_number; next; } ->
         match next with
         | `finished _ -> assert false (* adding terminal or dupe def *)
         | `node node ->
-          let step = add_stuff ~preceeding_number ~node elts fn in
+          let steps = update_step ~preceeding_number ~node elts fn in
           { some_next_allows_number; steps; }
   ;;
 
@@ -166,7 +177,7 @@ module Parser = struct
         assert (preceeding_number = `none);
         match next with
         | `finished _ -> assert false (* dupe definition *)
-        | `node node -> add_stuff ~preceeding_number ~node elts fn
+        | `node node -> update_step ~preceeding_number ~node elts fn
     in
     { root with steps = Map.put root.steps ~key:first_char ~data:step; }
   ;;
