@@ -48,12 +48,24 @@ module Spec = struct
   type elt = {
     preceeding_number : [ `none | `optional | `required ];
     char : char;
-  }
+  } [@@deriving sexp]
 
   type t = {
     first_char : char;
     elts : elt list;
-  }
+  } [@@deriving sexp]
+
+  let to_string { first_char; elts } =
+    let elts_str =
+      List.map elts ~f:(fun { preceeding_number; char; } ->
+        let preceeding =
+          match preceeding_number with
+          | `none -> "" | `optional -> "<number?>" | `required -> "<number>"
+        in
+        sprintf "%s%c" preceeding char)
+      |> String.concat ~sep:""
+    in
+    sprintf "%c%s" first_char elts_str
 
   let rec elts_of_helpers helpers =
     match helpers with
@@ -180,6 +192,11 @@ module Parser = struct
     { root with steps = Map.add root.steps ~key:first_char ~data:step; }
   ;;
 
+  let add root spec fn =
+    try add root spec fn
+    with exn ->
+      failwithf !"[add] raised:\n%{sexp:Exn.t}\n%{Spec}" exn spec ()
+
   let empty = {
     some_next_allows_number = false; (* Should never be true for root. *)
     steps = Char.Map.empty;
@@ -229,9 +246,13 @@ module Parser = struct
   ;;
 end
 
-let root = assert false
-
-let init = Parser.init_state root
+let init =
+  let parser =
+    List.fold Spec.t ~init:Parser.empty ~f:(fun parser (spec, fn) ->
+      Parser.add parser spec fn)
+  in
+  Parser.init_state parser
+;;
 
 let parser () =
   let state = ref init in
