@@ -58,9 +58,9 @@ module Spec = struct
   let rec elts_of_helpers helpers =
     match helpers with
     | [] -> []
+    | [ Constant [] ] -> []
     | [ Number_optional ]
     | [ Number_required ]
-    | [ Constant [] ]
       -> assert false (* Numbers must be followed by a char *)
     | (Constant chars) :: rest ->
       let elts =
