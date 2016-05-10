@@ -150,24 +150,22 @@ module Parser = struct
           (* Again, assume they're the same. *)
           assert false
       end;
-      match Map.find steps char with
-      | None ->
-        let steps =
-          let next = make_next elts fn in
-          let data = { preceeding_number; next; } in
-          Map.add steps ~key:char ~data
-        in
-        let next = `node { some_next_allows_number; steps; } in
-        { preceeding_number = pn'; next; }
-      | Some { preceeding_number; next; } ->
-        match next with
-        | `finished _ -> assert false (* adding terminal or dupe def *)
-        | `node node ->
-          let steps = update_step ~preceeding_number ~node elts fn in
-          { some_next_allows_number; steps; }
+      let steps =
+        Map.update steps char ~f:(function
+          | None ->
+            let next = make_next elts fn in
+            { preceeding_number; next; }
+          | Some { preceeding_number; next; } ->
+              match next with
+              | `finished _ -> assert false (* adding terminal or dupe def *)
+              | `node node ->
+                update_step ~preceeding_number ~node elts fn)
+      in
+      let next = `node { some_next_allows_number; steps; } in
+      { preceeding_number = pn'; next; }
   ;;
 
-  let add root { first_char; elts; } fn =
+  let add root { Spec. first_char; elts; } fn =
     let step : step =
       match Map.find root.steps first_char with
       | None ->
@@ -179,12 +177,12 @@ module Parser = struct
         | `finished _ -> assert false (* dupe definition *)
         | `node node -> update_step ~preceeding_number ~node elts fn
     in
-    { root with steps = Map.put root.steps ~key:first_char ~data:step; }
+    { root with steps = Map.add root.steps ~key:first_char ~data:step; }
   ;;
 
   let empty = {
     some_next_allows_number = false; (* Should never be true for root. *)
-    next = Char.Map.empty;
+    steps = Char.Map.empty;
   }
 
   type state = {
@@ -201,18 +199,18 @@ module Parser = struct
     chars = [];
   }
 
-  let step state chr =
+  let step state chr : [`keep_going of state | `ok of t | `no_match] =
     let chars = chr :: state.chars in
     if state.node.some_next_allows_number
     && chr >= '0' && chr <= '9'
     then
-      let digit = Char.to_int chr - Char.to_int 0 in
+      let digit = Char.to_int chr - Char.to_int '0' in
       let current_number =
-        (Option.value state.current_number ~default:0) * 10 + digit
+        Some ((Option.value state.current_number ~default:0) * 10 + digit)
       in
       `keep_going { state with current_number; chars; }
     else
-      match Map.find state.node.next chr with
+      match Map.find state.node.steps chr with
       | None -> `no_match
       | Some { preceeding_number; next } ->
         match preceeding_number, state.current_number with
@@ -224,7 +222,7 @@ module Parser = struct
             | None -> state.stack
             | Some n -> n :: state.stack
           in
-          match next.step with
+          match next with
           | `finished fn -> `ok (fn (List.rev stack))
           | `node node ->
             `keep_going { node; current_number = None; stack; chars; }
@@ -233,22 +231,22 @@ end
 
 let root = assert false
 
-let init = Parser.empty_state root
+let init = Parser.init_state root
 
 let parser () =
   let state = ref init in
-  (fun chr ->
+  stage (fun chr ->
     match Parser.step !state chr with
     | `keep_going s -> state := s; `pending
     | `ok value ->
       state := init;
-      value
+      (`func value)
     | `no_match ->
       let value =
-        match state.chars with
+        match !state.chars with
         | [] -> `literal chr;
         | chars ->
-          let str = chr :: chars |> List.rev |> String.of_list in
+          let str = (chr :: chars) |> List.rev |> String.of_char_list in
           `junk str
       in
       state := init;
@@ -264,15 +262,17 @@ let parse reader =
         match Parser.step state chr with
         | `keep_going state -> state
         | `ok value ->
-          Pipe.write_without_pushback writer value;
-          empty
+          Pipe.write_without_pushback writer (`func value);
+          init
         | `no_match ->
           let value =
             match state.chars with
             | [] -> `literal chr;
             | chars ->
-              let str = chr :: chars |> List.rev |> String.of_list in
+              let str = (chr :: chars) |> List.rev |> String.of_char_list in
               `junk str
           in
           Pipe.write_without_pushback writer value;
-          empty)))
+          init))
+    >>= fun (_ : Parser.state) ->
+    Deferred.unit)
