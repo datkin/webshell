@@ -122,7 +122,7 @@ module Parser = struct
   and node = {
     some_next_allows_number : bool;
     steps : step Char.Map.t;
-  }
+  } [@@deriving sexp]
 
   let rec make_next elts fn : next =
     match elts with
