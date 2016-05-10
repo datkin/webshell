@@ -145,13 +145,6 @@ module Parser = struct
     | [] -> assert false (* trying to add a terminal where there's a non-terminal *)
     | { Spec. preceeding_number; char; } :: elts ->
       begin
-        if pn' <> preceeding_number
-        then
-          (* For now, assume that the path must always be the same.
-           * What are the counter examples? *)
-          assert false
-      end;
-      begin
         let implied =
           match preceeding_number with
           | `required | `optional -> true
@@ -167,11 +160,19 @@ module Parser = struct
           | None ->
             let next = make_next elts fn in
             { preceeding_number; next; }
-          | Some { preceeding_number; next; } ->
-              match next with
-              | `finished _ -> assert false (* adding terminal or dupe def *)
-              | `node node ->
-                update_step ~preceeding_number ~node elts fn)
+          | Some { preceeding_number = pn''; next; } ->
+            begin
+              if pn'' <> preceeding_number
+              then
+                (* For now, assume that the path must always be the same.
+                 * What are the counter examples? *)
+                failwithf !"%{sexp:[`required|`none|`optional] list} at %c"
+                  [pn''; preceeding_number] char ()
+            end;
+            match next with
+            | `finished _ -> assert false (* adding terminal or dupe def *)
+            | `node node ->
+              update_step ~preceeding_number ~node elts fn)
       in
       let next = `node { some_next_allows_number; steps; } in
       { preceeding_number = pn'; next; }
@@ -195,7 +196,7 @@ module Parser = struct
   let add root spec fn =
     try add root spec fn
     with exn ->
-      failwithf !"[add] raised:\n%{sexp:Exn.t}\n%{Spec}" exn spec ()
+      failwithf !"[add] raised:\n%{sexp:Exn.t}\n%{Spec}\n%{sexp:node}" exn spec root ()
 
   let empty = {
     some_next_allows_number = false; (* Should never be true for root. *)
