@@ -5,12 +5,16 @@ type dir =
   | Down
   | Left
   | Right
+[@@deriving sexp, compare]
 
 type t =
   | Ack
   | Bell
   | Insert_blank of int
   | Cursor of dir * int
+[@@deriving sexp, compare]
+
+type func = t [@@deriving sexp, compare]
 
 module Spec = struct
   type helper =
@@ -273,6 +277,23 @@ let parser () =
       in
       state := init;
       value)
+
+let%test_unit _ =
+  let f = unstage (parser ()) in
+  let test here chr expect =
+    [%test_result: [`literal of char | `func of func | `junk of string | `pending]]
+      ~here:[here]
+      (f chr)
+      ~expect
+  in
+  test [%here] 'a' (`literal 'a');
+  test [%here] '\x06' (`func Ack);
+  test [%here] '\x1b' `pending;
+  test [%here] '[' `pending;
+  test [%here] '5' `pending;
+  test [%here] '1' `pending;
+  test [%here] 'A' (`func (Cursor (Up, 51)));
+;;
 
 open Async.Std
 
