@@ -315,6 +315,9 @@ let%test_unit _ =
   test [%here] '5' `pending;
   test [%here] '1' `pending;
   test [%here] 'A' (`func (Cursor_rel (Up, 51)));
+  test [%here] '\x1b' `pending;
+  test [%here] '[' `pending;
+  test [%here] 'X' (`junk "\x1b[X");
   let test_seq here str expect =
     let rec loop chrs =
       match chrs with

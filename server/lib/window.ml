@@ -243,9 +243,13 @@ let update t str =
   String.iter str ~f:(fun chr ->
     match t.parse chr with
     | `literal chr -> putc t chr
-    | `pending
-    | `func _
-    | `junk _ -> ())
+    | `pending -> ()
+    | `junk str ->
+        Core.Std.eprintf "Bad input: [%s]"
+          (String.to_list str |> List.map ~f:(fun x -> Char.to_int x |> sprintf "%02x") |> String.concat ~sep:" ")
+    | `func _ ->
+        (* CR datkin: Implement. *)
+        ())
 
 let cursor t = t.cursor
 
