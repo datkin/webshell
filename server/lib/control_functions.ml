@@ -293,6 +293,25 @@ let%test_unit _ =
   test [%here] '5' `pending;
   test [%here] '1' `pending;
   test [%here] 'A' (`func (Cursor (Up, 51)));
+  let test_seq here str expect =
+    let rec loop chrs =
+      match chrs with
+      | [] -> assert false
+      | [chr] ->
+        [%test_result: [`literal of char | `func of func | `junk of string | `pending]]
+          ~here:[here]
+          (f chr)
+          ~expect:(`func expect)
+      | chr :: chrs ->
+        [%test_result: [`literal of char | `func of func | `junk of string | `pending]]
+          ~here:[here]
+          (f chr)
+          ~expect:(`pending);
+        loop chrs
+    in
+    loop (String.to_list str)
+  in
+  test_seq [%here] "\x1b[A" (Cursor (Up, 1));
 ;;
 
 open Async.Std
