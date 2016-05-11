@@ -7,11 +7,17 @@ type dir =
   | Right
 [@@deriving sexp, compare]
 
+type up_or_down =
+  | Up
+  | Down
+[@@deriving sexp, compare]
+
 type t =
   | Ack
   | Bell
   | Insert_blank of int
-  | Cursor of dir * int
+  | Move_cursor of dir * int
+  | Start_of_line of up_or_down * int
 [@@deriving sexp, compare]
 
 type func = t [@@deriving sexp, compare]
@@ -43,10 +49,12 @@ module Spec = struct
     [c "\x06"], s Ack;
     [c "\x07"], s Bell;
     [csi; n; c "@"], n' (fun x -> Insert_blank x) 1;
-    [csi; n; c "A"], n' (fun x -> Cursor (Up, x)) 1;
-    [csi; n; c "B"], n' (fun x -> Cursor (Down, x)) 1;
-    [csi; n; c "C"], n' (fun x -> Cursor (Left, x)) 1;
-    [csi; n; c "D"], n' (fun x -> Cursor (Right, x)) 1;
+    [csi; n; c "A"], n' (fun x -> Move_cursor (Up, x)) 1;
+    [csi; n; c "B"], n' (fun x -> Move_cursor (Down, x)) 1;
+    [csi; n; c "C"], n' (fun x -> Move_cursor (Left, x)) 1;
+    [csi; n; c "D"], n' (fun x -> Move_cursor (Right, x)) 1;
+    [csi; n; c "E"], n' (fun x -> Start_of_line (Down, x)) 1;
+    [csi; n; c "F"], n' (fun x -> Start_of_line (Up, x)) 1;
   ]
 
   type elt = {
@@ -292,7 +300,7 @@ let%test_unit _ =
   test [%here] '[' `pending;
   test [%here] '5' `pending;
   test [%here] '1' `pending;
-  test [%here] 'A' (`func (Cursor (Up, 51)));
+  test [%here] 'A' (`func (Move_cursor (Up, 51)));
   let test_seq here str expect =
     let rec loop chrs =
       match chrs with
@@ -311,7 +319,7 @@ let%test_unit _ =
     in
     loop (String.to_list str)
   in
-  test_seq [%here] "\x1b[A" (Cursor (Up, 1));
+  test_seq [%here] "\x1b[A" (Move_cursor (Up, 1));
 ;;
 
 open Async.Std
