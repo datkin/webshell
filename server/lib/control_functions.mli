@@ -12,12 +12,13 @@ type up_or_down =
   | Down
 [@@deriving sexp, compare]
 
-type t =
+type t (*=
   | Ack
   | Bell
   | Insert_blank of int
   | Move_cursor of dir * int
   | Start_of_line of up_or_down * int
+  *)
 [@@deriving sexp, compare]
 
 val parser

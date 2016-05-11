@@ -12,12 +12,18 @@ type up_or_down =
   | Down
 [@@deriving sexp, compare]
 
+type coord = {
+  x : int;
+  y : int;
+} [@@deriving sexp, compare]
+
 type t =
   | Ack
   | Bell
   | Insert_blank of int
-  | Move_cursor of dir * int
-  | Start_of_line of up_or_down * int
+  | Cursor_rel of dir * int
+  | Start_of_line_rel of up_or_down * int
+  | Cursor_abs of coord
 [@@deriving sexp, compare]
 
 type func = t [@@deriving sexp, compare]
@@ -40,8 +46,13 @@ module Spec = struct
 
   let n' ctor default = (* single number arg *)
     function
-      | [n] -> ctor n
-      | [] -> ctor default
+      | [n] -> ctor (Option.value n ~default)
+      | _ -> assert false
+  ;;
+
+  let n'' ctor default = (* two args *)
+    function
+      | [n1; n2] -> ctor (Option.value n1 ~default, Option.value n2 ~default)
       | _ -> assert false
   ;;
 
@@ -49,12 +60,13 @@ module Spec = struct
     [c "\x06"], s Ack;
     [c "\x07"], s Bell;
     [csi; n; c "@"], n' (fun x -> Insert_blank x) 1;
-    [csi; n; c "A"], n' (fun x -> Move_cursor (Up, x)) 1;
-    [csi; n; c "B"], n' (fun x -> Move_cursor (Down, x)) 1;
-    [csi; n; c "C"], n' (fun x -> Move_cursor (Left, x)) 1;
-    [csi; n; c "D"], n' (fun x -> Move_cursor (Right, x)) 1;
-    [csi; n; c "E"], n' (fun x -> Start_of_line (Down, x)) 1;
-    [csi; n; c "F"], n' (fun x -> Start_of_line (Up, x)) 1;
+    [csi; n; c "A"], n' (fun x -> Cursor_rel (Up, x)) 1;
+    [csi; n; c "B"], n' (fun x -> Cursor_rel (Down, x)) 1;
+    [csi; n; c "C"], n' (fun x -> Cursor_rel (Left, x)) 1;
+    [csi; n; c "D"], n' (fun x -> Cursor_rel (Right, x)) 1;
+    [csi; n; c "E"], n' (fun x -> Start_of_line_rel (Down, x)) 1;
+    [csi; n; c "F"], n' (fun x -> Start_of_line_rel (Up, x)) 1;
+    [csi; n; c ";"; n; c "H"], n'' (fun (x, y) -> Cursor_abs {x; y}) 1;
   ]
 
   type elt = {
@@ -123,7 +135,7 @@ end
 
 module Parser = struct
   type next =
-    [ `finished of (int list -> t) | `node of node ]
+    [ `finished of (int option list -> t) | `node of node ]
   and step = {
     (* CR datkin: Hmm. This is tricky. If it's a branch point, some branches may
      * require a number, and others may not allow a number. Can we expect that
@@ -218,7 +230,7 @@ module Parser = struct
   type state = {
     node : node;
     current_number : int option;
-    stack : int list;
+    stack : int option list;
     chars : char list;
   }
 
@@ -243,15 +255,17 @@ module Parser = struct
       match Map.find state.node.steps chr with
       | None -> `no_match
       | Some { preceeding_number; next } ->
-        match preceeding_number, state.current_number with
-        | `none, Some _ -> `no_match
-        | `required, None -> `no_match
-        | _, _ ->
-          let stack =
-            match state.current_number with
-            | None -> state.stack
-            | Some n -> n :: state.stack
-          in
+        let stack_maybe =
+          match preceeding_number, state.current_number with
+          | `none, Some _ -> None
+          | `required, None -> None
+          | `none, None -> Some state.stack
+          | `required, ((Some _) as n)
+          | `optional, n -> Some (n :: state.stack)
+        in
+        match stack_maybe with
+        | None -> `no_match
+        | Some stack ->
           match next with
           | `finished fn -> `ok (fn (List.rev stack))
           | `node node ->
@@ -300,7 +314,7 @@ let%test_unit _ =
   test [%here] '[' `pending;
   test [%here] '5' `pending;
   test [%here] '1' `pending;
-  test [%here] 'A' (`func (Move_cursor (Up, 51)));
+  test [%here] 'A' (`func (Cursor_rel (Up, 51)));
   let test_seq here str expect =
     let rec loop chrs =
       match chrs with
@@ -319,7 +333,11 @@ let%test_unit _ =
     in
     loop (String.to_list str)
   in
-  test_seq [%here] "\x1b[A" (Move_cursor (Up, 1));
+  test_seq [%here] "\x1b[A" (Cursor_rel (Up, 1));
+  test_seq [%here] "\x1b[;H" (Cursor_abs {x = 1; y = 1;});
+  test_seq [%here] "\x1b[5;H" (Cursor_abs {x = 5; y = 1;});
+  test_seq [%here] "\x1b[;5H" (Cursor_abs {x = 1; y = 5;});
+  test_seq [%here] "\x1b[6;5H" (Cursor_abs {x = 6; y = 5;});
 ;;
 
 open Async.Std
