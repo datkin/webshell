@@ -6,7 +6,7 @@ open Async.Std
  * _tags). See if we can fix that. *)
 open Server_lib
 
-let command =
+let tty_cmd =
   Command.async
     ~summary:"X"
     Command.Spec.(
@@ -56,6 +56,7 @@ let command =
           then Core.Std.printf " (%c)" char;
           *)
         );
+        Core.Std.printf " (%s)" (String.escaped str);
         Core.Std.printf "\n%!";
         Window.update window str;
         Window.render window Out_channel.stdout;
@@ -64,4 +65,21 @@ let command =
       Core.Std.printf "\n";
       Unix.waitpid_exn pid)
 
-let () = Command.run command
+let terminfo_cmd =
+  Command.async_or_error
+    ~summary:"Get terminfo"
+    Command.Spec.(empty +> anon ("term" %: string))
+    (fun term () ->
+      Terminfo.load term
+      >>=? fun info ->
+      Core.Std.printf !"%{sexp:Terminfo.t}\n%!" info;
+      return (Ok ()))
+;;
+
+let () =
+  Command.group
+    ~summary:"tty tools" [
+      "tty", tty_cmd;
+      "terminfo", terminfo_cmd;
+    ]
+  |> Command.run
