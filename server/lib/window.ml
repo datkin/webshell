@@ -245,11 +245,23 @@ let update t str =
     | `literal chr -> putc t chr
     | `pending -> ()
     | `junk str ->
-        Core.Std.eprintf "Bad input: [%s]"
-          (String.to_list str |> List.map ~f:(fun x -> Char.to_int x |> sprintf "%02x") |> String.concat ~sep:" ")
-    | `func _ ->
-        (* CR datkin: Implement. *)
-        ())
+      Core.Std.eprintf "Bad input: [%s]\n%!"
+        (String.to_list str |> List.map ~f:(fun x -> Char.to_int x |> sprintf "%02x") |> String.concat ~sep:" ")
+    | `func f ->
+      match (f : Control_functions.t) with
+      | Ack -> ()
+      | Bell -> ()
+      | Insert_blank _
+      | Cursor_rel (_, _)
+      | Start_of_line_rel (_, _)
+      | Cursor_abs { x = _; y = _; } ->
+        Core.Std.printf !"%{sexp:Control_functions.t}\n%!" f)
+
+  (* 1b 5b 37 35 32 32 3b 31 48 7e 
+   *
+   *   [  7  5  2  2  ;  1  H ~
+   *
+   * *)
 
 let cursor t = t.cursor
 
