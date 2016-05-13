@@ -34,6 +34,13 @@ let parse_entry entry =
     | None -> Ok (entry, Bool true)
 ;;
 
+(* CR datkin: Mappings to perform:
+  * \E and \e -> 
+  * \, and \054 -> ,
+  * any octal \<NNN> seq
+  * ^<x> -> control-<x> for all x
+  *)
+
 let parse raw =
   let db =
     (* First, sanitize by stripping comments and extra padding. *)
@@ -68,6 +75,11 @@ let parse raw =
 ;;
 
 let load name =
+  (* I haven't found a spec of any sort of the format of the terminfo "compiled"
+   * db files. It seems the 'infocmp' program is probably the best way to parse
+   * the compiled files. Interestingly the 'terminfo' man page describes the
+   * output of 'infocmp' as though it's a spec for a file format, though it
+   * sounds like terminfo db files are never stored in that format. *)
   Process.create ~prog:"infocmp" ~args:[name] ()
   >>=? fun proc ->
   Process.collect_output_and_wait proc
