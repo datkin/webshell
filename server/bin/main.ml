@@ -11,13 +11,14 @@ let tty_cmd =
     ~summary:"X"
     Command.Spec.(
       empty
+      +> flag "term" (optional string) ~doc:"name Terminfo name"
       +> flag "cwd" (required string) ~doc:"dir cwd"
       +> flag "exe" (required string) ~doc:"exe exe"
       +> flag "env" (listed string)
         ~doc:"VAR=val environment variable to export"
       +> flag "--" escape ~doc:"args"
     )
-    (fun cwd exe env args () ->
+    (fun term cwd exe env args () ->
       let dim = { Window. width = 20; height = 15; } in
       let { Pty. fd; pid; name } =
         Pty.fork_in_pty
@@ -32,9 +33,16 @@ let tty_cmd =
       let fd = Fd.create Char fd (Info.of_string "term") in
       let reader = Reader.create fd in
       let writer = Writer.create fd in
-      let parser =
-        Control_functions.Parser.default
-      in
+      begin
+        match term with
+        | None -> return Control_functions.Parser.default
+        | Some term ->
+          Terminfo.load term
+          >>= fun terminfo ->
+          let terminfo = Or_error.ok_exn terminfo in
+          return (Control_functions.Parser.of_terminfo terminfo)
+      end
+      >>= fun parser ->
       let window = Window.create dim parser in
       don't_wait_for (
         Pipe.iter_without_pushback (Reader.lines (force Reader.stdin))
