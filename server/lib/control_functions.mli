@@ -2,9 +2,11 @@ open Core.Std
 
 module Parser : sig
   type state
-end
 
-val default_parser : Parser.state
+  val of_terminfo : Terminfo.t -> state
+
+  val default : state
+end
 
 type dir =
   | Up
@@ -30,6 +32,7 @@ type t =
   | Cursor_rel of dir * int
   | Start_of_line_rel of up_or_down * int
   | Cursor_abs of coord
+  | Other of string
 [@@deriving sexp, compare]
 
 val parser

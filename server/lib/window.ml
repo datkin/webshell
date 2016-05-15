@@ -187,7 +187,10 @@ let invariant t =
 ;;
 
 let%test_unit "invariant on create" =
-  invariant (create { width = 10; height = 10; } Control_functions.default_parser)
+  invariant
+    (create
+      { width = 10; height = 10; }
+      Control_functions.Parser.default)
 
 let set_dimensions t dim =
   Grid.set_dim t.grid dim;

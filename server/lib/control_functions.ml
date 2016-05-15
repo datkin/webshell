@@ -24,6 +24,7 @@ type t =
   | Cursor_rel of dir * int
   | Start_of_line_rel of up_or_down * int
   | Cursor_abs of coord
+  | Other of string
 [@@deriving sexp, compare]
 
 type func = t [@@deriving sexp, compare]
@@ -271,17 +272,32 @@ module Parser = struct
           | `node node ->
             `keep_going { node; current_number = None; stack; chars; }
   ;;
+
+  let init spec =
+    let parser =
+      List.fold spec ~init:empty ~f:(fun parser (spec, fn) ->
+        add parser spec fn)
+    in
+    init_state parser
+  ;;
+
+  let default = init Spec.t
+
+  let of_terminfo terminfo =
+    let specs =
+      Terminfo.capabilities terminfo
+      |> Map.to_alist
+      |> List.filter_map ~f:(fun (key, value) ->
+          match value with
+          | String str -> Some (key, str)
+          | _ -> None)
+      |> List.map ~f:(fun (key, str) ->
+          let fn = (fun _ -> Other str) in
+          let helpers = [Spec.c key] in
+          Spec.of_helpers helpers, fn)
+    in
+    init specs
 end
-
-let init spec =
-  let parser =
-    List.fold spec ~init:Parser.empty ~f:(fun parser (spec, fn) ->
-      Parser.add parser spec fn)
-  in
-  Parser.init_state parser
-;;
-
-let default_parser = init Spec.t
 
 let parser init =
   let state = ref init in
@@ -303,7 +319,7 @@ let parser init =
       value)
 
 let%test_unit _ =
-  let f = unstage (parser default_parser) in
+  let f = unstage (parser Parser.default) in
   let test here chr expect =
     [%test_result: [`literal of char | `func of func | `junk of string | `pending]]
       ~here:[here]

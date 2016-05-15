@@ -33,7 +33,7 @@ let tty_cmd =
       let reader = Reader.create fd in
       let writer = Writer.create fd in
       let parser =
-        Control_functions.default_parser
+        Control_functions.Parser.default
       in
       let window = Window.create dim parser in
       don't_wait_for (
