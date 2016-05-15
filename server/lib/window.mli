@@ -12,7 +12,7 @@ type coord = {
 
 type t
 
-val create : dim -> t
+val create : dim -> Control_functions.Parser.state -> t
 
 val set_dimensions : t -> dim -> unit
 

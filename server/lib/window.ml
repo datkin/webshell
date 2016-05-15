@@ -174,10 +174,10 @@ type t = {
   parse : (char -> [`literal of char | `func of Control_functions.t | `junk of string | `pending]);
 }
 
-let create dim = {
+let create dim spec = {
   grid = Grid.create dim;
   cursor = origin;
-  parse = Control_functions.parser () |> unstage;
+  parse = Control_functions.parser spec |> unstage;
 }
 
 let dim t = Grid.dim t.grid
@@ -187,7 +187,7 @@ let invariant t =
 ;;
 
 let%test_unit "invariant on create" =
-  invariant (create { width = 10; height = 10; })
+  invariant (create { width = 10; height = 10; } Control_functions.default_parser)
 
 let set_dimensions t dim =
   Grid.set_dim t.grid dim;

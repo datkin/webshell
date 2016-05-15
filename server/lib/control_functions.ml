@@ -273,15 +273,17 @@ module Parser = struct
   ;;
 end
 
-let init =
+let init spec =
   let parser =
-    List.fold Spec.t ~init:Parser.empty ~f:(fun parser (spec, fn) ->
+    List.fold spec ~init:Parser.empty ~f:(fun parser (spec, fn) ->
       Parser.add parser spec fn)
   in
   Parser.init_state parser
 ;;
 
-let parser () =
+let default_parser = init Spec.t
+
+let parser init =
   let state = ref init in
   stage (fun chr ->
     match Parser.step !state chr with
@@ -301,7 +303,7 @@ let parser () =
       value)
 
 let%test_unit _ =
-  let f = unstage (parser ()) in
+  let f = unstage (parser default_parser) in
   let test here chr expect =
     [%test_result: [`literal of char | `func of func | `junk of string | `pending]]
       ~here:[here]
@@ -345,7 +347,7 @@ let%test_unit _ =
 
 open Async.Std
 
-let parse reader =
+let parse reader init =
   Pipe.init (fun writer ->
     Reader.pipe reader
     |> Pipe.fold_without_pushback ~init ~f:(fun state str ->

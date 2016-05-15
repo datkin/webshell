@@ -12,6 +12,8 @@ type t = {
   capabilities : value String.Map.t;
 } [@@deriving sexp]
 
+let capabilities t = t.capabilities
+
 let null ~name = {
   names = name, [];
   capabilities = String.Map.empty;

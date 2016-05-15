@@ -1,5 +1,11 @@
 open Core.Std
 
+module Parser : sig
+  type state
+end
+
+val default_parser : Parser.state
+
 type dir =
   | Up
   | Down
@@ -27,9 +33,9 @@ type t =
 [@@deriving sexp, compare]
 
 val parser
-  : unit
+  : Parser.state
   -> (char -> [`literal of char | `func of t | `junk of string | `pending]) Staged.t
 
 open Async.Std
 
-val parse : Reader.t -> [`literal of char | `func of t | `junk of string] Pipe.Reader.t
+val parse : Reader.t -> Parser.state -> [`literal of char | `func of t | `junk of string] Pipe.Reader.t

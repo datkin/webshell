@@ -32,7 +32,10 @@ let tty_cmd =
       let fd = Fd.create Char fd (Info.of_string "term") in
       let reader = Reader.create fd in
       let writer = Writer.create fd in
-      let window = Window.create dim in
+      let parser =
+        Control_functions.default_parser
+      in
+      let window = Window.create dim parser in
       don't_wait_for (
         Pipe.iter_without_pushback (Reader.lines (force Reader.stdin))
           ~f:(fun str ->
