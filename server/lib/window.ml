@@ -257,7 +257,8 @@ let update t str =
       | Insert_blank _
       | Cursor_rel (_, _)
       | Start_of_line_rel (_, _)
-      | Cursor_abs { x = _; y = _; } ->
+      | Cursor_abs { x = _; y = _; }
+      | Other _ ->
         Core.Std.printf !"%{sexp:Control_functions.t}\n%!" f)
 
   (* 1b 5b 37 35 32 32 3b 31 48 7e 

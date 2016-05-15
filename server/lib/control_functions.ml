@@ -24,7 +24,7 @@ type t =
   | Cursor_rel of dir * int
   | Start_of_line_rel of up_or_down * int
   | Cursor_abs of coord
-  | Other of string
+  | Other of string list
 [@@deriving sexp, compare]
 
 type func = t [@@deriving sexp, compare]
@@ -289,11 +289,13 @@ module Parser = struct
       |> Map.to_alist
       |> List.filter_map ~f:(fun (key, value) ->
           match value with
-          | String str -> Some (key, str)
+          | String seq -> Some (seq, key)
           | _ -> None)
-      |> List.map ~f:(fun (key, str) ->
-          let fn = (fun _ -> Other str) in
-          let helpers = [Spec.c key] in
+      |> String.Map.of_alist_multi
+      |> Map.to_alist
+      |> List.map ~f:(fun (seq, values) ->
+          let fn = (fun _ -> Other values) in
+          let helpers = [Spec.c seq] in
           Spec.of_helpers helpers, fn)
     in
     init specs

@@ -71,6 +71,8 @@ let parse raw =
           List.fold entries ~init:t ~f:(fun t entry ->
             match parse_entry entry with
             | Error _ as err -> return err
+            | Ok ("rmacs", _)
+            | Ok ("home", _) -> t (* Hack for now, b/c home and clear overlap in xterm *)
             | Ok (key, data) -> add t key data)
         in
         Ok t)
