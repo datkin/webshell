@@ -13,3 +13,11 @@
    * http://vt100.net/docs/vt100-ug/chapter3.html
    * Relevant standards: ANSI X3.64, ECMA-48
    * `man terminfo` and `infocmp`
+
+ - An interesting example command to run:
+     ./main.native tty -term xterm -cwd /tmp -env TERM=xterm -exe /usr/bin/vim -- vim | tee /tmp/x
+   I'm unsure why, but vim just continually outputs characters...
+
+ - If you use vt100, it doesn't spew output constantly.
+
+ - Weirdly, if you launch it with no environment, it doesn't do anything for a while (a few minutes?). This is weird b/c if I run vim in an actual terminal (with all environment variables removed) it runs fine. Maybe bash always reexports the 'term' variable

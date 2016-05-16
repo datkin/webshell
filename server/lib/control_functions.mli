@@ -32,7 +32,7 @@ type t =
   | Cursor_rel of dir * int
   | Start_of_line_rel of up_or_down * int
   | Cursor_abs of coord
-  | Other of string list
+  | Other of (string list * int option list)
 [@@deriving sexp, compare]
 
 val parser

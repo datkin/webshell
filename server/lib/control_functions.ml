@@ -24,7 +24,7 @@ type t =
   | Cursor_rel of dir * int
   | Start_of_line_rel of up_or_down * int
   | Cursor_abs of coord
-  | Other of string list
+  | Other of (string list * int option list)
 [@@deriving sexp, compare]
 
 type func = t [@@deriving sexp, compare]
@@ -168,6 +168,7 @@ module Parser = struct
   let rec update_step ~preceeding_number:pn' ~node:{ some_next_allows_number; steps; } elts fn : step =
     match elts with
     | [] -> assert false (* trying to add a terminal where there's a non-terminal *)
+
     | { Spec. preceeding_number; char; } :: elts ->
       begin
         let implied =
@@ -179,6 +180,11 @@ module Parser = struct
         then
           (* Again, assume they're the same. *)
           assert false
+      end;
+      if some_next_allows_number then begin
+        (* If some next allows a numeric argument, the char can't be a number or
+         * it'd be ambiguous where the argument ends and the char begins. *)
+        assert (char < '0' || char > '9');
       end;
       let steps =
         Map.update steps char ~f:(function
@@ -294,8 +300,23 @@ module Parser = struct
       |> String.Map.of_alist_multi
       |> Map.to_alist
       |> List.map ~f:(fun (seq, values) ->
-          let fn = (fun _ -> Other values) in
-          let helpers = [Spec.c seq] in
+          let fn = (fun args -> Other (values, args)) in
+          let seq =
+            (* A big ole hack:
+              * - ignore the %i, %p1, %p2, etc semantics
+              * - rely on \000 not being present to make splitting possible
+              *)
+            seq
+            |> String.substr_replace_all ~pattern:"%i" ~with_:""
+            |> String.substr_replace_all ~pattern:"%p1" ~with_:""
+            |> String.substr_replace_all ~pattern:"%p1" ~with_:""
+            |> String.substr_replace_all ~pattern:"%d" ~with_:"\000"
+          in
+          let helpers =
+            String.split seq ~on:'\000'
+            |> List.map ~f:(fun str -> Spec.c str)
+            |> List.intersperse ~sep:Spec.n
+          in
           Spec.of_helpers helpers, fn)
     in
     init specs
