@@ -32,12 +32,11 @@ type func = t [@@deriving sexp, compare]
 module Spec = struct
   type helper =
     | Constant of char list
-    | Number_optional
-    | Number_required
+    | Number
 
   let c str = Constant (String.to_list str)
   let csi = c "\x1b["
-  let n = Number_optional
+  let n = Number
 
   let s t = (* simple *)
     function
@@ -71,7 +70,7 @@ module Spec = struct
   ]
 
   type elt = {
-    preceeding_number : [ `none | `optional | `required ];
+    preceeding_number : bool;
     char : char;
   } [@@deriving sexp]
 
@@ -85,7 +84,7 @@ module Spec = struct
       List.map elts ~f:(fun { preceeding_number; char; } ->
         let preceeding =
           match preceeding_number with
-          | `none -> "" | `optional -> "<number?>" | `required -> "<number>"
+          | false -> "" | true -> "<number?>"
         in
         sprintf "%s%c" preceeding char)
       |> String.concat ~sep:""
@@ -96,27 +95,20 @@ module Spec = struct
     match helpers with
     | [] -> []
     | [ Constant [] ] -> []
-    | [ Number_optional ]
-    | [ Number_required ]
+    | [ Number ]
       -> assert false (* Numbers must be followed by a char *)
     | (Constant chars) :: rest ->
       let elts =
-        List.map chars ~f:(fun char -> { preceeding_number = `none; char; })
+        List.map chars ~f:(fun char -> { preceeding_number = false; char; })
       in
       elts @ (elts_of_helpers rest)
-    | Number_optional :: (Constant (char :: chars)) :: rest ->
+    | Number :: (Constant (char :: chars)) :: rest ->
       let elts =
-        { preceeding_number = `optional; char; }
+        { preceeding_number = true; char; }
         :: List.map chars ~f:(fun char -> { preceeding_number = `none; char; })
       in
       elts @ (elts_of_helpers rest)
-    | Number_required :: (Constant (char :: chars)) :: rest ->
-      let elts =
-        { preceeding_number = `required; char; }
-        :: List.map chars ~f:(fun char -> { preceeding_number = `none; char; })
-      in
-      elts @ (elts_of_helpers rest)
-    | (Number_required | Number_optional) :: (Number_required | Number_optional | Constant []) :: _ -> assert false
+    | Number :: (Number | Constant []) :: _ -> assert false
   ;;
 
   let of_helpers helpers =
@@ -135,81 +127,74 @@ module Spec = struct
 end
 
 module Parser = struct
-  type next =
-    [ `finished of (int option list -> t) | `node of node ]
-  and step = {
-    (* CR datkin: Hmm. This is tricky. If it's a branch point, some branches may
-     * require a number, and others may not allow a number. Can we expect that
-     * all prefixes will have the same number requirements here? *)
-    preceeding_number : [ `none | `optional | `required ];
-    next : next;
-  }
-  and node = {
-    some_next_allows_number : bool;
-    steps : step Char.Map.t;
+  type node = {
+    value : (int option list -> t) option;
+    next_number : node option;
+    next : node Char.Map.t;
   } [@@deriving sexp]
 
-  let rec make_next elts fn : next =
-    match elts with
-    | [] -> `finished fn
-    | { Spec. preceeding_number; char; } :: elts ->
-      let step =
-        let next = make_next elts fn in
-        { preceeding_number; next; }
-      in
-      let steps = Map.add Char.Map.empty ~key:char ~data:step in
-      let some_next_allows_number =
-        match preceeding_number with
-        | `required | `optional -> true
-        | `none -> false
-      in
-      `node { some_next_allows_number; steps; }
+  type root = node Char.Map.t
+  [@@deriving sexp]
 
-  let rec update_step ~preceeding_number:pn' ~node:{ some_next_allows_number; steps; } elts fn : step =
+  let rec make elts fn : node =
     match elts with
-    | [] -> assert false (* trying to add a terminal where there's a non-terminal *)
+    | [] ->
+      { value = Some fn; next_number = None; next = Char.Map.empty; }
+    | { preceeding_number; char; } :: elts ->
+      let for_char = {
+        value = None;
+        next_number = None;
+        next =
+          Chap.Map.empty
+          |> Char.Map.add ~key:char ~data:(make elts fn);
+      }
+      in
+      if preceeding_number
+      then {
+        value = None;
+        next = Char.Map.empty;
+        next_number = Some for_char;
+      }
+      else for_char
+  ;;
 
-    | { Spec. preceeding_number; char; } :: elts ->
+  let rec add' node char elts fn : node =
+    match elts with
+    | [] ->
       begin
-        let implied =
-          match preceeding_number with
-          | `required | `optional -> true
-          | `none -> false
-        in
-        if implied <> some_next_allows_number
-        then
-          (* Again, assume they're the same. *)
-          assert false
-      end;
-      if some_next_allows_number then begin
-        (* If some next allows a numeric argument, the char can't be a number or
-         * it'd be ambiguous where the argument ends and the char begins. *)
-        assert (char < '0' || char > '9');
-      end;
-      let steps =
-        Map.update steps char ~f:(function
-          | None ->
-            let next = make_next elts fn in
-            { preceeding_number; next; }
-          | Some { preceeding_number = pn''; next; } ->
-            begin
-              if pn'' <> preceeding_number
-              then
-                (* For now, assume that the path must always be the same.
-                 * What are the counter examples? *)
-                failwithf !"%{sexp:[`required|`none|`optional] list} at %c"
-                  [pn''; preceeding_number] char ()
-            end;
-            match next with
-            | `finished _ -> assert false (* adding terminal or dupe def *)
-            | `node node ->
-              update_step ~preceeding_number ~node elts fn)
-      in
-      let next = `node { some_next_allows_number; steps; } in
-      { preceeding_number = pn'; next; }
+        match node.value with
+        | None -> { node with value = Some fn; }
+        | Some _ -> assert false
+      end
+    | { preceeding_number; char; } :: elts ->
+      if not preceeding_number
+      then
+        Map.change node.next char (function
+          | None -> make elts fn
+          | Some node -> add' node elts fn)
+      else
+        match node.next_number with
+        | None ->
+          { node with
+            next_number = Some {
+              value = None;
+              next_number = None;
+              next =
+                Char.Map.empty
+                |> Map.add ~key:char ~data:(make elts fn);
+            };
+          }
+        | Some next_number ->
+          Map.change next_number.next char (function
+            | None -> make elts fn
+            | Some node -> add' node elts fn)
   ;;
 
   let add root { Spec. first_char; elts; } fn =
+    Map.change root first_char (function
+      | None -> make elts fn
+      | Some node -> add' node elts fn)
+
     let step : step =
       match Map.find root.steps first_char with
       | None ->
@@ -228,11 +213,6 @@ module Parser = struct
     try add root spec fn
     with exn ->
       failwithf !"[add] raised:\n%{sexp:Exn.t}\n%{Spec}\n%{sexp:node}" exn spec root ()
-
-  let empty = {
-    some_next_allows_number = false; (* Should never be true for root. *)
-    steps = Char.Map.empty;
-  }
 
   type state = {
     node : node;
