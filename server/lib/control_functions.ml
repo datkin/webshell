@@ -133,9 +133,6 @@ module Parser = struct
     next : node Char.Map.t;
   } [@@deriving sexp]
 
-  type root = node Char.Map.t
-  [@@deriving sexp]
-
   let rec make elts fn : node =
     match elts with
     | [] ->
@@ -191,51 +188,63 @@ module Parser = struct
   ;;
 
   let add root { Spec. first_char; elts; } fn =
-    Map.change root first_char (function
-      | None -> make elts fn
-      | Some node -> add' node elts fn)
-
-    let step : step =
-      match Map.find root.steps first_char with
-      | None ->
-        let next = make_next elts fn in
-        { preceeding_number = `none; next; }
-      | Some { preceeding_number; next; } ->
-        assert (preceeding_number = `none);
-        match next with
-        | `finished _ -> assert false (* dupe definition *)
-        | `node node -> update_step ~preceeding_number ~node elts fn
+    let elts =
+      { preceeding_number = false; char = first_char} :: elts
     in
-    { root with steps = Map.add root.steps ~key:first_char ~data:step; }
-  ;;
+    add' root elts fn
 
   let add root spec fn =
     try add root spec fn
     with exn ->
       failwithf !"[add] raised:\n%{sexp:Exn.t}\n%{Spec}\n%{sexp:node}" exn spec root ()
 
-  type state = {
+  type one_state = {
     node : node;
     current_number : int option;
     stack : int option list;
     chars : char list;
   }
 
-  let init_state root = {
+  type state = one_state list
+
+  let init_state root = [ {
     node = root;
     current_number = None;
     stack = [];
     chars = [];
-  }
+  } ]
+
+  let step' one_state chr : (one_state list * func option) =
+    let chars = chr :: one_state.chars in
+    let next_from_num =
+      (* CR datkin: At some point, we need to descend this branch even if
+        * there's no digit. *)
+      Option.bind one_state.node.next_number (fun node ->
+        if chr >= '0' && chr <= '9'
+        then
+          let digit = Char.to_int chr - Char.to_int '0' in
+          let current_number =
+            Some ((Option.value one_state.current_number ~default:0) * 10 + digit)
+          in
+          Some { one_state with current_number; chars; }
+        else None)
+    in
+    let next_from_char =
+      Option.map (Map.find one_state.next chr) ~f:(fun node ->
+        { one_state with
+          node;
+
+          chars = chr :: one_state.chars;
+        })
+    in
+    List.filter_opt [ next_from_num; next_from_char; ]
+  ;;
 
   let step state chr : [`keep_going of state | `ok of t | `no_match] =
     let chars = chr :: state.chars in
     if state.node.some_next_allows_number
     && chr >= '0' && chr <= '9'
     then
-      let digit = Char.to_int chr - Char.to_int '0' in
-      let current_number =
-        Some ((Option.value state.current_number ~default:0) * 10 + digit)
       in
       `keep_going { state with current_number; chars; }
     else
