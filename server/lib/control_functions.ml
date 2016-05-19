@@ -214,31 +214,74 @@ module Parser = struct
     chars = [];
   } ]
 
-  let step' one_state chr : (one_state list * func option) =
+  let step' one_state chr : one_state list =
+    let open Option.Monad_infix in
     let chars = chr :: one_state.chars in
-    let next_from_num =
-      (* CR datkin: At some point, we need to descend this branch even if
-        * there's no digit. *)
-      Option.bind one_state.node.next_number (fun node ->
-        if chr >= '0' && chr <= '9'
-        then
-          let digit = Char.to_int chr - Char.to_int '0' in
-          let current_number =
-            Some ((Option.value one_state.current_number ~default:0) * 10 + digit)
+    let states =
+      List.filter_opt [
+        begin
+          one_state.node.next_number
+          >>= fun node ->
+          if chr >= '0' && chr <= '9'
+          then
+            let digit = Char.to_int chr - Char.to_int '0' in
+            let current_number =
+              Some ((Option.value one_state.current_number ~default:0) * 10 + digit)
+            in
+            (* We accumulated some digits, but we stay in this state. *)
+            Some { one_state with current_number; chars; }
+          else None
+        end;
+        begin
+          one_state.node.next_number
+          >>= fun node ->
+          let stack =
+            match one_state.current_number with
+            | None -> one_state.stack
+            | Some _ as x -> x :: one_state.stack
           in
-          Some { one_state with current_number; chars; }
-        else None)
+          Some {
+            node;
+            current_number = None;
+            stack;
+            chars;
+          }
+        end;
+        begin
+          (* These transitions aren't allowed if we've accumulated numbers. *)
+          match one_state.current_number with
+          | Some _ -> None
+          | None ->
+            one_state.next chr
+            >>| fun node ->
+            {
+              node;
+              current_number = None;
+              stack = one_state.stack;
+              chars;
+            }
+        end;
+      ]
     in
-    let next_from_char =
-      Option.map (Map.find one_state.next chr) ~f:(fun node ->
-        { one_state with
-          node;
-
-          chars = chr :: one_state.chars;
-        })
-    in
-    List.filter_opt [ next_from_num; next_from_char; ]
   ;;
+
+  let step state chr =
+    let state =
+      List.concat_map state ~f:(fun one_state ->
+        step' one_state chr)
+    in
+    (* Each one of these could be an end state.
+     * In theory we should only find one 'finished' state.
+     * And if that 'finished' state has more outgoing transitions, we could emit
+     * the function and then (potentially) continue traversing. I guess we'd:
+     *  - if there's on completion:
+          - emit that value,
+          - prune [state] to be just that [one_state] plus the [init] state.
+        - otherwise, if states is []
+          - if there's only been one char, it's just that char literal
+          - if there's > 1 char, it's junk
+          *)
+    assert false
 
   let step state chr : [`keep_going of state | `ok of t | `no_match] =
     let chars = chr :: state.chars in
