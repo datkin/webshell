@@ -291,7 +291,10 @@ module Parser = struct
           | Some x -> Some (x, one_state))
       in
       | [ ] -> `keep_going state
-      | [ (fn, one_state) ] -> assert false (* ok *)
+      | [ (fn, one_state) ] ->
+          (* CR datkin: Need to reset the [chars] history here so we know if the
+           * next step is "junk"? *)
+          assert false (* ok *)
       | _ -> assert false (* too many matches
 
   let step state chr : [`keep_going of state | `ok of t | `no_match] =
