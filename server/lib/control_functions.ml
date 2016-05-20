@@ -281,7 +281,18 @@ module Parser = struct
           - if there's only been one char, it's just that char literal
           - if there's > 1 char, it's junk
           *)
-    assert false
+    match state with
+    | [] -> `junk (* check if [state] going in was initial? *)
+    | _ ->
+      match
+        List.filter_map state ~f:(fun one_state ->
+          match one_state.finished with
+          | None -> None
+          | Some x -> Some (x, one_state))
+      in
+      | [ ] -> `keep_going state
+      | [ (fn, one_state) ] -> assert false (* ok *)
+      | _ -> assert false (* too many matches
 
   let step state chr : [`keep_going of state | `ok of t | `no_match] =
     let chars = chr :: state.chars in
