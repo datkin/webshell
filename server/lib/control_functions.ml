@@ -105,7 +105,7 @@ module Spec = struct
     | Number :: (Constant (char :: chars)) :: rest ->
       let elts =
         { preceeding_number = true; char; }
-        :: List.map chars ~f:(fun char -> { preceeding_number = `none; char; })
+        :: List.map chars ~f:(fun char -> { preceeding_number = false; char; })
       in
       elts @ (elts_of_helpers rest)
     | Number :: (Number | Constant []) :: _ -> assert false
@@ -133,7 +133,7 @@ module Parser = struct
     next : node Char.Map.t;
   } [@@deriving sexp]
 
-  let rec make elts fn : node =
+  let rec make (elts : Spec.elt list) fn : node =
     match elts with
     | [] ->
       { value = Some fn; next_number = None; next = Char.Map.empty; }
@@ -142,7 +142,7 @@ module Parser = struct
         value = None;
         next_number = None;
         next =
-          Chap.Map.empty
+          Char.Map.empty
           |> Char.Map.add ~key:char ~data:(make elts fn);
       }
       in
@@ -155,8 +155,8 @@ module Parser = struct
       else for_char
   ;;
 
-  let rec add' node char elts fn : node =
-    match elts with
+  let rec add' node elts fn : node =
+    match (elts : Spec.elt list) with
     | [] ->
       begin
         match node.value with
@@ -166,9 +166,11 @@ module Parser = struct
     | { preceeding_number; char; } :: elts ->
       if not preceeding_number
       then
-        Map.change node.next char (function
+        (
+        Map.update node.next char (function
           | None -> make elts fn
           | Some node -> add' node elts fn)
+        ; assert false )
       else
         match node.next_number with
         | None ->
@@ -182,13 +184,15 @@ module Parser = struct
             };
           }
         | Some next_number ->
-          Map.change next_number.next char (function
+            (
+          Map.update next_number.next char (function
             | None -> make elts fn
             | Some node -> add' node elts fn)
+          ; assert false)
   ;;
 
   let add root { Spec. first_char; elts; } fn =
-    let elts =
+    let elts : Spec.elt list =
       { preceeding_number = false; char = first_char} :: elts
     in
     add' root elts fn
@@ -263,6 +267,7 @@ module Parser = struct
         end;
       ]
     in
+    assert false
   ;;
 
   let step state chr =
@@ -289,20 +294,20 @@ module Parser = struct
           match one_state.finished with
           | None -> None
           | Some x -> Some (x, one_state))
-      in
+      with
       | [ ] -> `keep_going state
       | [ (fn, one_state) ] ->
           (* CR datkin: Need to reset the [chars] history here so we know if the
            * next step is "junk"? *)
           assert false (* ok *)
-      | _ -> assert false (* too many matches
+      | _ -> assert false (* too many matches *)
+  ;;
 
   let step state chr : [`keep_going of state | `ok of t | `no_match] =
     let chars = chr :: state.chars in
     if state.node.some_next_allows_number
     && chr >= '0' && chr <= '9'
     then
-      in
       `keep_going { state with current_number; chars; }
     else
       match Map.find state.node.steps chr with
