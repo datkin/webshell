@@ -1,0 +1,6 @@
+(executables (
+  (names (inline_test_runner main))
+  (libraries (
+    server_lib
+  ))
+))

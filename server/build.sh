@@ -2,7 +2,7 @@
 
 set -o errexit
 
-opam switch 4.02.3 && eval $(opam config env)
+opam switch 4.03.0 && eval $(opam config env)
 
 # CR datkin: Pass different ppx flags for inline test runner and main.
 ocamlbuild \

@@ -351,20 +351,24 @@ module Parser = struct
       |> String.Map.of_alist_multi
       |> Map.to_alist
       |> List.map ~f:(fun (seq, values) ->
+          (* Hacks... *)
           let fn = (fun args -> Other (values, args)) in
+          (* We'll rely on \000 not being present to make splitting possible...  *)
+          let special_digit_char = '\000' in
           let seq =
-            (* A big ole hack:
-              * - ignore the %i, %p1, %p2, etc semantics
-              * - rely on \000 not being present to make splitting possible
+             (* Ignore the %i, %p1, %p2, etc semantics (see `man terminfo` --
+              * %p[1-9] are numbered parameters on the stack, %i adds 1 to
+              * some of the params?).
+              * %p<n>%t -- pop the n'th element off the stack?
               *)
             seq
             |> String.substr_replace_all ~pattern:"%i" ~with_:""
             |> String.substr_replace_all ~pattern:"%p1" ~with_:""
             |> String.substr_replace_all ~pattern:"%p1" ~with_:""
-            |> String.substr_replace_all ~pattern:"%d" ~with_:"\000"
+            |> String.substr_replace_all ~pattern:"%d" ~with_:(Char.to_string special_digit_char)
           in
           let helpers =
-            String.split seq ~on:'\000'
+            String.split seq ~on:special_digit_char
             |> List.map ~f:(fun str -> Spec.c str)
             |> List.intersperse ~sep:Spec.n
           in

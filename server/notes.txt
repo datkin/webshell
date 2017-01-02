@@ -6,6 +6,11 @@
    * On the line editor, a \t is turned into spaces and the number of spaces
      changes if you insert characters in front. However, if you, e.g. echo the
      \t, a \t is emitted.
+   * Todo: check how this corresponds to pasting these sequences "atomically"
+     into a terminal
+   * Todo: the above behavior is about sending chars into bash. Is bash doing
+     this transformation or is the kernel doing this somewhere? Pumping the
+     same chars into `cat` may help answer this.
 
  - Emulator references:
    * http://invisible-island.net/xterm/ctlseqs/ctlseqs.html
@@ -20,4 +25,7 @@
 
  - If you use vt100, it doesn't spew output constantly.
 
- - Weirdly, if you launch it with no environment, it doesn't do anything for a while (a few minutes?). This is weird b/c if I run vim in an actual terminal (with all environment variables removed) it runs fine. Maybe bash always reexports the 'term' variable
+ - Weirdly, if you launch it with no environment, it doesn't do anything for a
+   while (a few minutes?). This is weird b/c if I run vim in an actual terminal
+   (with all environment variables removed) it runs fine. Maybe bash always
+   reexports the 'term' variable? (this should also be easy to check)
