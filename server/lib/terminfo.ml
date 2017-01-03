@@ -1,6 +1,9 @@
 open Core.Std
 open Async.Std
 
+(* CR datkin: Remove this *)
+[@@@ocaml.warning "-4"]
+
 type value =
   | Bool of bool (* True if present? *)
   | Number of int
@@ -113,7 +116,7 @@ let parse raw =
     |> List.map ~f:String.strip
     |> String.concat ~sep:" "
   in
-  (* CR datkin: Stripping another other than a leading space on the front may be
+  (* CR datkin: Stripping anything other than a leading space on the front may be
    * too much. *)
   match
     String.Escaping.split db ~escape_char:'\\' ~on:','

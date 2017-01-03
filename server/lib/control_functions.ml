@@ -1,5 +1,9 @@
 open Core.Std
 
+(* CR datkin: This is needed to warnings on the generated sexp functions in this
+ * file, I believe. Not sure why. But obviously it should be removed. *)
+[@@@ocaml.warning "-4"]
+
 type dir =
   | Up
   | Down
@@ -27,7 +31,8 @@ type t =
   | Other of (string list * int option list)
 [@@deriving sexp, compare]
 
-type func = t [@@deriving sexp, compare]
+(* Prefer referring to this below for clarity. *)
+type control_function = t [@@deriving sexp, compare]
 
 module Spec = struct
   type helper =
@@ -103,6 +108,8 @@ module Spec = struct
       in
       elts @ (elts_of_helpers rest)
     | Number :: (Constant (char :: chars)) :: rest ->
+      (* CR datkin: Check that [char] isn't a digit and also that the preceeding
+       * char isn't a digit. *)
       let elts =
         { preceeding_number = true; char; }
         :: List.map chars ~f:(fun char -> { preceeding_number = false; char; })
@@ -127,11 +134,35 @@ module Spec = struct
 end
 
 module Parser = struct
+  (* CR datkin: In a prior version of this code, I thought that numbers were
+   * sometimes optional arguments to control functions. Why did I think that?
+   * Are there examples? The specs may allow it, but I suspect curses, at least,
+   * doesn't do it? That's not good enough for every app, though. :/ *)
+  (* CR datkin: Any case where [value] is some either [next_number] is some or
+   * [next] is non-empty indicates an ambiguity. I need to look at some examples
+   * and figure out how to handle them. *)
+  (* The [node] represents all the possible [control_function]s that could
+   * result from a sequence of input bytes.
+   *
+   * If [value] is some, then there's a control_function defined by the bytes
+   * that have been entered so far.
+   *
+   * If [next_number] is some, then there's one or more control functions that
+   * are the bytes entered so far, followed next by a numeric argument.
+   *
+   * The [next] map stores the [control_function]s that are the bytes entered so
+   * far followed by the (non-digit) byte keys in the map. *)
   type node = {
-    value : (int option list -> t) option;
+    value : (int option list -> control_function) option;
     next_number : node option;
     next : node Char.Map.t;
   } [@@deriving sexp]
+
+  let empty_node = {
+    value = None;
+    next_number = None;
+    next = Char.Map.empty;
+  }
 
   let rec make (elts : Spec.elt list) fn : node =
     match elts with
@@ -163,15 +194,15 @@ module Parser = struct
         | None -> { node with value = Some fn; }
         | Some _ -> assert false
       end
-    | { preceeding_number; char; } :: elts ->
-      if not preceeding_number
-      then
-        (
-        Map.update node.next char (function
+    | { preceeding_number = false; char; } :: elts ->
+      let next =
+        Map.update node.next char ~f:(function
           | None -> make elts fn
           | Some node -> add' node elts fn)
-        ; assert false )
-      else
+      in
+      { node with next }
+    | { preceeding_number = true; char; } :: elts ->
+      let next_number =
         match node.next_number with
         | None ->
           { node with
@@ -184,16 +215,19 @@ module Parser = struct
             };
           }
         | Some next_number ->
-            (
-          Map.update next_number.next char (function
-            | None -> make elts fn
-            | Some node -> add' node elts fn)
-          ; assert false)
+          let next_number's_next =
+            Map.update next_number.next char ~f:(function
+              | None -> make elts fn
+              | Some node -> add' node elts fn)
+          in
+          { next_number with next = next_number's_next }
+      in
+      { node with next_number = Some next_number }
   ;;
 
   let add root { Spec. first_char; elts; } fn =
     let elts : Spec.elt list =
-      { preceeding_number = false; char = first_char} :: elts
+      { preceeding_number = false; char = first_char } :: elts
     in
     add' root elts fn
 
@@ -202,137 +236,78 @@ module Parser = struct
     with exn ->
       failwithf !"[add] raised:\n%{sexp:Exn.t}\n%{Spec}\n%{sexp:node}" exn spec root ()
 
-  type one_state = {
+  type state = {
     node : node;
     current_number : int option;
     stack : int option list;
     chars : char list;
   }
 
-  type state = one_state list
-
-  let init_state root = [ {
+  let init_state root = {
     node = root;
     current_number = None;
     stack = [];
     chars = [];
-  } ]
+  }
 
-  let step' one_state chr : one_state list =
-    let open Option.Monad_infix in
-    let chars = chr :: one_state.chars in
-    let states =
-      List.filter_opt [
-        begin
-          one_state.node.next_number
-          >>= fun node ->
-          if chr >= '0' && chr <= '9'
-          then
-            let digit = Char.to_int chr - Char.to_int '0' in
-            let current_number =
-              Some ((Option.value one_state.current_number ~default:0) * 10 + digit)
-            in
-            (* We accumulated some digits, but we stay in this state. *)
-            Some { one_state with current_number; chars; }
-          else None
-        end;
-        begin
-          one_state.node.next_number
-          >>= fun node ->
-          let stack =
-            match one_state.current_number with
-            | None -> one_state.stack
-            | Some _ as x -> x :: one_state.stack
-          in
-          Some {
-            node;
-            current_number = None;
-            stack;
-            chars;
-          }
-        end;
-        begin
-          (* These transitions aren't allowed if we've accumulated numbers. *)
-          match one_state.current_number with
-          | Some _ -> None
-          | None ->
-            one_state.next chr
-            >>| fun node ->
-            {
-              node;
-              current_number = None;
-              stack = one_state.stack;
-              chars;
-            }
-        end;
-      ]
+  type result = [
+    | `keep_going of state
+    | `ok of control_function
+    | `no_match of char list
+  ]
+
+  (* Ideas for handling ambiguities?
+   *  - if there's on completion:
+        - emit that value,
+        - prune [state] to be just that [one_state] plus the [init] state.
+      - otherwise, if states is []
+        - if there's only been one char, it's just that char literal
+        - if there's > 1 char, it's junk
+        *)
+  (* CR datkin: In the current setup, the stack could just be an int list, not
+   * an int option list *)
+  let step state chr : result =
+    let next_node_by_char = Map.find state.node.next chr in
+    let number =
+      if chr >= '0' && chr <= '9'
+      then
+        (* If [state.current_number] is [None], then we can't be in a numeric
+         * branch. *)
+        Option.map state.current_number ~f:(fun current_number ->
+          let digit = Char.to_int chr - Char.to_int '0' in
+          (current_number * 10) + digit)
+      else
+        None
     in
-    assert false
-  ;;
-
-  let step state chr =
-    let state =
-      List.concat_map state ~f:(fun one_state ->
-        step' one_state chr)
-    in
-    (* Each one of these could be an end state.
-     * In theory we should only find one 'finished' state.
-     * And if that 'finished' state has more outgoing transitions, we could emit
-     * the function and then (potentially) continue traversing. I guess we'd:
-     *  - if there's on completion:
-          - emit that value,
-          - prune [state] to be just that [one_state] plus the [init] state.
-        - otherwise, if states is []
-          - if there's only been one char, it's just that char literal
-          - if there's > 1 char, it's junk
-          *)
-    match state with
-    | [] -> `junk (* check if [state] going in was initial? *)
-    | _ ->
-      match
-        List.filter_map state ~f:(fun one_state ->
-          match one_state.finished with
-          | None -> None
-          | Some x -> Some (x, one_state))
-      with
-      | [ ] -> `keep_going state
-      | [ (fn, one_state) ] ->
-          (* CR datkin: Need to reset the [chars] history here so we know if the
-           * next step is "junk"? *)
-          assert false (* ok *)
-      | _ -> assert false (* too many matches *)
-  ;;
-
-  let step state chr : [`keep_going of state | `ok of t | `no_match] =
-    let chars = chr :: state.chars in
-    if state.node.some_next_allows_number
-    && chr >= '0' && chr <= '9'
-    then
-      `keep_going { state with current_number; chars; }
-    else
-      match Map.find state.node.steps chr with
-      | None -> `no_match
-      | Some { preceeding_number; next } ->
-        let stack_maybe =
-          match preceeding_number, state.current_number with
-          | `none, Some _ -> None
-          | `required, None -> None
-          | `none, None -> Some state.stack
-          | `required, ((Some _) as n)
-          | `optional, n -> Some (n :: state.stack)
+    match next_node_by_char, number with
+    | None, None -> `no_match (state.chars @ [chr])
+    | Some _, Some _ -> assert false (* ambiguity *)
+    | None, (Some _ as current_number) ->
+      `keep_going { state with current_number; chars = state.chars @ [chr]; }
+    | Some next_node_by_char, None ->
+      match next_node_by_char.value with
+      | Some fn ->
+        (* CR datkin: Check for ambiguities: if [next_node_by_char] has any
+         * subsequent nodes. *)
+        `ok (fn (List.rev state.stack))
+      | None ->
+        let stack =
+          (* We may have just finished a digit. *)
+          match state.current_number with
+          | None -> state.stack
+          | Some n -> Some n :: state.stack
         in
-        match stack_maybe with
-        | None -> `no_match
-        | Some stack ->
-          match next with
-          | `finished fn -> `ok (fn (List.rev stack))
-          | `node node ->
-            `keep_going { node; current_number = None; stack; chars; }
+        `keep_going {
+          node = next_node_by_char;
+          stack;
+          current_number = None;
+          chars = state.chars @ [chr];
+        }
   ;;
 
   let init spec =
     let parser =
-      List.fold spec ~init:empty ~f:(fun parser (spec, fn) ->
+      List.fold spec ~init:empty_node ~f:(fun parser (spec, fn) ->
         add parser spec fn)
     in
     init_state parser
@@ -385,21 +360,18 @@ let parser init =
     | `ok value ->
       state := init;
       (`func value)
-    | `no_match ->
-      let value =
-        match !state.chars with
-        | [] -> `literal chr;
-        | chars ->
-          let str = (chr :: chars) |> List.rev |> String.of_char_list in
-          `junk str
-      in
+    | `no_match [] ->
+      (* at least the char we just entered should be in the list *)
+     assert false
+    | `no_match [ chr ] -> state := init; `literal chr
+    | `no_match chars ->
       state := init;
-      value)
+      `junk (String.of_char_list chars))
 
 let%test_unit _ =
   let f = unstage (parser Parser.default) in
   let test here chr expect =
-    [%test_result: [`literal of char | `func of func | `junk of string | `pending]]
+    [%test_result: [`literal of char | `func of control_function | `junk of string | `pending]]
       ~here:[here]
       (f chr)
       ~expect
@@ -419,12 +391,12 @@ let%test_unit _ =
       match chrs with
       | [] -> assert false
       | [chr] ->
-        [%test_result: [`literal of char | `func of func | `junk of string | `pending]]
+        [%test_result: [`literal of char | `func of control_function | `junk of string | `pending]]
           ~here:[here]
           (f chr)
           ~expect:(`func expect)
       | chr :: chrs ->
-        [%test_result: [`literal of char | `func of func | `junk of string | `pending]]
+        [%test_result: [`literal of char | `func of control_function | `junk of string | `pending]]
           ~here:[here]
           (f chr)
           ~expect:(`pending);
@@ -442,7 +414,7 @@ let%test_unit _ =
 open Async.Std
 
 let parse reader init =
-  Pipe.init (fun writer ->
+  Pipe.create_reader ~close_on_exception:true (fun writer ->
     Reader.pipe reader
     |> Pipe.fold_without_pushback ~init ~f:(fun state str ->
       String.fold str ~init:state ~f:(fun state chr ->
@@ -451,15 +423,12 @@ let parse reader init =
         | `ok value ->
           Pipe.write_without_pushback writer (`func value);
           init
-        | `no_match ->
-          let value =
-            match state.chars with
-            | [] -> `literal chr;
-            | chars ->
-              let str = (chr :: chars) |> List.rev |> String.of_char_list in
-              `junk str
-          in
-          Pipe.write_without_pushback writer value;
-          init))
+        | `no_match [] -> assert false
+        | `no_match [chr] ->
+           Pipe.write_without_pushback writer (`literal chr);
+           init
+        | `no_match chars ->
+           Pipe.write_without_pushback writer (`junk (String.of_char_list chars));
+           init))
     >>= fun (_ : Parser.state) ->
     Deferred.unit)

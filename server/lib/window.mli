@@ -25,4 +25,4 @@ val cursor : t -> coord
 (* Returns null byte for out of bounds coords. *)
 val get : t -> coord -> Char.t
 
-val render : t -> out_channel -> unit
+val render : t -> Out_channel.t -> unit
