@@ -1,6 +1,6 @@
 include struct
   (* Depend on the tests. *)
-  open! Server_lib
+  include Server_lib.Control_functions
 end
 
 let () =
