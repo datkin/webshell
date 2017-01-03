@@ -9,6 +9,8 @@ ocamlbuild \
   -use-ocamlfind \
   -pkg core \
   -pkg async \
+  -pkg ppx_expect \
+  -pkg ppx_expect.evaluator \
   -tag thread \
   -cflags -cclib,-lserver_stubs \
   -tag 'ppx(ppx-jane -as-ppx -inline-test-lib server_lib)' \

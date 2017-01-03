@@ -211,6 +211,12 @@ let%test_unit "incr coord" =
     (incr { x = 6; y = 10; } { width = 7; height = 11; })
 ;;
 
+(* CR datkin: This doesn't get run properly. *)
+let%expect_test "expect test" =
+  printf "hi\n%!";
+  [%expect "hi"];
+;;
+
 (* Write char to the current cursor and move the cursor. *)
 let putc t chr =
   match chr with

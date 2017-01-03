@@ -46,19 +46,19 @@ module Spec = struct
   let s t = (* simple *)
     function
       | [] -> t
-      | ns -> failwithf !"Called with %{sexp:int option list}" ns ()
+      | _ -> assert false
   ;;
 
   let n' ctor default = (* single number arg *)
     function
       | [n] -> ctor (Option.value n ~default)
-      | ns -> failwithf !"Called with %{sexp:int option list}" ns ()
+      | _ -> assert false
   ;;
 
   let n'' ctor default = (* two args *)
     function
       | [n1; n2] -> ctor (Option.value n1 ~default, Option.value n2 ~default)
-      | ns -> failwithf !"Called with %{sexp:int option list}" ns ()
+      | _ -> assert false
   ;;
 
   let spec = [
@@ -267,61 +267,42 @@ module Parser = struct
   (* CR datkin: In the current setup, the stack could just be an int list, not
    * an int option list *)
   let step state chr : result =
-    let next_node_by_char =
-      Option.map (Map.find state.node.next chr) ~f:(fun node ->
+    let next_node_by_char = Map.find state.node.next chr in
+    let number =
+      if chr >= '0' && chr <= '9'
+      then
+        (* If [state.current_number] is [None], then we can't be in a numeric
+         * branch. *)
+        Option.map state.current_number ~f:(fun current_number ->
+          let digit = Char.to_int chr - Char.to_int '0' in
+          (current_number * 10) + digit)
+      else
+        None
+    in
+    match next_node_by_char, number with
+    | None, None -> `no_match (state.chars @ [chr])
+    | Some _, Some _ -> assert false (* ambiguity *)
+    | None, (Some _ as current_number) ->
+      `keep_going { state with current_number; chars = state.chars @ [chr]; }
+    | Some next_node_by_char, None ->
+      match next_node_by_char.value with
+      | Some fn ->
+        (* CR datkin: Check for ambiguities: if [next_node_by_char] has any
+         * subsequent nodes. *)
+        `ok (fn (List.rev state.stack))
+      | None ->
         let stack =
           (* We may have just finished a digit. *)
           match state.current_number with
           | None -> state.stack
           | Some n -> Some n :: state.stack
         in
-        match node.value with
-        | Some fn ->
-          (* CR datkin: Check for ambiguities: if [next_node_by_char] has any
-           * subsequent nodes. *)
-          `ok (fn (List.rev stack))
-        | None ->
-          `keep_going {
-            node;
-            stack;
-            current_number = None;
-            chars = state.chars @ [chr];
-          }
-      )
-    in
-    let next_by_digit =
-      if chr >= '0' && chr <= '9'
-      then
-        let digit = Char.to_int chr - Char.to_int '0' in
-        match state.node.next_number, state.current_number with
-        | Some _, Some _ ->
-          (* Ambiguity: We're in the middle of parsing a number, but the next
-           * node says that we could also have a number. This definitely
-           * shouldn't happen. It would represent a control sequence like
-           * '%p1%d%p2%d'. *)
-          assert false
-        | Some node, None ->
-          Some (`keep_going { state with
-            node;
-            current_number = Some digit;
-            chars = state.chars @ [chr];
-          })
-        | None, Some current_number ->
-          let current_number = Some ((current_number * 10) + digit) in
-          Some (`keep_going { state with
-            current_number;
-            chars = state.chars @ [chr];
-          })
-        | None, None -> None
-      else
-        None
-    in
-    match next_node_by_char, next_by_digit with
-    | None, None -> `no_match (state.chars @ [chr])
-    | Some _, Some _ -> assert false (* ambiguity *)
-    | Some next, None
-    | None, Some next
-      -> next
+        `keep_going {
+          node = next_node_by_char;
+          stack;
+          current_number = None;
+          chars = state.chars @ [chr];
+        }
   ;;
 
   let init spec =
@@ -428,6 +409,11 @@ let%test_unit _ =
   test_seq [%here] "\x1b[5;H" (Cursor_abs {x = 5; y = 1;});
   test_seq [%here] "\x1b[;5H" (Cursor_abs {x = 1; y = 5;});
   test_seq [%here] "\x1b[6;5H" (Cursor_abs {x = 6; y = 5;});
+;;
+
+let%expect_test _ =
+  printf "x\n";
+  [%expect "x"];
 ;;
 
 open Async.Std
