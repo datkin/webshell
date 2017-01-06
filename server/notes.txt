@@ -33,3 +33,10 @@
  - Here's an example command to run which "works":
 
    ./main.native tty -cwd "/tmp" -env TERM=xterm -term xterm -exe "/bin/echo" -- "echo" "hello"
+
+ - Here's an example that behaves non-deterministically:
+
+   ./main.native tty -cwd "/tmp" -env TERM=xterm -include-this-env -exe "/usr/bin/nano" -- "nano"
+
+   Most of the time it hands. Sometimes it gives an "Error opening terminal"
+   response, and rarely it actually seem to render nano...

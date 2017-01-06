@@ -16,16 +16,23 @@ let tty_cmd =
       +> flag "exe" (required string) ~doc:"exe exe"
       +> flag "env" (listed string)
         ~doc:"VAR=val environment variable to export"
+      +> flag "include-this-env" no_arg
+        ~doc:" Use the current environment as the base environment"
       +> flag "--" escape ~doc:"args"
     )
-    (fun term cwd exe env args () ->
+    (fun term cwd exe env include_this_env args () ->
       let dim = { Window. width = 20; height = 15; } in
+      let base_env =
+        if include_this_env
+        then Core.Std.Unix.environment () |> Array.to_list
+        else []
+      in
       let { Pty. fd; pid; name } =
         Pty.fork_in_pty
           ~cwd
           ~exe
           ~argv:(Array.of_list (Option.value args ~default:[]))
-          ~env:(Array.of_list env)
+          ~env:(Array.of_list (base_env @ env))
           dim
       in
       (* CR datkin: If the program fails to exec (e.g. b/c you give an [exe]
