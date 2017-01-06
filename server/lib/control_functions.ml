@@ -241,7 +241,7 @@ module Parser = struct
     current_number : int option;
     stack : int option list;
     chars : char list;
-  }
+  } [@@deriving sexp]
 
   let init_state root = {
     node = root;
@@ -256,6 +256,27 @@ module Parser = struct
     | `no_match of char list
   ]
 
+  let step_char stack current_number all_chars node =
+    let stack =
+      (* We may have just finished a digit. *)
+      match current_number with
+      | None -> stack
+      | Some n -> Some n :: stack
+    in
+    match node.value with
+    | Some fn ->
+      (* CR datkin: Check for ambiguities: if [next_node_by_char] has any
+       * subsequent nodes. *)
+      `ok (fn (List.rev stack))
+    | None ->
+      `keep_going {
+        node;
+        stack;
+        current_number = None;
+        chars = all_chars;
+      }
+  ;;
+
   (* Ideas for handling ambiguities?
    *  - if there's on completion:
         - emit that value,
@@ -267,61 +288,71 @@ module Parser = struct
   (* CR datkin: In the current setup, the stack could just be an int list, not
    * an int option list *)
   let step state chr : result =
-    let next_node_by_char =
+    let next_by_char =
       Option.map (Map.find state.node.next chr) ~f:(fun node ->
+        step_char state.stack state.current_number (state.chars @ [chr]) node)
+    in
+    let digit =
+      if chr >= '0' && chr <= '9'
+      then Some (Char.to_int chr - Char.to_int '0')
+      else None
+    in
+    let next_by_char_skipping_number =
+      if Option.is_some digit
+      then None
+      else
+      Option.bind state.node.next_number ~f:(fun node ->
+        Option.map (Map.find node.next chr) ~f:(fun node ->
         let stack =
-          (* We may have just finished a digit. *)
+          (* Finish the number that was in progress. *)
           match state.current_number with
           | None -> state.stack
-          | Some n -> Some n :: state.stack
+          | Some n ->
+            (* CR datkin: If we his this case things are *very* werid. *)
+            Some n :: state.stack
         in
-        match node.value with
-        | Some fn ->
-          (* CR datkin: Check for ambiguities: if [next_node_by_char] has any
-           * subsequent nodes. *)
-          `ok (fn (List.rev stack))
-        | None ->
-          `keep_going {
-            node;
-            stack;
-            current_number = None;
-            chars = state.chars @ [chr];
-          }
-      )
+        let stack =
+          (* We're looking *past* the next_number node, so push a [None] on the
+           * stack. *)
+          None :: stack
+        in
+        step_char stack None (state.chars @ [chr]) node))
     in
-    let next_by_digit =
-      if chr >= '0' && chr <= '9'
-      then
-        let digit = Char.to_int chr - Char.to_int '0' in
-        match state.node.next_number, state.current_number with
-        | Some _, Some _ ->
-          (* Ambiguity: We're in the middle of parsing a number, but the next
-           * node says that we could also have a number. This definitely
-           * shouldn't happen. It would represent a control sequence like
-           * '%p1%d%p2%d'. *)
-          assert false
-        | Some node, None ->
-          Some (`keep_going { state with
-            node;
-            current_number = Some digit;
-            chars = state.chars @ [chr];
-          })
-        | None, Some current_number ->
-          let current_number = Some ((current_number * 10) + digit) in
-          Some (`keep_going { state with
-            current_number;
-            chars = state.chars @ [chr];
-          })
-        | None, None -> None
-      else
-        None
+    let next_continuing_number =
+      Option.both state.current_number digit
+      |> Option.map ~f:(fun (current_number, digit) ->
+        let current_number = Some ((current_number * 10) + digit) in
+        `keep_going { state with
+          current_number;
+          chars = state.chars @ [chr];
+        })
     in
-    match next_node_by_char, next_by_digit with
-    | None, None -> `no_match (state.chars @ [chr])
-    | Some _, Some _ -> assert false (* ambiguity *)
-    | Some next, None
-    | None, Some next
-      -> next
+    let next_new_number =
+      Option.both state.node.next_number digit
+      |> Option.map ~f:(fun (node, digit) ->
+        `keep_going { state with
+          node;
+          current_number = Some digit;
+          chars = state.chars @ [chr];
+        })
+    in
+    let next =
+      List.filter_opt [
+        next_new_number;
+        next_continuing_number;
+        next_by_char;
+        next_by_char_skipping_number;
+      ]
+    in
+    match next with
+    | [] -> `no_match (state.chars @ [chr])
+    | [ next ] -> next
+    | _ :: _ :: _ ->
+      (* Ambiguity: We're in the middle of parsing a number, but the next
+       * node says that we could also have a number. This definitely
+       * shouldn't happen. It would represent a control sequence like
+       * '%p1%d%p2%d'. *)
+      assert false
   ;;
 
   let init spec =
@@ -372,11 +403,16 @@ module Parser = struct
 end
 
 let parser init =
+  (* printf !"\n<starting> %{sexp:Parser.state}\n" init; *)
   let state = ref init in
   stage (fun chr ->
     match Parser.step !state chr with
-    | `keep_going s -> state := s; `pending
+    | `keep_going s ->
+      (* printf !"%c => %{sexp:Parser.state}\n" chr s; *)
+      state := s;
+      `pending
     | `ok value ->
+      (* printf !"\n<reset> %{sexp:Parser.state}\n" init; *)
       state := init;
       (`func value)
     | `no_match [] ->
