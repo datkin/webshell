@@ -29,3 +29,7 @@
    while (a few minutes?). This is weird b/c if I run vim in an actual terminal
    (with all environment variables removed) it runs fine. Maybe bash always
    reexports the 'term' variable? (this should also be easy to check)
+
+ - Here's an example command to run which "works":
+
+   ./main.native tty -cwd "/tmp" -env TERM=xterm -term xterm -exe "/bin/echo" -- "echo" "hello"

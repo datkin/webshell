@@ -28,6 +28,16 @@ let tty_cmd =
           ~env:(Array.of_list env)
           dim
       in
+      (* CR datkin: If the program fails to exec (e.g. b/c you give an [exe]
+       * that can't be found, you get an error like this, and weirdly
+       * (presumably because the fd's don't get repointed?) this error message
+       * goes into stdin...
+       * (monitor.ml.Error
+       *  ("child process didn't exit with status zero" (child_pid 38270)
+       *    (exit_or_signal (Error (Exit_non_zero 1))))
+       *     ("Called from file \"src/deferred1.ml\", line 20, characters 40-45"
+       *       "Called from file \"src/job_queue.ml\", line 159, characters 6-47"))
+       *)
       Core.Std.printf "name: %s\n%!" name;
       (* CR datkin: Get name and return it for info. *)
       let fd = Fd.create Char fd (Info.of_string "term") in
