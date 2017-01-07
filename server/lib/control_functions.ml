@@ -347,12 +347,13 @@ module Parser = struct
     match next with
     | [] -> `no_match (state.chars @ [chr])
     | [ next ] -> next
-    | _ :: _ :: _ ->
+    | next :: _ :: _ ->
       (* Ambiguity: We're in the middle of parsing a number, but the next
        * node says that we could also have a number. This definitely
        * shouldn't happen. It would represent a control sequence like
        * '%p1%d%p2%d'. *)
-      assert false
+      Core.Std.eprintf !"Ambiguity at %{sexp:Source_code_position.t}\n%!" [%here];
+      next
   ;;
 
   let init spec =

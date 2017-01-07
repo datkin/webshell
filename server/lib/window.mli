@@ -5,6 +5,8 @@ type dim = {
   height : int;
 }
 
+val dim_of_string : string -> dim
+
 type coord = {
   x : int;
   y : int;

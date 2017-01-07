@@ -13,7 +13,9 @@
      same chars into `cat` may help answer this.
 
  - Emulator references:
-   * http://invisible-island.net/xterm/ctlseqs/ctlseqs.html
+   * Spec of xterm control sequences:
+       http://www.xfree86.org/4.5.0/ctlseqs.html (newer)
+       http://invisible-island.net/xterm/ctlseqs/ctlseqs.html
    * http://bjh21.me.uk/all-escapes/all-escapes.txt
    * http://vt100.net/docs/vt100-ug/chapter3.html
    * Relevant standards: ANSI X3.64, ECMA-48
@@ -36,7 +38,20 @@
 
  - Here's an example that behaves non-deterministically:
 
-   ./main.native tty -cwd "/tmp" -env TERM=xterm -include-this-env -exe "/usr/bin/nano" -- "nano"
+   (exe=nano; term=vt100; ./main.native tty -dim 30x30 -cwd "/tmp" -env TERM=$term -term $term -exe $(which $exe) -- $exe) | tee /tmp/x 2>&1
 
    Most of the time it hands. Sometimes it gives an "Error opening terminal"
    response, and rarely it actually seem to render nano...
+
+ - Perhaps useful reference: iTerm2's pty wrapper:
+   https://github.com/gnachman/iTerm2/blob/3.0.0/sources/PTYTask.m
+
+ - Is xterm's control language fully described by infocmp? I suspect not. For
+   one thing, the xterm spec uses "Pm" to denote multiple numeric args
+   separated by ";", which doesn't seem like a thing in infocmp.
+
+ - functions and manpages that may be of interest:
+    - ioctl's relevant to terminal management: man 4 tty
+    - man 4 termios, and tcsetattr (function for setting terminal attributes) for setting the attributes discussed
+
+ - random other note: the `splice` function on linux for moving data w/o going via the kernel

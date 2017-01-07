@@ -5,6 +5,13 @@ type dim = {
   height : int;
 } [@@deriving sexp, compare]
 
+let dim_of_string str =
+  match String.split str ~on:'x' with
+  | [width; height] ->
+    { width = Int.of_string width; height = Int.of_string height; }
+  | _ -> failwithf {|dim_of_string "%S"|} str ()
+;;
+
 type coord = {
   x : int;
   y : int;

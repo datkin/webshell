@@ -10,8 +10,10 @@ let tty_cmd =
   Command.async
     ~summary:"X"
     Command.Spec.(
+      let dim = Arg_type.create Window.dim_of_string in
       empty
       +> flag "term" (optional string) ~doc:"name Terminfo name"
+      +> flag "dim" (optional dim) ~doc:"<width>x<height> Dimensions of terminal"
       +> flag "cwd" (required string) ~doc:"dir cwd"
       +> flag "exe" (required string) ~doc:"exe exe"
       +> flag "env" (listed string)
@@ -20,8 +22,8 @@ let tty_cmd =
         ~doc:" Use the current environment as the base environment"
       +> flag "--" escape ~doc:"args"
     )
-    (fun term cwd exe env include_this_env args () ->
-      let dim = { Window. width = 20; height = 15; } in
+    (fun term dim cwd exe env include_this_env args () ->
+      let dim = Option.value dim ~default:{ Window. width = 20; height = 15; } in
       let base_env =
         if include_this_env
         then Core.Std.Unix.environment () |> Array.to_list
