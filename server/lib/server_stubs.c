@@ -2,8 +2,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <sys/ioctl.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <signal.h>
 #include <caml/memory.h>
 #include <caml/alloc.h>
 #include <caml/fail.h>
@@ -30,6 +32,14 @@ value fork_in_pty(
 
   if ((child_pid = forkpty(&master_fd, name, NULL, winp)) == 0) {
 
+    // CR datkin: Unsure about the following signal handler resets...
+    signal(SIGCHLD, SIG_DFL);
+    signal(SIGHUP, SIG_DFL);
+    signal(SIGINT, SIG_DFL);
+    signal(SIGQUIT, SIG_DFL);
+    signal(SIGTERM, SIG_DFL);
+    signal(SIGALRM, SIG_DFL);
+
     char* working_dir = String_val(v_working_dir);
     if (chdir(working_dir) < 0) {
       caml_failwith("dir doesn't exist");
@@ -55,6 +65,8 @@ value fork_in_pty(
 
     execve(prog, args, env);
   }
+
+  //ioctl(master_fd, TIOCSWINSZ, &winp);
 
   value v_name = caml_copy_string(name);
   value v_res = caml_alloc_small(4, 0);

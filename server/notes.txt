@@ -43,8 +43,30 @@
    Most of the time it hands. Sometimes it gives an "Error opening terminal"
    response, and rarely it actually seem to render nano...
 
+   To investigate, I've been tracing via `dtruss` on OS X. Let's say we want to
+   start by trace on a "normal" nano process. First, weirdly, dtruss doesn't
+   work on certain executable locations? So copy `nano` to /tmp/ or something.
+   Then, we can't just run
+
+   $ sudo dtruss /tmp/nano 2>/tmp/x
+
+   Because even redirecting stderr is enough to interfere with the execution.
+
+   So we need to attach from a separate shell. But we also need to capture all
+   the output. Sigh.
+
+   So this hack seems to work: in one shell run:
+
+   $ bash -c 'sleep 10; exec /tmp/nano'
+
+   And in a separate shell:
+
+   $ sudo dtruss -p $(pgrep -f 'sleep') > /tmp/a
+
+   Interestingly, sleeping for less time seems to cause issues?
+
  - Perhaps useful reference: iTerm2's pty wrapper:
-   https://github.com/gnachman/iTerm2/blob/3.0.0/sources/PTYTask.m
+   https://github.com/gnachman/iTerm2/blob/master/sources/PTYTask.m
 
  - Is xterm's control language fully described by infocmp? I suspect not. For
    one thing, the xterm spec uses "Pm" to denote multiple numeric args
