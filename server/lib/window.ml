@@ -246,9 +246,10 @@ let clear t =
   t.cursor <- origin;
 ;;
 
-let update t str =
-  String.iter str ~f:(fun chr ->
-    match t.parse chr with
+let update t chr =
+  let parse_result = t.parse chr in
+  begin
+    match parse_result with
     | `literal chr -> putc t chr
     | `pending -> ()
     | `junk "\027[m" ->
@@ -263,7 +264,6 @@ let update t str =
         (String.to_list str |> List.map ~f:(fun x -> Char.to_int x |> sprintf "%02x") |> String.concat ~sep:" ")
         (String.escaped str)
     | `func (f, _data) ->
-      Core.Std.eprintf "";
       match (f : Control_functions.t) with
       | Ack -> ()
       | Bell -> ()
@@ -284,7 +284,11 @@ let update t str =
          * https://ttssh2.osdn.jp/manual/en/usage/tips/appkeypad.html *)
         ()
       | Other _ ->
-        Core.Std.printf !"%{sexp:Control_functions.t}\n%!" f)
+        ()
+        (*Core.Std.printf !"%{sexp:Control_functions.t}\n%!" f*)
+  end;
+  parse_result
+;;
 
   (* 1b 5b 37 35 32 32 3b 31 48 7e 
    *
@@ -294,27 +298,44 @@ let update t str =
 
 let cursor t = t.cursor
 
-let render t out =
-  Out_channel.output_string out "-- start --\n";
+let height t = (Grid.dim t.grid).height
+let width t = (Grid.dim t.grid).width
+
+let render t =
+  (* Each line will be 1 + 5*width + 1 (for '|' + 5 * '    |' + '\n') *)
+  let buf = String.create ((height t) * (1 + 5 * (width t) + 1)) in
+  let idx = ref 0 in
+  let output_char chr = String.set buf !idx chr; Core.Std.incr idx in
+  let newline () = output_char '\n' in
+  let output_string str = String.iter str ~f:output_char in
   for y = 0 to (dim t).height - 1 do
     let prev_was_cursor = ref false in
     for x = 0 to (dim t).width - 1 do
       let coord = { x; y; } in
       begin
         if !prev_was_cursor
-        then (Out_channel.output_char out ']'; prev_was_cursor := false)
+        then (output_char ']'; prev_was_cursor := false)
         else if coord = t.cursor
-        then (Out_channel.output_char out '['; prev_was_cursor := true)
-        else Out_channel.output_char out '|'
+        then (output_char '['; prev_was_cursor := true)
+        else output_char '|'
       end;
       let chr = Grid.get t.grid coord in
       let chr = if chr = null_byte then ' ' else chr in
-      (* Out_channel.output_string out (sprintf "%02x" (Char.to_int chr) *)
-      Out_channel.output_string out (sprintf "% 4s" (Char.escaped chr)
+      (* output_string (sprintf "%02x" (Char.to_int chr) *)
+      output_string (sprintf "% 4s" (Char.escaped chr)
       );
     done;
-    Out_channel.newline out;
+    newline ();
   done;
-  Out_channel.output_string out "-- stop --\n";
-  Out_channel.flush out;
+  buf
+;;
+
+let%expect_test _ =
+  let t = create { width = 5; height = 3; } Control_functions.Parser.default in
+  printf !"%s" (render t);
+  [%expect {|
+    [    ]    |    |    |
+    |    |    |    |    |
+    |    |    |    |    |
+        |}];
 ;;

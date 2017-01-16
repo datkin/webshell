@@ -6,6 +6,24 @@ open Async.Std
  * _tags). See if we can fix that. *)
 open Server_lib
 
+let split_by_last_rendered
+  (steps : (char * Control_functions.parse_result * string option) list)
+  : (char * Control_functions.parse_result) list * string option * char list =
+  let rec loop acc = function
+    | (chr, `pending, None) :: rest -> loop (chr :: acc) rest
+    | (chr, _, None) :: rest -> assert false
+    | (chr, other_result, Some render) as head :: rest ->
+      let prefix =
+        List.rev_map (head :: rest) ~f:(fun (chr, parse_result, _render) ->
+          (chr, parse_result))
+      in
+      prefix, Some render, List.rev acc
+    | [] ->
+      [], None, List.rev acc
+  in
+  loop [] steps
+;;
+
 let tty_cmd =
   Command.async
     ~summary:"X"
@@ -78,22 +96,34 @@ let tty_cmd =
             Writer.write writer str)
       );
       Pipe.iter_without_pushback (Reader.pipe reader) ~f:(fun str ->
-        Core.Std.printf "receiving: ";
-        String.to_list str
-        |> List.groupi ~break:(fun i _ _ -> i % 20 == 0)
-        |> List.map ~f:String.of_char_list
-        |> List.iter ~f:(fun str ->
-          String.iter str ~f:(fun char ->
-          Core.Std.printf " %02x" (Char.to_int char);
-          (*
-          if Char.is_alphanum char
-          then Core.Std.printf " (%c)" char;
-          *)
-        );
-        Core.Std.printf " (%s)" (String.escaped str);
-        Core.Std.printf "\n%!");
-        Window.update window str;
-        Window.render window Out_channel.stdout;
+        let pre_render_steps, render, post_render_steps =
+          String.to_list str
+          |> List.map ~f:(fun chr ->
+            let parse_result = Window.update window chr in
+            let rendered =
+              match parse_result with
+              | `pending -> None
+              | _ -> Some (Window.render window)
+            in
+            chr, parse_result, rendered)
+          |> split_by_last_rendered
+        in
+        List.iter pre_render_steps ~f:(fun (chr, parse_result) ->
+          Core.Std.printf "  %02x (%s)\n"
+            (Char.to_int chr)
+            (String.escaped (Char.to_string chr));
+          begin
+            match parse_result with
+            | `pending -> ()
+            | _ ->
+              Core.Std.printf !"%{sexp:Control_functions.parse_result}\n"
+                parse_result
+          end);
+        Option.iter render ~f:(printf "%s\n");
+        List.iter post_render_steps ~f:(fun chr ->
+          Core.Std.printf "  %02x (%s)\n"
+            (Char.to_int chr)
+            (String.escaped (Char.to_string chr)));
       )
       >>= fun () ->
       Core.Std.printf "\n";

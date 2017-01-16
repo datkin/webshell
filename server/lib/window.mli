@@ -5,8 +5,10 @@ type dim = {
   height : int;
 }
 
+(* Convert "<width>x<height>" *)
 val dim_of_string : string -> dim
 
+(* The origin is the top-left corner. *)
 type coord = {
   x : int;
   y : int;
@@ -18,8 +20,12 @@ val create : dim -> Control_functions.Parser.state -> t
 
 val set_dimensions : t -> dim -> unit
 
-(* CR datkin: Return deltas to the screen? *)
-val update : t -> string -> unit
+(* CR-soon datkin: Perhaps [Window.t] should just take the actual parse results,
+ * rather than doing the parsing. It's unclear if the window needs to interact
+ * with the parser or not. *)
+(* CR-someday datkin: Return deltas to the screen? *)
+(* Returns the parse_result but also applies the change. *)
+val update : t -> char -> Control_functions.parse_result
 
 val cursor : t -> coord
 
@@ -27,4 +33,5 @@ val cursor : t -> coord
 (* Returns null byte for out of bounds coords. *)
 val get : t -> coord -> Char.t
 
-val render : t -> Out_channel.t -> unit
+(* CR-someday datkin: Perhaps this should take a write callback of some sort. *)
+val render : t -> string
