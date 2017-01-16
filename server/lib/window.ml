@@ -32,9 +32,7 @@ module Grid : sig
   val get : t -> coord -> Char.t
   val set : t -> coord -> Char.t -> unit
 
-  (*
   val clear : t -> unit
-  *)
 
   val scroll : t -> int -> unit
 end = struct
@@ -243,14 +241,20 @@ let putc t chr =
   *)
 ;;
 
+let clear t =
+  Grid.clear t.grid;
+  t.cursor <- origin;
+;;
+
 let update t str =
   String.iter str ~f:(fun chr ->
     match t.parse chr with
     | `literal chr -> putc t chr
     | `pending -> ()
     | `junk str ->
-      Core.Std.eprintf "Bad input: [%s]\n%!"
+      Core.Std.eprintf "Bad input: [%s] (%s)\n%!"
         (String.to_list str |> List.map ~f:(fun x -> Char.to_int x |> sprintf "%02x") |> String.concat ~sep:" ")
+        (String.escaped str)
     | `func f ->
       match (f : Control_functions.t) with
       | Ack -> ()
@@ -259,6 +263,18 @@ let update t str =
       | Cursor_rel (_, _)
       | Start_of_line_rel (_, _)
       | Cursor_abs { x = _; y = _; }
+      | Other ([ "smcup"; ], []) ->
+        (* CR datkin: Actually implement the two buffer modes. *)
+        (* This is "start cursor addressing mode". In xterm it means "switch to
+         * the alternate buffer". I.e., leave scroll back mode. *)
+        clear t
+      | Other ([ "smkx"; ], []) ->
+        (* "start application keypad mode"
+         * for emulating within a terminal emulator, I think we need to send
+         * this on to the emulator. It detemrines how keys on the numpad are
+         * interpreted?
+         * https://ttssh2.osdn.jp/manual/en/usage/tips/appkeypad.html *)
+        ()
       | Other _ ->
         Core.Std.printf !"%{sexp:Control_functions.t}\n%!" f)
 

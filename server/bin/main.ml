@@ -79,7 +79,11 @@ let tty_cmd =
       );
       Pipe.iter_without_pushback (Reader.pipe reader) ~f:(fun str ->
         Core.Std.printf "receiving: ";
-        String.iter str ~f:(fun char ->
+        String.to_list str
+        |> List.groupi ~break:(fun i _ _ -> i % 20 == 0)
+        |> List.map ~f:String.of_char_list
+        |> List.iter ~f:(fun str ->
+          String.iter str ~f:(fun char ->
           Core.Std.printf " %02x" (Char.to_int char);
           (*
           if Char.is_alphanum char
@@ -87,7 +91,7 @@ let tty_cmd =
           *)
         );
         Core.Std.printf " (%s)" (String.escaped str);
-        Core.Std.printf "\n%!";
+        Core.Std.printf "\n%!");
         Window.update window str;
         Window.render window Out_channel.stdout;
       )

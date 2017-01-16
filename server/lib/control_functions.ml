@@ -366,12 +366,10 @@ module Parser = struct
 
   let default = init Spec.t
 
-  let of_terminfo terminfo =
+  let of_capabilities caps_alist =
     let specs =
-      Terminfo.capabilities terminfo
-      |> Map.to_alist
-      |> List.filter_map ~f:(fun (key, value) ->
-          match value with
+      List.filter_map caps_alist ~f:(fun (key, value) ->
+          match (value : Terminfo.value) with
           | String seq -> Some (seq, key)
           | _ -> None)
       |> String.Map.of_alist_multi
@@ -401,6 +399,11 @@ module Parser = struct
           Spec.of_helpers helpers, fn)
     in
     init specs
+
+  let of_terminfo terminfo =
+    Terminfo.capabilities terminfo
+    |> Map.to_alist
+    |> of_capabilities
 end
 
 let parser init =
@@ -442,7 +445,8 @@ let%test_unit _ =
   test [%here] '\x1b' `pending;
   test [%here] '[' `pending;
   test [%here] 'X' (`junk "\x1b[X");
-  let test_seq here str expect =
+  let test_seq ?(p=Parser.default) here str expect =
+    let f = unstage (parser p) in
     let rec loop chrs =
       match chrs with
       | [] -> assert false
@@ -465,6 +469,15 @@ let%test_unit _ =
   test_seq [%here] "\x1b[5;H" (Cursor_abs {x = 5; y = 1;});
   test_seq [%here] "\x1b[;5H" (Cursor_abs {x = 1; y = 5;});
   test_seq [%here] "\x1b[6;5H" (Cursor_abs {x = 6; y = 5;});
+  test_seq
+    ~p:(Parser.of_capabilities [
+      Terminfo.parse_entry {|csr=\E[%i%p1%d;%p2%dr|} |> Or_error.ok_exn;
+      (*
+       {|\E[%i%p1%d;%p2%dr|}, Terminfo.String "csr";
+       *)
+    ])
+    [%here]
+    "\x1b[1;30r" (Other (["csr"], [Some 1; Some 30;]));
 ;;
 
 open Async.Std

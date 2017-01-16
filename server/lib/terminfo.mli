@@ -50,4 +50,6 @@ type t [@@deriving sexp]
 
 val capabilities : t -> value String.Map.t
 
+val parse_entry : string -> (string * value) Or_error.t
+
 val load : string -> t Or_error.t Deferred.t
