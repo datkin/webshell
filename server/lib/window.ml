@@ -310,21 +310,23 @@ let render t =
   let output_string str = String.iter str ~f:output_char in
   for y = 0 to (dim t).height - 1 do
     let prev_was_cursor = ref false in
+    let output_bar coord =
+      if !prev_was_cursor
+      then (output_char ']'; prev_was_cursor := false)
+      else if coord = (Some t.cursor)
+      then (output_char '['; prev_was_cursor := true)
+      else output_char '|'
+    in
     for x = 0 to (dim t).width - 1 do
       let coord = { x; y; } in
-      begin
-        if !prev_was_cursor
-        then (output_char ']'; prev_was_cursor := false)
-        else if coord = t.cursor
-        then (output_char '['; prev_was_cursor := true)
-        else output_char '|'
-      end;
+      output_bar (Some coord);
       let chr = Grid.get t.grid coord in
       let chr = if chr = null_byte then ' ' else chr in
       (* output_string (sprintf "%02x" (Char.to_int chr) *)
       output_string (sprintf "% 4s" (Char.escaped chr)
       );
     done;
+    output_bar None;
     newline ();
   done;
   buf
@@ -334,8 +336,19 @@ let%expect_test _ =
   let t = create { width = 5; height = 3; } Control_functions.Parser.default in
   printf !"%s" (render t);
   [%expect {|
-    [    ]    |    |    |
-    |    |    |    |    |
-    |    |    |    |    |
-        |}];
+    [    ]    |    |    |    |
+    |    |    |    |    |    |
+    |    |    |    |    |    | |}];
+  putc t 'A';
+  printf !"%s" (render t);
+  [%expect {|
+    |   A[    ]    |    |    |
+    |    |    |    |    |    |
+    |    |    |    |    |    | |}];
+  t.cursor <- { x = 4; y = 1; };
+  printf !"%s" (render t);
+  [%expect {|
+    |   A|    |    |    |    |
+    |    |    |    |    [    ]
+    |    |    |    |    |    | |}];
 ;;
