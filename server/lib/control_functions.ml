@@ -250,9 +250,9 @@ module Parser = struct
     chars = [];
   }
 
-  type result = [
+  type step_result = [
     | `keep_going of state
-    | `ok of control_function
+    | `ok of (control_function * string)
     | `no_match of char list
   ] [@@deriving sexp]
 
@@ -267,7 +267,7 @@ module Parser = struct
     | Some fn ->
       (* CR datkin: Check for ambiguities: if [next_node_by_char] has any
        * subsequent nodes. *)
-      `ok (fn (List.rev stack))
+      `ok (fn (List.rev stack), String.of_char_list all_chars)
     | None ->
       `keep_going {
         node;
@@ -287,7 +287,7 @@ module Parser = struct
         *)
   (* CR datkin: In the current setup, the stack could just be an int list, not
    * an int option list *)
-  let step_one state chr : result list =
+  let step_one state chr : step_result list =
     let next_by_char =
       Option.map (Map.find state.node.next chr) ~f:(fun node ->
         step_char state.stack state.current_number (state.chars @ [chr]) node)
@@ -419,6 +419,13 @@ let debug str =
   else ()
 ;;
 
+type parse_result = [
+  | `literal of char
+  | `func of (t * string)
+  | `junk of string
+  | `pending
+] [@@deriving sexp]
+
 let parser init =
   debug (sprintf !"\n<starting> %{sexp:Parser.state}" init);
   let state = ref [init] in
@@ -442,10 +449,21 @@ let parser init =
 
 let%test_unit _ =
   let f = unstage (parser Parser.default) in
+  let strip (parse_result : parse_result) =
+    match parse_result with
+    | `func (f, _) -> `func f
+    | `literal _
+    | `pending
+    | `junk _ as parse_result
+    (*
+    | `keep_going _
+    *)
+      -> parse_result
+  in
   let test here chr expect =
     [%test_result: [`literal of char | `func of control_function | `junk of string | `pending]]
       ~here:[here]
-      (f chr)
+      (f chr |> strip)
       ~expect
   in
   test [%here] 'a' (`literal 'a');
@@ -466,12 +484,12 @@ let%test_unit _ =
       | [chr] ->
         [%test_result: [`literal of char | `func of control_function | `junk of string | `pending]]
           ~here:[here]
-          (f chr)
+          (f chr |> strip)
           ~expect:(`func expect)
       | chr :: chrs ->
         [%test_result: [`literal of char | `func of control_function | `junk of string | `pending]]
           ~here:[here]
-          (f chr)
+          (f chr |> strip)
           ~expect:(`pending);
         loop chrs
     in

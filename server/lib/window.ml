@@ -176,7 +176,7 @@ type t = {
    * the screen is empty, there will be no rows. *)
   mutable grid : Grid.t;
   mutable cursor : coord;
-  parse : (char -> [`literal of char | `func of Control_functions.t | `junk of string | `pending]);
+  parse : (char -> Control_functions.parse_result);
 }
 
 let create dim spec = {
@@ -251,11 +251,19 @@ let update t str =
     match t.parse chr with
     | `literal chr -> putc t chr
     | `pending -> ()
+    | `junk "\027[m" ->
+      (* I believe this is a sgr for xterm where none of the settings have been
+       * explicitly passed. The only source I've found that suggests that the
+       * "default" value is 0 is here:
+       * http://bjh21.me.uk/all-escapes/all-escapes.txt
+       * See "Sequence: CSI Ps ... m" *)
+      ()
     | `junk str ->
       Core.Std.eprintf "Bad input: [%s] (%s)\n%!"
         (String.to_list str |> List.map ~f:(fun x -> Char.to_int x |> sprintf "%02x") |> String.concat ~sep:" ")
         (String.escaped str)
-    | `func f ->
+    | `func (f, _data) ->
+      Core.Std.eprintf "";
       match (f : Control_functions.t) with
       | Ack -> ()
       | Bell -> ()

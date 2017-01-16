@@ -35,10 +35,15 @@ type t =
   | Other of (string list * int option list)
 [@@deriving sexp, compare]
 
-val parser
-  : Parser.state
-  -> (char -> [`literal of char | `func of t | `junk of string | `pending]) Staged.t
+type parse_result = [
+  | `literal of char
+  | `func of (t * string)
+  | `junk of string
+  | `pending
+] [@@deriving sexp]
+
+val parser : Parser.state -> (char -> parse_result) Staged.t
 
 open Async.Std
 
-val parse : Reader.t -> Parser.state -> [`literal of char | `func of t | `junk of string] Pipe.Reader.t
+val parse : Reader.t -> Parser.state -> parse_result Pipe.Reader.t
