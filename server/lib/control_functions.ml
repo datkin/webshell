@@ -254,7 +254,7 @@ module Parser = struct
     | `keep_going of state
     | `ok of control_function
     | `no_match of char list
-  ]
+  ] [@@deriving sexp]
 
   let step_char stack current_number all_chars node =
     let stack =
@@ -347,13 +347,14 @@ module Parser = struct
     match next with
     | [] -> `no_match (state.chars @ [chr])
     | [ next ] -> next
-    | next :: _ :: _ ->
+    | next1 :: _ :: _ ->
       (* Ambiguity: We're in the middle of parsing a number, but the next
        * node says that we could also have a number. This definitely
        * shouldn't happen. It would represent a control sequence like
        * '%p1%d%p2%d'. *)
-      Core.Std.eprintf !"Ambiguity at %{sexp:Source_code_position.t}\n%!" [%here];
-      next
+      Core.Std.eprintf !"Ambiguity on %c %{sexp:result list} at %{sexp:Source_code_position.t}\n%!"
+        chr next [%here];
+      next1
   ;;
 
   let init spec =
@@ -388,7 +389,7 @@ module Parser = struct
             seq
             |> String.substr_replace_all ~pattern:"%i" ~with_:""
             |> String.substr_replace_all ~pattern:"%p1" ~with_:""
-            |> String.substr_replace_all ~pattern:"%p1" ~with_:""
+            |> String.substr_replace_all ~pattern:"%p2" ~with_:""
             |> String.substr_replace_all ~pattern:"%d" ~with_:(Char.to_string special_digit_char)
           in
           let helpers =
@@ -406,17 +407,23 @@ module Parser = struct
     |> of_capabilities
 end
 
+let debug str =
+  if false
+  then printf "%s\n%!" str
+  else ()
+;;
+
 let parser init =
-  (* printf !"\n<starting> %{sexp:Parser.state}\n" init; *)
+  debug (sprintf !"\n<starting> %{sexp:Parser.state}" init);
   let state = ref init in
   stage (fun chr ->
     match Parser.step !state chr with
     | `keep_going s ->
-      (* printf !"%c => %{sexp:Parser.state}\n" chr s; *)
+      debug (sprintf !"%c => %{sexp:Parser.state}" chr s);
       state := s;
       `pending
     | `ok value ->
-      (* printf !"\n<reset> %{sexp:Parser.state}\n" init; *)
+      debug (sprintf !"\n<reset> %{sexp:Parser.state}" init);
       state := init;
       (`func value)
     | `no_match [] ->
@@ -472,12 +479,15 @@ let%test_unit _ =
   test_seq
     ~p:(Parser.of_capabilities [
       Terminfo.parse_entry {|csr=\E[%i%p1%d;%p2%dr|} |> Or_error.ok_exn;
-      (*
-       {|\E[%i%p1%d;%p2%dr|}, Terminfo.String "csr";
-       *)
     ])
     [%here]
     "\x1b[1;30r" (Other (["csr"], [Some 1; Some 30;]));
+  test_seq
+    ~p:(Parser.of_capabilities [
+      Terminfo.parse_entry {|rmso=\E[27m|} |> Or_error.ok_exn;
+    ])
+    [%here]
+    "\x1b[27m" (Other (["rmso"], []));
 ;;
 
 open Async.Std
