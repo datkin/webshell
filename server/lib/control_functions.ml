@@ -287,7 +287,7 @@ module Parser = struct
         *)
   (* CR datkin: In the current setup, the stack could just be an int list, not
    * an int option list *)
-  let step state chr : result =
+  let step_one state chr : result list =
     let next_by_char =
       Option.map (Map.find state.node.next chr) ~f:(fun node ->
         step_char state.stack state.current_number (state.chars @ [chr]) node)
@@ -336,26 +336,32 @@ module Parser = struct
           chars = state.chars @ [chr];
         })
     in
-    let next =
-      List.filter_opt [
-        next_new_number;
-        next_continuing_number;
-        next_by_char;
-        next_by_char_skipping_number;
-      ]
-    in
-    match next with
-    | [] -> `no_match (state.chars @ [chr])
-    | [ next ] -> next
-    | next1 :: _ :: _ ->
-      (* Ambiguity: We're in the middle of parsing a number, but the next
-       * node says that we could also have a number. This definitely
-       * shouldn't happen. It would represent a control sequence like
-       * '%p1%d%p2%d'. *)
-      Core.Std.eprintf !"Ambiguity on %c %{sexp:result list} at %{sexp:Source_code_position.t}\n%!"
-        chr next [%here];
-      next1
+    List.filter_opt [
+      next_new_number;
+      next_continuing_number;
+      next_by_char;
+      next_by_char_skipping_number;
+    ]
   ;;
+
+  let step states chr =
+    assert (not (List.is_empty states));
+    let next_states, final_states =
+      List.concat_map states ~f:(fun state -> step_one state chr)
+      |> List.partition_map ~f:(function
+        | `keep_going x -> `Fst x
+        | `ok x -> `Snd x)
+    in
+    match final_states, next_states with
+    | [], [] ->
+        (* [chars] in all states should be the same, and [states] must be non
+         * empty. *)
+      let chars = (List.hd_exn states).chars @ [chr] in
+      `no_match chars
+    | [], _ :: _ -> `keep_going next_states
+    | [ x ], _ -> `ok x
+    | _ :: _ :: _, _ ->
+      assert false (* Ambiguous *)
 
   let init spec =
     let parser =
@@ -415,23 +421,23 @@ let debug str =
 
 let parser init =
   debug (sprintf !"\n<starting> %{sexp:Parser.state}" init);
-  let state = ref init in
+  let state = ref [init] in
   stage (fun chr ->
     match Parser.step !state chr with
     | `keep_going s ->
-      debug (sprintf !"%c => %{sexp:Parser.state}" chr s);
+      debug (sprintf !"%c => %{sexp:Parser.state list}" chr s);
       state := s;
       `pending
     | `ok value ->
       debug (sprintf !"\n<reset> %{sexp:Parser.state}" init);
-      state := init;
+      state := [init];
       (`func value)
     | `no_match [] ->
       (* at least the char we just entered should be in the list *)
      assert false
-    | `no_match [ chr ] -> state := init; `literal chr
+    | `no_match [ chr ] -> state := [init]; `literal chr
     | `no_match chars ->
-      state := init;
+      state := [init];
       `junk (String.of_char_list chars))
 
 let%test_unit _ =
@@ -488,11 +494,19 @@ let%test_unit _ =
     ])
     [%here]
     "\x1b[27m" (Other (["rmso"], []));
+  test_seq
+    ~p:(Parser.of_capabilities [
+      Terminfo.parse_entry {|csr=\E[%i%p1%d;%p2%dr|} |> Or_error.ok_exn;
+      Terminfo.parse_entry {|kHOM=\E[1;2H|} |> Or_error.ok_exn;
+    ])
+    [%here]
+    "\x1b[1;2H" (Other (["kHOM"], []));
 ;;
 
 open Async.Std
 
 let parse reader init =
+  let init = [init] in
   Pipe.create_reader ~close_on_exception:true (fun writer ->
     Reader.pipe reader
     |> Pipe.fold_without_pushback ~init ~f:(fun state str ->
@@ -509,5 +523,5 @@ let parse reader init =
         | `no_match chars ->
            Pipe.write_without_pushback writer (`junk (String.of_char_list chars));
            init))
-    >>= fun (_ : Parser.state) ->
+    >>= fun (_ : Parser.state list) ->
     Deferred.unit)
