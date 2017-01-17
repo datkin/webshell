@@ -273,12 +273,23 @@ let update t chr =
         (* This is "start cursor addressing mode". In xterm it means "switch to
          * the alternate buffer". I.e., leave scroll back mode. *)
         clear t
-      | Other ([ "smkx"; ], []) ->
-        (* "start application keypad mode"
+      | Other ([ "smkx"; ], [])
+        (* smkx = "start application keypad mode"
          * for emulating within a terminal emulator, I think we need to send
          * this on to the emulator. It detemrines how keys on the numpad are
          * interpreted?
          * https://ttssh2.osdn.jp/manual/en/usage/tips/appkeypad.html *)
+      | Other (["csr"], [_; _]) ->
+        (* Set Scrolling Region/Set Margins/"DECSTBM" *)
+        ()
+      | Other (["ccvis"], []) ->
+        (* Set cursor "very" visible (12 = show, 25 = blink) *)
+        ()
+      | Other (["cnorm"], []) ->
+        (* Opposite of ccvis; hide cursor, stop blinking *)
+        ()
+      | Other (["rmso"], []) ->
+        (* Exit "standout" mode *)
         ()
       | Other _ ->
         ()

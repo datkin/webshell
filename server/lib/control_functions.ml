@@ -61,7 +61,7 @@ module Spec = struct
       | ns -> failwithf !"Called with %{sexp:int option list}" ns ()
   ;;
 
-  let spec = [
+  let default_spec = [
     [c "\x06"], s Ack;
     [c "\x07"], s Bell;
     [csi; n; c "@"], n' (fun x -> Insert_blank x) 1;
@@ -129,8 +129,29 @@ module Spec = struct
     | _ -> assert false (* Must start with a character. *)
   ;;
 
-  let t =
-    List.map spec ~f:(fun (helpers, fn) -> of_helpers helpers, fn)
+  let default =
+    List.map default_spec ~f:(fun (helpers, fn) -> of_helpers helpers, fn)
+
+  let xterm_spec = [
+    (* CR datkin: It would be nice to have a tool for defining variable length
+     * args. *)
+    (* From http://www.xfree86.org/4.5.0/ctlseqs.html
+     * Some of this stuff isn't expressed in terminfo for xterm. E.g. "Send
+     * Device Attributes (Secondary DA)". *)
+    [c "\x06"], s Ack;
+    [c "\x07"], s Bell;
+    [csi; n; c "@"], n' (fun x -> Insert_blank x) 1;
+    [csi; n; c "A"], n' (fun x -> Cursor_rel (Up, x)) 1;
+    [csi; n; c "B"], n' (fun x -> Cursor_rel (Down, x)) 1;
+    [csi; n; c "C"], n' (fun x -> Cursor_rel (Left, x)) 1;
+    [csi; n; c "D"], n' (fun x -> Cursor_rel (Right, x)) 1;
+    [csi; n; c "E"], n' (fun x -> Start_of_line_rel (Down, x)) 1;
+    [csi; n; c "F"], n' (fun x -> Start_of_line_rel (Up, x)) 1;
+    [csi; n; c ";"; n; c "H"], n'' (fun (x, y) -> Cursor_abs {x; y}) 1;
+  ]
+
+  let xterm =
+    List.map xterm_spec ~f:(fun (helpers, fn) -> of_helpers helpers, fn)
 end
 
 module Parser = struct
@@ -371,7 +392,8 @@ module Parser = struct
     init_state parser
   ;;
 
-  let default = init Spec.t
+  let default = init Spec.default
+  let xterm = init Spec.xterm
 
   let of_capabilities caps_alist =
     let specs =

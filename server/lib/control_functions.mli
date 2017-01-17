@@ -5,7 +5,8 @@ module Parser : sig
 
   val of_terminfo : Terminfo.t -> state
 
-  val default : state
+  val default : state (* Some incomplete thing used for testing *)
+  val xterm : state
 end
 
 type dir =

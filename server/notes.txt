@@ -82,3 +82,6 @@
     - man 4 termios, and tcsetattr (function for setting terminal attributes) for setting the attributes discussed
 
  - random other note: the `splice` function on linux for moving data w/o going via the kernel
+
+ - This program seems useful for testing terminal emulator behavior:
+   http://invisible-island.net/vttest/vttest.html
