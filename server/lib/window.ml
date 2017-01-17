@@ -259,10 +259,7 @@ let update t chr =
        * http://bjh21.me.uk/all-escapes/all-escapes.txt
        * See "Sequence: CSI Ps ... m" *)
       ()
-    | `junk str ->
-      Core.Std.eprintf "Bad input: [%s] (%s)\n%!"
-        (String.to_list str |> List.map ~f:(fun x -> Char.to_int x |> sprintf "%02x") |> String.concat ~sep:" ")
-        (String.escaped str)
+    | `junk _ -> ()
     | `func (f, _data) ->
       match (f : Control_functions.t) with
       | Ack -> ()
@@ -285,7 +282,6 @@ let update t chr =
         ()
       | Other _ ->
         ()
-        (*Core.Std.printf !"%{sexp:Control_functions.t}\n%!" f*)
   end;
   parse_result
 ;;

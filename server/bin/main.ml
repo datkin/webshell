@@ -7,21 +7,13 @@ open Async.Std
 open Server_lib
 
 let split_by_last_rendered
-  (steps : (char * Control_functions.parse_result * string option) list)
-  : (char * Control_functions.parse_result) list * string option * char list =
+  (steps : (char * Control_functions.parse_result) list)
+  : (char * Control_functions.parse_result) list * char list =
   let rec loop acc = function
-    | (chr, `pending, None) :: rest -> loop (chr :: acc) rest
-    | (chr, _, None) :: rest -> assert false
-    | (chr, other_result, Some render) as head :: rest ->
-      let prefix =
-        List.rev_map (head :: rest) ~f:(fun (chr, parse_result, _render) ->
-          (chr, parse_result))
-      in
-      prefix, Some render, List.rev acc
-    | [] ->
-      [], None, List.rev acc
+    | (chr, `pending) :: rest -> loop (chr :: acc) rest
+    | rest -> List.rev rest, List.rev acc
   in
-  loop [] steps
+  loop [] (List.rev steps)
 ;;
 
 let tty_cmd =
@@ -96,32 +88,44 @@ let tty_cmd =
             Writer.write writer str)
       );
       Pipe.iter_without_pushback (Reader.pipe reader) ~f:(fun str ->
-        let pre_render_steps, render, post_render_steps =
+        (* The idea here is we want to show each character that was read, and
+         * after each interpretable sequence, we print the interpretation.
+         * We'd also like to render the screen periodically. The most sensible
+         * time to render is at the end of each batch of input we read
+         * (rendering more often is excessive, b/c we'll immediately re-render,
+         * and rendering less often is bad b/c the screen will be stale while we
+         * wait for input). Of course, we'd like all the bytes going into a
+         * parse-result to be printe contiguously, w/o a render intervening in
+         * the middle. Since we know that bytes that result in "pending" can't
+         * actually have any impact on the screen, we'll actually print the
+         * render results before we print the tail of the input buffer that
+         * couldn't be immediately interpreted as an action. *)
+        let pre_render_steps, post_render_steps =
           String.to_list str
           |> List.map ~f:(fun chr ->
+            (* Core.Std.printf ">  '%s'\n%!" (String.escaped (Char.to_string chr)); *)
             let parse_result = Window.update window chr in
-            let rendered =
-              match parse_result with
-              | `pending -> None
-              | _ -> Some (Window.render window)
-            in
-            chr, parse_result, rendered)
+            chr, parse_result)
           |> split_by_last_rendered
         in
         List.iter pre_render_steps ~f:(fun (chr, parse_result) ->
-          Core.Std.printf "  %02x (%s)\n"
+          Core.Std.printf "  %02x (%s)\n%!"
             (Char.to_int chr)
             (String.escaped (Char.to_string chr));
           begin
             match parse_result with
             | `pending -> ()
             | _ ->
-              Core.Std.printf !"%{sexp:Control_functions.parse_result}\n"
+              Core.Std.printf !"%{sexp:Control_functions.parse_result}\n%!"
                 parse_result
           end);
-        Option.iter render ~f:(printf "%s\n");
+        begin
+          if List.is_empty pre_render_steps
+          then () (* the screen didn't upgade, don't redraw it *)
+          else Core.Std.printf "%s%!" (Window.render window)
+        end;
         List.iter post_render_steps ~f:(fun chr ->
-          Core.Std.printf "  %02x (%s)\n"
+          Core.Std.printf "  %02x (%s)\n%!"
             (Char.to_int chr)
             (String.escaped (Char.to_string chr)));
       )
