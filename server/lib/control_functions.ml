@@ -38,6 +38,10 @@ module Spec = struct
   type helper =
     | Constant of char list
     | Number
+    (* [Numbers] is used for our direct (i.e. non-terminfo) xterm support. In
+     * the xterm spec, it looks like [Numbers] only ever occurs once in any
+     * given sequence, and never occurs alongside a [Number]. *)
+    | Numbers
 
   let c str = Constant (String.to_list str)
   let csi = c "\x1b["
@@ -75,7 +79,7 @@ module Spec = struct
   ]
 
   type elt = {
-    preceeding_number : bool;
+    preceeding_number : [`no | `one_optional | `many];
     char : char;
   } [@@deriving sexp]
 
@@ -89,7 +93,9 @@ module Spec = struct
       List.map elts ~f:(fun { preceeding_number; char; } ->
         let preceeding =
           match preceeding_number with
-          | false -> "" | true -> "<number?>"
+          | `no -> ""
+          | `one_optional -> "<number?>"
+          | `many -> "<number, ...>"
         in
         sprintf "%s%c" preceeding char)
       |> String.concat ~sep:""
@@ -100,22 +106,28 @@ module Spec = struct
     match helpers with
     | [] -> []
     | [ Constant [] ] -> []
-    | [ Number ]
+    | [ (Number | Numbers) ]
       -> assert false (* Numbers must be followed by a char *)
     | (Constant chars) :: rest ->
       let elts =
-        List.map chars ~f:(fun char -> { preceeding_number = false; char; })
+        List.map chars ~f:(fun char -> { preceeding_number = `no; char; })
       in
       elts @ (elts_of_helpers rest)
-    | Number :: (Constant (char :: chars)) :: rest ->
+    | ((Number | Numbers) as n) :: (Constant (char :: chars)) :: rest ->
       (* CR datkin: Check that [char] isn't a digit and also that the preceeding
        * char isn't a digit. *)
       let elts =
-        { preceeding_number = true; char; }
-        :: List.map chars ~f:(fun char -> { preceeding_number = false; char; })
+        let preceeding_number =
+          match n with
+          | Number -> `one_optional
+          | Numbers -> `many
+          | _ -> assert false
+        in
+        { preceeding_number; char; }
+        :: List.map chars ~f:(fun char -> { preceeding_number = `no; char; })
       in
       elts @ (elts_of_helpers rest)
-    | Number :: (Number | Constant []) :: _ -> assert false
+    | (Number | Numbers) :: (Number | Numbers | Constant []) :: _ -> assert false
   ;;
 
   let of_helpers helpers =
@@ -132,6 +144,8 @@ module Spec = struct
   let default =
     List.map default_spec ~f:(fun (helpers, fn) -> of_helpers helpers, fn)
 
+  let ps = Number
+  let pm = Numbers
   let xterm_spec = [
     (* CR datkin: It would be nice to have a tool for defining variable length
      * args. *)
@@ -155,56 +169,72 @@ module Spec = struct
 end
 
 module Parser = struct
-  (* CR datkin: In a prior version of this code, I thought that numbers were
-   * sometimes optional arguments to control functions. Why did I think that?
-   * Are there examples? The specs may allow it, but I suspect curses, at least,
-   * doesn't do it? That's not good enough for every app, though. :/ *)
-  (* CR datkin: Any case where [value] is some either [next_number] is some or
-   * [next] is non-empty indicates an ambiguity. I need to look at some examples
-   * and figure out how to handle them. *)
+  (*
+  type next_number_info = {
+    one_optional : bool;
+    many : bool;
+  } [@@derivng sexp]
+  *)
+
   (* The [node] represents all the possible [control_function]s that could
    * result from a sequence of input bytes.
    *
    * If [value] is some, then there's a control_function defined by the bytes
    * that have been entered so far.
    *
-   * If [next_number] is some, then there's one or more control functions that
-   * are the bytes entered so far, followed next by a numeric argument.
+   * If [next_number__*] is some, then there's one or more control functions
+   * that are the bytes entered so far, followed next by a numeric argument (an
+   * optional single argument or multiple ';'-separated arguments,
+   * respectively).
    *
    * The [next] map stores the [control_function]s that are the bytes entered so
    * far followed by the (non-digit) byte keys in the map. *)
   type node = {
     value : (int option list -> control_function) option;
-    next_number : node option;
+    next_number__one_optional : node option;
+    next_number__many : node option;
     next : node Char.Map.t;
   } [@@deriving sexp]
 
   let empty_node = {
     value = None;
-    next_number = None;
+    next_number__one_optional = None;
+    next_number__many = None;
     next = Char.Map.empty;
   }
 
   let rec make (elts : Spec.elt list) fn : node =
     match elts with
-    | [] ->
-      { value = Some fn; next_number = None; next = Char.Map.empty; }
+    | [] -> {
+      value = Some fn;
+      next_number__one_optional = None;
+      next_number__many = None;
+      next = Char.Map.empty;
+    }
     | { preceeding_number; char; } :: elts ->
       let for_char = {
         value = None;
-        next_number = None;
+        next_number__one_optional = None;
+        next_number__many = None;
         next =
           Char.Map.empty
           |> Char.Map.add ~key:char ~data:(make elts fn);
       }
       in
-      if preceeding_number
-      then {
-        value = None;
-        next = Char.Map.empty;
-        next_number = Some for_char;
-      }
-      else for_char
+      match preceeding_number with
+      | `no -> for_char
+      | `one_optional -> {
+          value = None;
+          next = Char.Map.empty;
+          next_number__one_optional = Some for_char;
+          next_number__many = None;
+        }
+      | `many -> {
+          value = None;
+          next = Char.Map.empty;
+          next_number__one_optional = None;
+          next_number__many = Some for_char;
+        }
   ;;
 
   let rec add' node elts fn : node =
@@ -215,25 +245,31 @@ module Parser = struct
         | None -> { node with value = Some fn; }
         | Some _ -> assert false
       end
-    | { preceeding_number = false; char; } :: elts ->
+    | { preceeding_number = `no; char; } :: elts ->
       let next =
         Map.update node.next char ~f:(function
           | None -> make elts fn
           | Some node -> add' node elts fn)
       in
       { node with next }
-    | { preceeding_number = true; char; } :: elts ->
+    | { preceeding_number = (`one_optional | `many) as kind; char; } :: elts ->
       let next_number =
-        match node.next_number with
-        | None ->
-          { node with
-            next_number = Some {
-              value = None;
-              next_number = None;
-              next =
-                Char.Map.empty
-                |> Map.add ~key:char ~data:(make elts fn);
-            };
+        let current =
+          match kind with
+          | `one_optional -> node.next_number__one_optional
+          | `many -> node.next_number__many
+        in
+        (* CR datkin: In a past version of this function I think there was a bug
+         * where we double-nested the new nodes in this branch. But I may be
+         * missing something. Probably worth a test. *)
+        match current with
+        | None -> {
+            value = None;
+            next_number__one_optional = None;
+            next_number__many = None;
+            next =
+              Char.Map.empty
+              |> Map.add ~key:char ~data:(make elts fn);
           }
         | Some next_number ->
           let next_number's_next =
@@ -243,12 +279,14 @@ module Parser = struct
           in
           { next_number with next = next_number's_next }
       in
-      { node with next_number = Some next_number }
+      match kind with
+      | `one_optional -> { node with next_number__one_optional = Some next_number }
+      | `many -> { node with next_number__many = Some next_number }
   ;;
 
   let add root { Spec. first_char; elts; } fn =
     let elts : Spec.elt list =
-      { preceeding_number = false; char = first_char } :: elts
+      { preceeding_number = `no; char = first_char } :: elts
     in
     add' root elts fn
 
@@ -259,14 +297,18 @@ module Parser = struct
 
   type state = {
     node : node;
-    current_number : int option;
+    current_number : [
+      | `none
+      | `one_optional of int option (* CR datkin: Does the [None] case actually happen? *)
+      | `many of int option (* None means we parsed ';' and require another number *)
+    ];
     stack : int option list;
     chars : char list;
   } [@@deriving sexp]
 
   let init_state root = {
     node = root;
-    current_number = None;
+    current_number = `none;
     stack = [];
     chars = [];
   }
@@ -281,8 +323,10 @@ module Parser = struct
     let stack =
       (* We may have just finished a digit. *)
       match current_number with
-      | None -> stack
-      | Some n -> Some n :: stack
+      | `none | `one_optional None -> stack
+      | `many None -> assert false (* see call sites *)
+      | `one_optional (Some n)
+      | `many (Some n) -> Some n :: stack
     in
     match node.value with
     | Some fn ->
@@ -293,75 +337,125 @@ module Parser = struct
       `keep_going {
         node;
         stack;
-        current_number = None;
+        current_number = `none;
         chars = all_chars;
       }
   ;;
 
-  (* Ideas for handling ambiguities?
-   *  - if there's on completion:
-        - emit that value,
-        - prune [state] to be just that [one_state] plus the [init] state.
-      - otherwise, if states is []
-        - if there's only been one char, it's just that char literal
-        - if there's > 1 char, it's junk
-        *)
-  (* CR datkin: In the current setup, the stack could just be an int list, not
-   * an int option list *)
   let step_one state chr : step_result list =
     let next_by_char =
-      Option.map (Map.find state.node.next chr) ~f:(fun node ->
-        step_char state.stack state.current_number (state.chars @ [chr]) node)
+      match state.current_number with
+      | `many None ->
+        (* The last thing we processed was a ';' as part of a variable-number
+         * arg list, the next thing must be another numeric argument, not a
+         * literal.  *)
+        None
+      | _ ->
+        Option.map (Map.find state.node.next chr) ~f:(fun node ->
+          step_char state.stack state.current_number (state.chars @ [chr]) node)
     in
     let digit =
       if chr >= '0' && chr <= '9'
       then Some (Char.to_int chr - Char.to_int '0')
       else None
     in
-    let next_by_char_skipping_number =
+    let next_by_char_skipping_number which_next next_number =
       if Option.is_some digit
+      (* Let's just assume we don't have numeric args followed by numberic
+       * literals (though we definitely have numeric literals preceeding numeric
+       * args in some cases, e.g. "setab" in xterm's terminfo). *)
       then None
       else
-      Option.bind state.node.next_number ~f:(fun node ->
+      Option.bind next_number ~f:(fun node ->
         Option.map (Map.find node.next chr) ~f:(fun node ->
         let stack =
           (* Finish the number that was in progress. *)
           match state.current_number with
-          | None -> state.stack
-          | Some n ->
+          | `none | `one_optional None | `many None -> state.stack
+          | `one_optional (Some n)
+          | `many (Some n) ->
             (* CR datkin: If we his this case things are *very* werid. *)
+            Core.Std.eprintf "\n!!! SOMETHING WEIRD HAPPENED !!!\n%!";
             Some n :: state.stack
         in
+        (* CR datkin: We need to do [next_by_char_skipping_number] for both
+         * [one_optional] and for [many] -- the difference is that in one case
+         * we push a [None] arg, and in the other we push no args -- indicating
+         * an empty arg list. *)
         let stack =
           (* We're looking *past* the next_number node, so push a [None] on the
-           * stack. *)
-          None :: stack
+           * stack, if necessary. *)
+          match which_next with
+          | `many -> stack
+          | `one_optional -> None :: stack
         in
-        step_char stack None (state.chars @ [chr]) node))
+        step_char stack `none (state.chars @ [chr]) node))
+    in
+    let next_by_char_skipping_number__oo =
+      next_by_char_skipping_number `one_optional state.node.next_number__one_optional
+    in
+    let next_by_char_skipping_number__m =
+      next_by_char_skipping_number `many state.node.next_number__many
     in
     let next_continuing_number =
-      Option.both state.current_number digit
-      |> Option.map ~f:(fun (current_number, digit) ->
-        let current_number = Some ((current_number * 10) + digit) in
-        `keep_going { state with
+      match digit with
+      | None -> None
+      | Some digit ->
+        (* CR datkin: Think more carefully about all these cases. *)
+        match state.current_number with
+        | `none | `one_optional None
+        | `many None (* CR datkin: <-- This case probably shouldn't be allowed
+          for same reasons as above. *)
+          -> None
+        | `one_optional (Some n)
+        | `many (Some n) as x ->
+          let n = (n * 10) + digit in
+          let current_number =
+            match x with
+            | `one_optional _ -> `one_optional (Some n)
+            | `many _ -> `many (Some n)
+          in
+        Some (`keep_going { state with
           current_number;
           chars = state.chars @ [chr];
         })
     in
-    let next_new_number =
-      Option.both state.node.next_number digit
+    let next_new_number__oo =
+      Option.both state.node.next_number__one_optional digit
       |> Option.map ~f:(fun (node, digit) ->
         `keep_going { state with
           node;
-          current_number = Some digit;
+          current_number = `one_optional (Some digit);
           chars = state.chars @ [chr];
         })
     in
+    let next_new_number__m =
+      Option.both state.node.next_number__many digit
+      |> Option.map ~f:(fun (node, digit) ->
+        `keep_going { state with
+          node;
+          current_number = `many (Some digit);
+          chars = state.chars @ [chr];
+        })
+    in
+    let next_multiple_numeric_args =
+      match state.current_number, chr with
+      | `many (Some n), ';' ->
+        Some (`keep_going {
+          node = state.node;
+          current_number = `many None;
+          chars = state.chars @ [chr];
+          stack = Some n :: state.stack;
+        })
+      | _, _ -> None
+    in
     List.filter_opt [
-      next_new_number;
+      next_new_number__oo;
+      next_new_number__m;
+      next_by_char_skipping_number__oo;
+      next_by_char_skipping_number__m;
       next_continuing_number;
       next_by_char;
-      next_by_char_skipping_number;
     ]
   ;;
 
@@ -375,8 +469,10 @@ module Parser = struct
     in
     match final_states, next_states with
     | [], [] ->
-        (* [chars] in all states should be the same, and [states] must be non
-         * empty. *)
+      (* CR datkin: Hoist [chars] out as it's the same across all states (i.e.
+       * all branches start at the same input character). *)
+      (* [chars] in all states should be the same, and [states] must be non
+       * empty. *)
       let chars = (List.hd_exn states).chars @ [chr] in
       `no_match chars
     | [], _ :: _ -> `keep_going next_states
