@@ -85,3 +85,6 @@
 
  - This program seems useful for testing terminal emulator behavior:
    http://invisible-island.net/vttest/vttest.html
+
+ - The following seems to work (as of the last commit on 2017-01-16)
+   $ (exe=vim; term=xterm; ./main.native tty -dim 30x30 -cwd "/tmp" -env TERM=$term -exe $(which $exe) -- $exe)

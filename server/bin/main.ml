@@ -64,7 +64,7 @@ let tty_cmd =
       let writer = Writer.create fd in
       begin
         match term with
-        | None -> return Control_functions.Parser.default
+        | None -> return Control_functions.Parser.xterm
         | Some term ->
           Terminfo.load term
           >>= fun terminfo ->

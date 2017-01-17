@@ -146,6 +146,15 @@ module Spec = struct
 
   let ps = Number
   let pm = Numbers
+
+  let xterm_spec_for_test = [
+    [csi; ps; c ";"; ps; c "H"], n'' (fun x y -> Other (["CUP"], [Some x; Some y])) 1;
+    [csi; pm; c "m"], (fun args -> Other (["SGR"], args));
+  ]
+
+  let xterm_for_test =
+    List.map xterm_spec_for_test ~f:(fun (helpers, fn) -> of_helpers helpers, fn)
+
   let xterm_spec = [
     (* CR datkin: It would be nice to have a tool for defining variable length
      * args. *)
@@ -161,8 +170,21 @@ module Spec = struct
     [csi; n; c "D"], n' (fun x -> Cursor_rel (Right, x)) 1;
     [csi; n; c "E"], n' (fun x -> Start_of_line_rel (Down, x)) 1;
     [csi; n; c "F"], n' (fun x -> Start_of_line_rel (Up, x)) 1;
-    [csi; ps; c ";"; ps; c "H"], n'' (fun x y -> Other (["CUP"], [Some x; Some y])) 1;
+    [csi; ps; c "J"], n' (fun x -> Other (["ED"], [Some x])) 0;
+    [csi; ps; c "K"], n' (fun x -> Other (["EL"], [Some x])) 0;
+    [csi; pm; c "H"], (fun args -> Other (["CUP"], args));
     [csi; pm; c "m"], (fun args -> Other (["SGR"], args));
+    [csi; c "?"; pm; c "h"], (fun args -> Other (["DECSET"], args));
+    [csi; c "?"; pm; c "l"], (fun args -> Other (["DECRST"], args));
+    [c "\x1b="], s (Other (["DECPAM"], []));
+    (* CR datkin: Defaults for the following are wrong. *)
+    [csi; ps; c ";"; ps; c "r"], n'' (fun x y -> Other (["DECSTBM"], [Some x; Some y])) 1;
+    (* "Send Device Attributes (Secondary DA)"
+     * This one looks weird, see:
+     * http://www.vt100.net/docs/vt510-rm/DA2.html
+     * http://www.vt100.net/docs/vt510-rm/DA1.html
+     *)
+    [csi; c ">"; ps; c "c"], n' (fun x -> Other (["Send Device Attrib (secondary)"], [Some x])) 0;
   ]
 
   let xterm =
@@ -504,6 +526,7 @@ module Parser = struct
 
   let default = init Spec.default
   let xterm = init Spec.xterm
+  let xterm_for_test = init Spec.xterm_for_test
 
   let of_capabilities caps_alist =
     let specs =
@@ -652,15 +675,15 @@ let%test_unit _ =
     [%here]
     "\x1b[1;2H" (Other (["kHOM"], []));
   test_seq
-    ~p:Parser.xterm
+    ~p:Parser.xterm_for_test
     [%here]
     "\x1b[1;2H" (Other (["CUP"], [Some 1; Some 2]));
   test_seq
-    ~p:Parser.xterm
+    ~p:Parser.xterm_for_test
     [%here]
     "\x1b[1;2;4m" (Other (["SGR"], [Some 1; Some 2; Some 4]));
   test_seq
-    ~p:Parser.xterm
+    ~p:Parser.xterm_for_test
     [%here]
     "\x1b[m" (Other (["SGR"], []));
 ;;
