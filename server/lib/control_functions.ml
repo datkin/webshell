@@ -61,7 +61,7 @@ module Spec = struct
 
   let n'' ctor default = (* two args *)
     function
-      | [n1; n2] -> ctor (Option.value n1 ~default, Option.value n2 ~default)
+      | [n1; n2] -> ctor (Option.value n1 ~default) (Option.value n2 ~default)
       | ns -> failwithf !"Called with %{sexp:int option list}" ns ()
   ;;
 
@@ -75,7 +75,7 @@ module Spec = struct
     [csi; n; c "D"], n' (fun x -> Cursor_rel (Right, x)) 1;
     [csi; n; c "E"], n' (fun x -> Start_of_line_rel (Down, x)) 1;
     [csi; n; c "F"], n' (fun x -> Start_of_line_rel (Up, x)) 1;
-    [csi; n; c ";"; n; c "H"], n'' (fun (x, y) -> Cursor_abs {x; y}) 1;
+    [csi; n; c ";"; n; c "H"], n'' (fun x y -> Cursor_abs {x; y}) 1;
   ]
 
   type elt = {
@@ -161,7 +161,8 @@ module Spec = struct
     [csi; n; c "D"], n' (fun x -> Cursor_rel (Right, x)) 1;
     [csi; n; c "E"], n' (fun x -> Start_of_line_rel (Down, x)) 1;
     [csi; n; c "F"], n' (fun x -> Start_of_line_rel (Up, x)) 1;
-    [csi; n; c ";"; n; c "H"], n'' (fun (x, y) -> Cursor_abs {x; y}) 1;
+    [csi; ps; c ";"; ps; c "H"], n'' (fun x y -> Other (["CUP"], [Some x; Some y])) 1;
+    [csi; pm; c "m"], (fun args -> Other (["SGR"], args));
   ]
 
   let xterm =
@@ -438,7 +439,7 @@ module Parser = struct
           chars = state.chars @ [chr];
         })
     in
-    let next_multiple_numeric_args =
+    let next_multiple_numeric_args_a =
       match state.current_number, chr with
       | `many (Some n), ';' ->
         Some (`keep_going {
@@ -449,6 +450,17 @@ module Parser = struct
         })
       | _, _ -> None
     in
+    let next_multiple_numeric_args_b =
+      match state.current_number, digit with
+      | `many None, Some n ->
+        Some (`keep_going {
+          node = state.node;
+          current_number = `many (Some n);
+          chars = state.chars @ [chr];
+          stack = state.stack;
+        })
+      | _, _ -> None
+    in
     List.filter_opt [
       next_new_number__oo;
       next_new_number__m;
@@ -456,6 +468,8 @@ module Parser = struct
       next_by_char_skipping_number__m;
       next_continuing_number;
       next_by_char;
+      next_multiple_numeric_args_a;
+      next_multiple_numeric_args_b;
     ]
   ;;
 
@@ -637,6 +651,18 @@ let%test_unit _ =
     ])
     [%here]
     "\x1b[1;2H" (Other (["kHOM"], []));
+  test_seq
+    ~p:Parser.xterm
+    [%here]
+    "\x1b[1;2H" (Other (["CUP"], [Some 1; Some 2]));
+  test_seq
+    ~p:Parser.xterm
+    [%here]
+    "\x1b[1;2;4m" (Other (["SGR"], [Some 1; Some 2; Some 4]));
+  test_seq
+    ~p:Parser.xterm
+    [%here]
+    "\x1b[m" (Other (["SGR"], []));
 ;;
 
 open Async.Std
