@@ -185,6 +185,10 @@ module Spec = struct
      * http://www.vt100.net/docs/vt510-rm/DA1.html
      *)
     [csi; c ">"; ps; c "c"], n' (fun x -> Other (["Send Device Attrib (secondary)"], [Some x])) 0;
+    (* CR datkin: Technically "B" is a parameter. *)
+    [c "\027(B"; ], s (Other (["Designate G0 Character Set: US"], []));
+    [csi; pm; c "l"], (fun args -> Other (["RM"], args));
+    [csi; pm; c "d"], (fun args -> Other (["VPA"], args));
   ]
 
   let xterm =
