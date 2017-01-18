@@ -26,7 +26,7 @@ value fork_in_pty(
 
   char* name = malloc(sizeof(char)*1024);
 
-  struct winsize* winp = malloc(sizeof(struct winsize));
+  struct winsize* winp = calloc(sizeof(struct winsize), 1);
   winp->ws_col = Int_val(Field(v_dim, 0));
   winp->ws_row = Int_val(Field(v_dim, 1));
 

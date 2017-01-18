@@ -25,7 +25,7 @@ val set_dimensions : t -> dim -> unit
  * with the parser or not. *)
 (* CR-someday datkin: Return deltas to the screen? *)
 (* Returns the parse_result but also applies the change. *)
-val update : t -> char -> Control_functions.parse_result
+val update : t -> char -> (Control_functions.parse_result * string option)
 
 val cursor : t -> coord
 

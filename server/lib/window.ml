@@ -248,31 +248,41 @@ let clear t =
 
 let update t chr =
   let parse_result = t.parse chr in
-  begin
+  let to_send =
     match parse_result with
-    | `literal chr -> putc t chr
-    | `pending -> ()
+    | `literal chr -> putc t chr; None
+    | `pending -> None
     | `junk "\027[m" ->
       (* I believe this is a sgr for xterm where none of the settings have been
        * explicitly passed. The only source I've found that suggests that the
        * "default" value is 0 is here:
        * http://bjh21.me.uk/all-escapes/all-escapes.txt
        * See "Sequence: CSI Ps ... m" *)
-      ()
-    | `junk _ -> ()
+      None
+    | `junk _ -> None
     | `func (f, _data) ->
       match (f : Control_functions.t) with
-      | Ack -> ()
-      | Bell -> ()
+      | Ack -> None
+      | Bell -> None
       | Insert_blank _
       | Cursor_rel (_, _)
       | Start_of_line_rel (_, _)
-      | Cursor_abs { x = _; y = _; }
+      | Cursor_abs { x = _; y = _; } ->
+        None
+      | Other (["VPA"], [Some row]) ->
+        t.cursor <- { t.cursor with y = row-1; }; None
+      | Other (["CUP"], []) -> t.cursor <- origin; None
+      | Other (["CUP"], [Some row; Some col]) -> t.cursor <- { x=col-1; y=row-1 }; None
+      | Other (["DECSET"], [Some 1049]) ->
+        clear t; None
+      | Other (["ED"], [Some 2]) -> Grid.clear t.grid; None
+      | Other (["Send Device Attrib (secondary)"], [Some 0]) ->
+        Some "\027[>1;95;0c"
       | Other ([ "smcup"; ], []) ->
         (* CR datkin: Actually implement the two buffer modes. *)
         (* This is "start cursor addressing mode". In xterm it means "switch to
          * the alternate buffer". I.e., leave scroll back mode. *)
-        clear t
+        clear t; None
       | Other ([ "smkx"; ], [])
         (* smkx = "start application keypad mode"
          * for emulating within a terminal emulator, I think we need to send
@@ -281,20 +291,20 @@ let update t chr =
          * https://ttssh2.osdn.jp/manual/en/usage/tips/appkeypad.html *)
       | Other (["csr"], [_; _]) ->
         (* Set Scrolling Region/Set Margins/"DECSTBM" *)
-        ()
+        None
       | Other (["ccvis"], []) ->
         (* Set cursor "very" visible (12 = show, 25 = blink) *)
-        ()
+        None
       | Other (["cnorm"], []) ->
         (* Opposite of ccvis; hide cursor, stop blinking *)
-        ()
+        None
       | Other (["rmso"], []) ->
         (* Exit "standout" mode *)
-        ()
+        None
       | Other _ ->
-        ()
-  end;
-  parse_result
+        None
+  in
+  (parse_result, to_send)
 ;;
 
   (* 1b 5b 37 35 32 32 3b 31 48 7e 
@@ -310,7 +320,7 @@ let width t = (Grid.dim t.grid).width
 
 let render t =
   (* Each line will be 1 + 5*width + 1 (for '|' + 5 * '    |' + '\n') *)
-  let buf = String.create ((height t) * (1 + 5 * (width t) + 1)) in
+  let buf = String.create ((height t) * (1 + 3 * (width t) + 1)) in
   let idx = ref 0 in
   let output_char chr = String.set buf !idx chr; Core.Std.incr idx in
   let newline () = output_char '\n' in
@@ -330,7 +340,7 @@ let render t =
       let chr = Grid.get t.grid coord in
       let chr = if chr = null_byte then ' ' else chr in
       (* output_string (sprintf "%02x" (Char.to_int chr) *)
-      output_string (sprintf "% 4s" (Char.escaped chr)
+      output_string (sprintf "% 2s" (Char.escaped chr)
       );
     done;
     output_bar None;
@@ -343,19 +353,19 @@ let%expect_test _ =
   let t = create { width = 5; height = 3; } Control_functions.Parser.default in
   printf !"%s" (render t);
   [%expect {|
-    [    ]    |    |    |    |
-    |    |    |    |    |    |
-    |    |    |    |    |    | |}];
+    [  ]  |  |  |  |
+    |  |  |  |  |  |
+    |  |  |  |  |  | |}];
   putc t 'A';
   printf !"%s" (render t);
   [%expect {|
-    |   A[    ]    |    |    |
-    |    |    |    |    |    |
-    |    |    |    |    |    | |}];
+    | A[  ]  |  |  |
+    |  |  |  |  |  |
+    |  |  |  |  |  | |}];
   t.cursor <- { x = 4; y = 1; };
   printf !"%s" (render t);
   [%expect {|
-    |   A|    |    |    |    |
-    |    |    |    |    [    ]
-    |    |    |    |    |    | |}];
+    | A|  |  |  |  |
+    |  |  |  |  [  ]
+    |  |  |  |  |  | |}];
 ;;

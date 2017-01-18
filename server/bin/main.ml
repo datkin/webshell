@@ -104,17 +104,33 @@ let tty_cmd =
           String.to_list str
           |> List.map ~f:(fun chr ->
             (* Core.Std.printf ">  '%s'\n%!" (String.escaped (Char.to_string chr)); *)
-            let parse_result = Window.update window chr in
+            let (parse_result, to_send) = Window.update window chr in
+            begin
+              match to_send with
+              | None -> ()
+              | Some str ->
+                Core.Std.printf "Sending '%s'\n%!" (String.escaped str);
+                Writer.write writer str
+            end;
             chr, parse_result)
           |> split_by_last_rendered
         in
-        List.iter pre_render_steps ~f:(fun (chr, parse_result) ->
+        let count = ref 0 in
+        List.iter pre_render_steps ~f:(fun (_chr, parse_result) ->
+          incr count;
+          (*
           Core.Std.printf "  %02x (%s)\n%!"
             (Char.to_int chr)
             (String.escaped (Char.to_string chr));
+            *)
           begin
             match parse_result with
             | `pending -> ()
+            | `literal c ->
+              Core.Std.printf "'%c', %!" c;
+              if (!count % 20) = 0
+              then Core.Std.printf "\n%!"
+              else ()
             | _ ->
               Core.Std.printf !"%{sexp:Control_functions.parse_result}\n%!"
                 parse_result
@@ -122,7 +138,7 @@ let tty_cmd =
         begin
           if List.is_empty pre_render_steps
           then () (* the screen didn't upgade, don't redraw it *)
-          else Core.Std.printf "%s%!" (Window.render window)
+          else Core.Std.printf "=== start ===\n%s=== stop ===\n%!" (Window.render window)
         end;
         List.iter post_render_steps ~f:(fun chr ->
           Core.Std.printf "  %02x (%s)\n%!"
