@@ -22,26 +22,12 @@
    * `man terminfo` and `infocmp`
 
  - An interesting example command to run:
-     ./main.native tty -term xterm -cwd /tmp -env TERM=xterm -exe /usr/bin/vim -- vim | tee /tmp/x
-   I'm unsure why, but vim just continually outputs characters... (I think this is just b/c the screen size was huge?)
 
- - If you use vt100, it doesn't spew output constantly.
+   $ (exe=vim; term=xterm; ./main.native tty -dim 50x30 -cwd "/tmp" -env TERM=$term -env HOME=/Users/datkin -exe $(which $exe) -- $exe) 2>&1
 
- - Weirdly, if you launch it with no environment, it doesn't do anything for a
-   while (a few minutes?). This is weird b/c if I run vim in an actual terminal
-   (with all environment variables removed) it runs fine. Maybe bash always
-   reexports the 'term' variable? (this should also be easy to check)
-
- - Here's an example that behaves non-deterministically (this was b/c of the window size bug in the C code):
-
-   (exe=nano; term=vt100; ./main.native tty -dim 30x30 -cwd "/tmp" -env TERM=$term -term $term -exe $(which $exe) -- $exe) | tee /tmp/x 2>&1
-
-   Most of the time it hands. Sometimes it gives an "Error opening terminal"
-   response, and rarely it actually seem to render nano...
-
-   To investigate, I've been tracing via `dtruss` on OS X. Let's say we want to
-   start by trace on a "normal" nano process. First, weirdly, dtruss doesn't
-   work on certain executable locations? So first:
+ - To investigate issues on OS X, I've been tracing via `dtruss`. Let's say we
+   want to start by trace on a "normal" nano process. First, weirdly, dtruss
+   doesn't work on certain executable locations? So first:
 
    $ cat $(which nano) > /tmp
 
@@ -69,10 +55,6 @@
  - Perhaps useful reference: iTerm2's pty wrapper:
    https://github.com/gnachman/iTerm2/blob/master/sources/PTYTask.m
 
- - Is xterm's control language fully described by infocmp? I suspect not. For
-   one thing, the xterm spec uses "Pm" to denote multiple numeric args
-   separated by ";", which doesn't seem like a thing in infocmp.
-
  - functions and manpages that may be of interest:
     - ioctl's relevant to terminal management: man 4 tty
     - man 4 termios, and tcsetattr (function for setting terminal attributes) for setting the attributes discussed
@@ -81,6 +63,3 @@
 
  - This program seems useful for testing terminal emulator behavior:
    http://invisible-island.net/vttest/vttest.html
-
- - The following seems to work (as of the last commit on 2017-01-16)
-   $ (exe=vim; term=xterm; ./main.native tty -dim 30x30 -cwd "/tmp" -env TERM=$term -exe $(which $exe) -- $exe)
