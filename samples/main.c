@@ -4,9 +4,14 @@
 
 void dump(char* str) {
   int idx = 0;
-  printf("> ");
+  printf("hex   > ");
   while (str[idx]) {
-    //printf("%02x ", str[idx]);
+    printf("%02x ", str[idx]);
+    idx++;
+  }
+  idx = 0;
+  printf("\nascii > ");
+  while (str[idx]) {
     printf("'%c', ", str[idx]);
     idx++;
   }
@@ -22,10 +27,11 @@ int main(int argc, char** argv) {
    *
    * See `man curs_terminfo` and `man terminfo`. */
   setterm("xterm");
-  char* str = tigetstr("cud");
+  char* str;
+  str = tigetstr("cud");
   dump(str);
-  char* str2 = tparm(str, 1);
-  dump(str2);
+  str = tparm(str, 1);
+  dump(str);
 
   char* test;
   // This pushes the sum of arg1 and arg2 to the stack, and then prints it.
@@ -44,6 +50,10 @@ int main(int argc, char** argv) {
 
   // supposedly %l pushes to the stack, but this example shows %l printing
   test = tparm ("%p2%l", "a", "abc");
+  dump(test);
+
+  str = tigetstr("sgr");
+  test = tparm(str, 1, 0, 0, 0, 0, 0, 0, 0, 0);
   dump(test);
 
   printf("done\n");
