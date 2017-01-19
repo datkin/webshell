@@ -23,7 +23,7 @@
 
  - An interesting example command to run:
      ./main.native tty -term xterm -cwd /tmp -env TERM=xterm -exe /usr/bin/vim -- vim | tee /tmp/x
-   I'm unsure why, but vim just continually outputs characters...
+   I'm unsure why, but vim just continually outputs characters... (I think this is just b/c the screen size was huge?)
 
  - If you use vt100, it doesn't spew output constantly.
 
@@ -32,11 +32,7 @@
    (with all environment variables removed) it runs fine. Maybe bash always
    reexports the 'term' variable? (this should also be easy to check)
 
- - Here's an example command to run which "works":
-
-   ./main.native tty -cwd "/tmp" -env TERM=xterm -term xterm -exe "/bin/echo" -- "echo" "hello"
-
- - Here's an example that behaves non-deterministically:
+ - Here's an example that behaves non-deterministically (this was b/c of the window size bug in the C code):
 
    (exe=nano; term=vt100; ./main.native tty -dim 30x30 -cwd "/tmp" -env TERM=$term -term $term -exe $(which $exe) -- $exe) | tee /tmp/x 2>&1
 
