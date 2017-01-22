@@ -81,11 +81,21 @@ let tty_cmd =
               then "\n"
               else str
             in
-            Core.Std.printf "writing: ";
-            String.iter str ~f:(fun char ->
-              Core.Std.printf " %02x" (Char.to_int char));
-            Core.Std.printf "\n";
-            Writer.write writer str)
+            match Scanf.sscanf str "%S" (fun unescaped_str ->
+              (* In theory, the unescaped str will look identical to the
+               * string we just typed... *)
+              Core.Std.printf "writing: %S\n%!" unescaped_str;
+              (*
+              String.iter str ~f:(fun char ->
+                Core.Std.printf " %02x" (Char.to_int char));
+              Core.Std.printf "\n";
+              *)
+              Writer.write writer unescaped_str)
+            with
+            | () -> ()
+            | exception exn ->
+              Core.Std.eprintf !"Error parsing '%s': %{Exn}\n%!" str exn
+          )
       );
       Pipe.iter_without_pushback (Reader.pipe reader) ~f:(fun str ->
         (* The idea here is we want to show each character that was read, and
