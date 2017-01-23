@@ -12,7 +12,7 @@ let dim_of_string str =
   | _ -> failwithf {|dim_of_string "%S"|} str ()
 ;;
 
-type coord = Control_functions.coord = {
+type coord = {
   x : int;
   y : int;
 } [@@deriving sexp, compare]
@@ -51,7 +51,6 @@ module Cell : sig
 
   val clear : t -> unit
   val clear_code : t -> unit
-  val set_code : t -> Char.t -> unit
 end = struct
   type t = {
     mutable code : Char.t;
@@ -69,8 +68,6 @@ end = struct
     clear_code t;
     Attributes.clear t.attributes;
   ;;
-
-  let set_code t chr = t.code <- chr
 end
 
 module Grid : sig
@@ -101,23 +98,15 @@ end = struct
     current_attributes : Attributes.t;
   } [@@deriving sexp_of, fields]
 
-  let create dim =
-    let t = {
-      dim;
-      (* This is a bit dumb/confusing. We're doing our array row-major, not column
-       * major. But here [dimx] corresponds to the major dimension. *)
-      data = Array.make_matrix ~dimx:dim.height ~dimy:dim.width (Cell.init ());
-      first_row = 0;
-      num_rows = 0;
-      current_attributes = Attributes.plain;
-    }
-    in
-    for y = 0 to t.dim.height - 1 do
-      for x = 0 to t.dim.width - 1 do
-        t.data.(y).(x) <- Cell.init ();
-      done
-    done;
-    t
+  let create dim = {
+    dim;
+    (* This is a bit dumb/confusing. We're doing our array row-major, not column
+     * major. But here [dimx] corresponds to the major dimension. *)
+    data = Array.make_matrix ~dimx:dim.height ~dimy:dim.width null_byte;
+    first_row = 0;
+    num_rows = 0;
+    current_attributes = Attributes.plain;
+  }
 
   let invariant t =
     assert (Array.length t.data = t.dim.height);
@@ -155,14 +144,11 @@ end = struct
   let translate_y t ~y =
     (t.first_row + y) % t.dim.height
 
-  let fold t ~init ~f =
-    let acc = ref init in
-    for y = 0 to t.num_rows - 1 do
-      for x = 0 to t.dim.width - 1 do
-        acc := f !acc ~x ~y t.data.(translate_y t ~y).(x)
-      done
-    done;
-    !acc
+  let get t { x; y; } =
+    assert_in_bounds t ~x ~y;
+    if y >= t.num_rows
+    then null_byte
+    else t.data.(translate_y t ~y).(x)
 
   let clear_row t ~y =
     let y = translate_y t ~y in
@@ -179,17 +165,17 @@ end = struct
     t.num_rows <- max_y + 1;
   ;;
 
-  let get t { x; y; } =
+  let set t { x; y; } chr =
     assert_in_bounds t ~x ~y;
     if y >= t.num_rows
     then grow_rows t ~max_y:y;
     assert (y < t.num_rows);
-    t.data.(translate_y t ~y).(x);
+    Cell.set_code t.data.(translate_y t ~y).(x) chr;
   ;;
 
   let scroll t n =
     if abs n >= t.dim.height
-    then clear_all t
+    then clear t
     else begin
       (* If scrolling down, we move the pointer back, and clear earlier rows.
        * Then, we increase the number of rows.
@@ -204,6 +190,15 @@ end = struct
       t.num_rows <- max 0 (min t.dim.height (t.num_rows - n));
     end
   ;;
+
+  let fold t ~init ~f =
+    let acc = ref init in
+    for y = 0 to t.num_rows - 1 do
+      for x = 0 to t.dim.width - 1 do
+        acc := f !acc ~x ~y t.data.(translate_y t ~y).(x)
+      done
+    done;
+    !acc
 
   let find_all t target =
     fold t ~init:[] ~f:(fun acc ~x ~y elt ->
@@ -220,7 +215,7 @@ end = struct
       ~expect:(dim.width * dim.height)
       (fold t ~init:0 ~f:(fun size ~x:_ ~y:_ _ -> size + 1));
       *)
-    Cell.set_code (get t origin) 'x';
+    set t origin 'x';
     [%test_result: coord list] ~expect:[origin] (find_all t 'x');
     scroll t (-1);
     [%test_result: coord list] ~expect:[{x = 0; y = 1}] (find_all t 'x');
@@ -228,7 +223,7 @@ end = struct
     scroll t 1;
     [%test_result: coord list] ~expect:[{x = 0; y = 0}] (find_all t 'x');
     invariant t;
-    Cell.set_code (get t { x = 2; y = 3; }) 'y';
+    set t { x = 2; y = 3; } 'y';
     [%test_result: coord list] ~expect:[{x = 2; y = 3}] (find_all t 'y');
     invariant t;
     scroll t 2;
@@ -317,7 +312,7 @@ let putc t chr =
 ;;
 
 let clear t =
-  Grid.clear_all t.grid;
+  Grid.clear_all t.grid
   t.cursor <- origin;
 ;;
 
@@ -341,28 +336,26 @@ let update t chr =
       | Bell -> None
       | Insert_blank _
       | Cursor_rel (_, _)
-      | Start_of_line_rel (_, _) ->
-        None
+      | Start_of_line_rel (_, _)
       | Cursor_abs coord ->
         t.cursor <- coord; None
       | Erase_line_including_cursor which ->
         let (min_x, max_x) =
           match which with
-          | `Left -> 0, t.cursor.x
-          | `Right -> t.cursor.x, (dim t).width - 1
-          | `All -> 0, (dim t).width - 1
+          | `Left -> 0, t.cursor.x + 1
+          | `Right -> t.cursor.x, t.dim.width
+          | `All -> 0, t.dim.width
         in
         for x = min_x to max_x; do
           Cell.clear (Grid.get t.grid { t.cursor with x })
         done;
         None
       | Set_scrolling_region { top; bottom } ->
-        (* http://www.vt100.net/docs/vt510-rm/DECSTBM.html *)
         let top = Option.value top ~default:0 in
         let bottom = Option.value bottom ~default:(dim t).height in
-        t.cursor <- { x = top; y = 0; };
-        t.scroll_region <- (top, bottom);
-        None
+        t.scrolling_region <- (top, bottom);
+
+      (* http://www.vt100.net/docs/vt510-rm/DECSTBM.html *)
       | Other (["VPA"], [Some row]) ->
         t.cursor <- { t.cursor with y = row-1; }; None
       | Other (["CUP"], []) -> t.cursor <- origin; None
@@ -431,7 +424,7 @@ let render t =
     for x = 0 to (dim t).width - 1 do
       let coord = { x; y; } in
       output_bar (Some coord);
-      let chr = Grid.get t.grid coord |> Cell.code in
+      let chr = Grid.get t.grid coord in
       let chr = if chr = null_byte then ' ' else chr in
       (* output_string (sprintf "%02x" (Char.to_int chr) *)
       output_string (sprintf "% 2s" (Char.escaped chr)

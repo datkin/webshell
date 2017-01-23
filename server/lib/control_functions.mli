@@ -33,6 +33,8 @@ type t =
   | Cursor_rel of dir * int
   | Start_of_line_rel of up_or_down * int
   | Cursor_abs of coord
+  | Erase_line_including_cursor of [ `Left | `Right | `All ] (* http://www.vt100.net/docs/vt510-rm/EL.html *)
+  | Set_scrolling_region of { top : int option; bottom : int option } (* http://www.vt100.net/docs/vt510-rm/DECSTBM.html *)
   | Other of (string list * int option list)
 [@@deriving sexp, compare]
 

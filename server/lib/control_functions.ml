@@ -28,6 +28,8 @@ type t =
   | Cursor_rel of dir * int
   | Start_of_line_rel of up_or_down * int
   | Cursor_abs of coord
+  | Erase_line_including_cursor of [ `Left | `Right | `All ] (* http://www.vt100.net/docs/vt510-rm/EL.html *)
+  | Set_scrolling_region of { top : int option; bottom : int option } (* http://www.vt100.net/docs/vt510-rm/DECSTBM.html *)
   | Other of (string list * int option list)
 [@@deriving sexp, compare]
 
@@ -53,29 +55,40 @@ module Spec = struct
       | ns -> failwithf !"Called with %{sexp:int option list}" ns ()
   ;;
 
-  let n' ctor default = (* single number arg *)
+  let n1 default ctor = (* single number arg *)
     function
       | [n] -> ctor (Option.value n ~default)
       | ns -> failwithf !"Called with %{sexp:int option list}" ns ()
   ;;
 
-  let n'' ctor default = (* two args *)
+  let no1 ctor =
     function
-      | [n1; n2] -> ctor (Option.value n1 ~default) (Option.value n2 ~default)
+      | [n_opt] -> ctor n_opt
+      | n_opts -> failwithf !"Called with %{sexp:int option list}" n_opts ()
+
+  let n2 d1 d2 ctor = (* two args *)
+    function
+      | [n1; n2] ->
+        ctor (Option.value n1 ~default:d1) (Option.value n2 ~default:d2)
       | ns -> failwithf !"Called with %{sexp:int option list}" ns ()
   ;;
+
+  let no2 ctor =
+    function
+      | [n1_opt; n2_opt] -> ctor n1_opt n2_opt
+      | n_opts -> failwithf !"Called with %{sexp:int option list}" n_opts ()
 
   let default_spec = [
     [c "\x06"], s Ack;
     [c "\x07"], s Bell;
-    [csi; n; c "@"], n' (fun x -> Insert_blank x) 1;
-    [csi; n; c "A"], n' (fun x -> Cursor_rel (Up, x)) 1;
-    [csi; n; c "B"], n' (fun x -> Cursor_rel (Down, x)) 1;
-    [csi; n; c "C"], n' (fun x -> Cursor_rel (Left, x)) 1;
-    [csi; n; c "D"], n' (fun x -> Cursor_rel (Right, x)) 1;
-    [csi; n; c "E"], n' (fun x -> Start_of_line_rel (Down, x)) 1;
-    [csi; n; c "F"], n' (fun x -> Start_of_line_rel (Up, x)) 1;
-    [csi; n; c ";"; n; c "H"], n'' (fun x y -> Cursor_abs {x; y}) 1;
+    [csi; n; c "@"], n1 1 (fun x -> Insert_blank x);
+    [csi; n; c "A"], n1 1 (fun x -> Cursor_rel (Up, x));
+    [csi; n; c "B"], n1 1 (fun x -> Cursor_rel (Down, x));
+    [csi; n; c "C"], n1 1 (fun x -> Cursor_rel (Left, x));
+    [csi; n; c "D"], n1 1 (fun x -> Cursor_rel (Right, x));
+    [csi; n; c "E"], n1 1 (fun x -> Start_of_line_rel (Down, x));
+    [csi; n; c "F"], n1 1 (fun x -> Start_of_line_rel (Up, x));
+    [csi; n; c ";"; n; c "H"], n2 1 1 (fun x y -> Cursor_abs {x; y});
   ]
 
   type elt = {
@@ -148,7 +161,7 @@ module Spec = struct
   let pm = Numbers
 
   let xterm_spec_for_test = [
-    [csi; ps; c ";"; ps; c "H"], n'' (fun x y -> Other (["CUP"], [Some x; Some y])) 1;
+    [csi; ps; c ";"; ps; c "H"], no2 (fun x y -> Other (["CUP"], [x; y]));
     [csi; pm; c "m"], (fun args -> Other (["SGR"], args));
   ]
 
@@ -163,28 +176,36 @@ module Spec = struct
      * Device Attributes (Secondary DA)". *)
     [c "\x06"], s Ack;
     [c "\x07"], s Bell;
-    [csi; n; c "@"], n' (fun x -> Insert_blank x) 1;
-    [csi; n; c "A"], n' (fun x -> Cursor_rel (Up, x)) 1;
-    [csi; n; c "B"], n' (fun x -> Cursor_rel (Down, x)) 1;
-    [csi; n; c "C"], n' (fun x -> Cursor_rel (Left, x)) 1;
-    [csi; n; c "D"], n' (fun x -> Cursor_rel (Right, x)) 1;
-    [csi; n; c "E"], n' (fun x -> Start_of_line_rel (Down, x)) 1;
-    [csi; n; c "F"], n' (fun x -> Start_of_line_rel (Up, x)) 1;
-    [csi; ps; c "J"], n' (fun x -> Other (["ED"], [Some x])) 0;
-    [csi; ps; c "K"], n' (fun x -> Other (["EL"], [Some x])) 0;
+    [csi; n; c "@"], n1 1 (fun x -> Insert_blank x);
+    [csi; n; c "A"], n1 1 (fun x -> Cursor_rel (Up, x));
+    [csi; n; c "B"], n1 1 (fun x -> Cursor_rel (Down, x));
+    [csi; n; c "C"], n1 1 (fun x -> Cursor_rel (Left, x));
+    [csi; n; c "D"], n1 1 (fun x -> Cursor_rel (Right, x));
+    [csi; n; c "E"], n1 1 (fun x -> Start_of_line_rel (Down, x));
+    [csi; n; c "F"], n1 1 (fun x -> Start_of_line_rel (Up, x));
+    [csi; ps; c "J"], n1 1 (fun x -> Other (["ED"], [Some x]));
+    [csi; ps; c "K"], n1 0 (fun x ->
+      let which =
+        match x with
+        | 0 -> `Right
+        | 1 -> `Left
+        | 2 -> `All
+        | _ -> failwithf "EL: unexpected arg %n" x ()
+      in
+      Erase_line_including_cursor which);
     [csi; pm; c "H"], (fun args -> Other (["CUP"], args));
     [csi; pm; c "m"], (fun args -> Other (["SGR"], args));
     [csi; c "?"; pm; c "h"], (fun args -> Other (["DECSET"], args));
     [csi; c "?"; pm; c "l"], (fun args -> Other (["DECRST"], args));
     [c "\x1b="], s (Other (["DECPAM"], []));
     (* CR datkin: Defaults for the following are wrong. *)
-    [csi; ps; c ";"; ps; c "r"], n'' (fun x y -> Other (["DECSTBM"], [Some x; Some y])) 1;
+    [csi; ps; c ";"; ps; c "r"], no2 (fun top bottom -> Set_scrolling_region { top; bottom; });
     (* "Send Device Attributes (Secondary DA)"
      * This one looks weird, see:
      * http://www.vt100.net/docs/vt510-rm/DA2.html
      * http://www.vt100.net/docs/vt510-rm/DA1.html
      *)
-    [csi; c ">"; ps; c "c"], n' (fun x -> Other (["Send Device Attrib (secondary)"], [Some x])) 0;
+    [csi; c ">"; ps; c "c"], n1 0 (fun x -> Other (["Send Device Attrib (secondary)"], [Some x]));
     (* CR datkin: Technically "B" is a parameter. *)
     [c "\027(B"; ], s (Other (["Designate G0 Character Set: US"], []));
     [csi; pm; c "l"], (fun args -> Other (["RM"], args));

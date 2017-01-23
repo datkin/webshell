@@ -29,9 +29,11 @@ val update : t -> char -> (Control_functions.parse_result * string option)
 
 val cursor : t -> coord
 
+(*
 (* CR datkin: Add style information. *)
 (* Returns null byte for out of bounds coords. *)
 val get : t -> coord -> Char.t
+*)
 
 (* CR-someday datkin: Perhaps this should take a write callback of some sort. *)
 val render : t -> string

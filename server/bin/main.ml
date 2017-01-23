@@ -76,11 +76,9 @@ let tty_cmd =
       don't_wait_for (
         Pipe.iter_without_pushback (Reader.lines (force Reader.stdin))
           ~f:(fun str ->
-            let str =
-              if str = ""
-              then "\n"
-              else str
-            in
+            if String.is_empty str
+            then ()
+            else
             match Scanf.sscanf str "%S" (fun unescaped_str ->
               (* In theory, the unescaped str will look identical to the
                * string we just typed... *)
