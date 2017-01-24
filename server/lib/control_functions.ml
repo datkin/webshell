@@ -62,6 +62,7 @@ module Spec = struct
 
   let n1 default ctor = (* single number arg *)
     function
+      | [] -> ctor default
       | [n] -> ctor (Option.value n ~default)
       | ns -> failwithf !"Called with %{sexp:int option list}" ns ()
   ;;
@@ -73,6 +74,8 @@ module Spec = struct
 
   let n2 d1 d2 ctor = (* two args *)
     function
+      | [] ->
+        ctor d1 d2
       | [n1; n2] ->
         ctor (Option.value n1 ~default:d1) (Option.value n2 ~default:d2)
       | ns -> failwithf !"Called with %{sexp:int option list}" ns ()
@@ -206,7 +209,7 @@ module Spec = struct
         | _ -> failwithf "EL: unexpected arg %n" x ()
       in
       Erase_line_including_cursor which);
-    [csi; pm; c "H"], n2 1 1 (fun x y -> Cursor_abs { x; y });
+    [csi; pm; c "H"], n2 1 1 (fun y x -> Cursor_abs { x; y });
     [csi; pm; c "m"], (fun args -> Other (["SGR"], args));
     [csi; c "?"; pm; c "h"], (fun args ->
       let modes = List.filter_map args ~f:(Option.map ~f:Dec_private_mode.of_int) in
@@ -412,7 +415,16 @@ module Parser = struct
     | Some fn ->
       (* CR datkin: Check for ambiguities: if [next_node_by_char] has any
        * subsequent nodes. *)
-      `ok (fn (List.rev stack), String.of_char_list all_chars)
+      let value =
+        try
+          fn (List.rev stack)
+        with exn ->
+          raise_s [%message "Parse error"
+            (exn : Exn.t)
+            (all_chars : Char.t list)
+          ]
+      in
+      `ok (value, String.of_char_list all_chars)
     | None ->
       `keep_going {
         node;

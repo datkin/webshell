@@ -392,8 +392,8 @@ let update t chr =
       | Cursor_rel (_, _)
       | Start_of_line_rel (_, _) ->
         None
-      | Cursor_abs coord ->
-        t.cursor <- coord; None
+      | Cursor_abs { x=col; y=row; } ->
+        t.cursor <- { x=col-1; y=row-1 }; None
       | Erase_line_including_cursor which ->
         let (min_x, max_x) =
           match which with
@@ -417,10 +417,10 @@ let update t chr =
         None
       | Dec_mode (_, _)
       | Designate_char_set { g = _; character_set = _ }
+      | Send_device_attribute `primary
         -> None
-      | Send_device_attribute `primary ->
+      | Send_device_attribute `secondary ->
         Some "\027[>1;95;0c"
-
       | Other (["VPA"], [Some row]) ->
         t.cursor <- { t.cursor with y = row-1; }; None
       | Other (["CUP"], []) -> t.cursor <- origin; None
@@ -428,6 +428,7 @@ let update t chr =
       | Other (["DECSET"], [Some 1049]) ->
         clear t; None
       | Other (["ED"], [Some 2]) -> Grid.clear_all t.grid; None
+
       | Other ([ "smcup"; ], []) ->
         (* CR datkin: Actually implement the two buffer modes. *)
         (* This is "start cursor addressing mode". In xterm it means "switch to
