@@ -17,8 +17,8 @@ type up_or_down =
 [@@deriving sexp, compare]
 
 type coord = {
-  x : int;
   y : int;
+  x : int;
 } [@@deriving sexp, compare]
 
 type t =
@@ -29,7 +29,11 @@ type t =
   | Start_of_line_rel of up_or_down * int
   | Cursor_abs of coord
   | Erase_line_including_cursor of [ `Left | `Right | `All ] (* http://www.vt100.net/docs/vt510-rm/EL.html *)
+  | Erase_display_including_cursor of [ `From_start | `To_end | `All ] (* http://www.vt100.net/docs/vt510-rm/ED.html *)
   | Set_scrolling_region of { top : int option; bottom : int option } (* http://www.vt100.net/docs/vt510-rm/DECSTBM.html *)
+  | Dec_mode of [ `set | `clear ] * Dec_private_mode.t list
+  | Designate_char_set of { g : int; character_set : Character_set.t }
+  | Send_device_attribute of [ `primary | `secondary ]
   | Other of (string list * int option list)
 [@@deriving sexp, compare]
 
@@ -46,6 +50,7 @@ module Spec = struct
     | Numbers
 
   let c str = Constant (String.to_list str)
+  let c' chr = Constant [chr]
   let csi = c "\x1b["
   let n = Number
 
@@ -183,7 +188,15 @@ module Spec = struct
     [csi; n; c "D"], n1 1 (fun x -> Cursor_rel (Right, x));
     [csi; n; c "E"], n1 1 (fun x -> Start_of_line_rel (Down, x));
     [csi; n; c "F"], n1 1 (fun x -> Start_of_line_rel (Up, x));
-    [csi; ps; c "J"], n1 1 (fun x -> Other (["ED"], [Some x]));
+    [csi; ps; c "J"], n1 0 (fun x ->
+      let which =
+        match x with
+        | 0 -> `To_end
+        | 1 -> `From_start
+        | 2 -> `All
+        | _ -> failwithf "ED: unexpected arg %n" x ()
+      in
+      Erase_display_including_cursor which);
     [csi; ps; c "K"], n1 0 (fun x ->
       let which =
         match x with
@@ -193,11 +206,15 @@ module Spec = struct
         | _ -> failwithf "EL: unexpected arg %n" x ()
       in
       Erase_line_including_cursor which);
-    [csi; pm; c "H"], (fun args -> Other (["CUP"], args));
+    [csi; pm; c "H"], n2 1 1 (fun x y -> Cursor_abs { x; y });
     [csi; pm; c "m"], (fun args -> Other (["SGR"], args));
-    [csi; c "?"; pm; c "h"], (fun args -> Other (["DECSET"], args));
-    [csi; c "?"; pm; c "l"], (fun args -> Other (["DECRST"], args));
-    [c "\x1b="], s (Other (["DECPAM"], []));
+    [csi; c "?"; pm; c "h"], (fun args ->
+      let modes = List.filter_map args ~f:(Option.map ~f:Dec_private_mode.of_int) in
+      Dec_mode (`set, modes));
+    [csi; c "?"; pm; c "l"], (fun args ->
+      let modes = List.filter_map args ~f:(Option.map ~f:Dec_private_mode.of_int) in
+      Dec_mode (`clear, modes));
+      [c "\x1b="], s (Dec_mode (`set, [Application_keypad]));
     (* CR datkin: Defaults for the following are wrong. *)
     [csi; ps; c ";"; ps; c "r"], no2 (fun top bottom -> Set_scrolling_region { top; bottom; });
     (* "Send Device Attributes (Secondary DA)"
@@ -205,12 +222,27 @@ module Spec = struct
      * http://www.vt100.net/docs/vt510-rm/DA2.html
      * http://www.vt100.net/docs/vt510-rm/DA1.html
      *)
-    [csi; c ">"; ps; c "c"], n1 0 (fun x -> Other (["Send Device Attrib (secondary)"], [Some x]));
-    (* CR datkin: Technically "B" is a parameter. *)
-    [c "\027(B"; ], s (Other (["Designate G0 Character Set: US"], []));
+    [csi; ps; c "c"], n1 0 (function
+      | 0
+      | 1 -> Send_device_attribute `primary
+      | n -> failwithf "unexpected arg %n" n ());
+    [csi; c ">"; ps; c "c"], n1 0 (function
+      | 0
+      | 1 -> Send_device_attribute `secondary
+      | n -> failwithf "unexpected arg %n" n ());
     [csi; pm; c "l"], (fun args -> Other (["RM"], args));
     [csi; pm; c "d"], (fun args -> Other (["VPA"], args));
   ]
+  @
+  (Map.to_alist Character_set.by_vt100_code
+   |> List.concat_map ~f:(fun (cs_code, character_set) ->
+       List.map [
+         '(', 0;
+         ')', 1;
+         '*', 2;
+         '+', 3;
+       ] ~f:(fun (g_code, g) ->
+         [ c "\027"; c' g_code; c' cs_code ], s (Designate_char_set { g; character_set }))))
 
   let xterm =
     List.map xterm_spec ~f:(fun (helpers, fn) -> of_helpers helpers, fn)

@@ -10,8 +10,8 @@ val dim_of_string : string -> dim
 
 (* The origin is the top-left corner. *)
 type coord = {
-  x : int;
   y : int;
+  x : int;
 }
 
 type t

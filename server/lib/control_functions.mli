@@ -22,8 +22,8 @@ type up_or_down =
 [@@deriving sexp, compare]
 
 type coord = {
-  x : int;
   y : int;
+  x : int;
 } [@@deriving sexp, compare]
 
 type t =
@@ -34,7 +34,11 @@ type t =
   | Start_of_line_rel of up_or_down * int
   | Cursor_abs of coord
   | Erase_line_including_cursor of [ `Left | `Right | `All ] (* http://www.vt100.net/docs/vt510-rm/EL.html *)
+  | Erase_display_including_cursor of [ `From_start | `To_end | `All ] (* http://www.vt100.net/docs/vt510-rm/ED.html *)
   | Set_scrolling_region of { top : int option; bottom : int option } (* http://www.vt100.net/docs/vt510-rm/DECSTBM.html *)
+  | Dec_mode of [ `set | `clear ] * Dec_private_mode.t list
+  | Designate_char_set of { g : int; character_set : Character_set.t }
+  | Send_device_attribute of [ `primary | `secondary ]
   | Other of (string list * int option list)
 [@@deriving sexp, compare]
 

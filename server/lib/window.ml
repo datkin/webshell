@@ -13,9 +13,21 @@ let dim_of_string str =
 ;;
 
 type coord = Control_functions.coord = {
-  x : int;
   y : int;
+  x : int;
 } [@@deriving sexp, compare]
+
+let%test_unit _ =
+  let coords = [
+    { y = 0; x = 20; };
+    { y = 5; x = 4; };
+    { y = 5; x = 5; };
+    { y = 5; x = 6; };
+    { y = 20; x = 0; };
+  ]
+  in
+  assert (List.is_sorted ~compare:compare_coord coords);
+;;
 
 let origin = { x = 0; y = 0; }
 
@@ -91,6 +103,8 @@ module Grid : sig
   val clear_cell : t -> coord -> unit
   *)
 
+  val fold : t -> init:'a -> f:('a -> x:int -> y:int -> Cell.t -> 'a) -> 'a
+
   val scroll : t -> int -> unit
 end = struct
   type t = {
@@ -155,15 +169,6 @@ end = struct
   let translate_y t ~y =
     (t.first_row + y) % t.dim.height
 
-  let fold t ~init ~f =
-    let acc = ref init in
-    for y = 0 to t.num_rows - 1 do
-      for x = 0 to t.dim.width - 1 do
-        acc := f !acc ~x ~y t.data.(translate_y t ~y).(x)
-      done
-    done;
-    !acc
-
   let clear_row t ~y =
     let y = translate_y t ~y in
     for x = 0 to t.dim.width - 1 do
@@ -187,6 +192,26 @@ end = struct
     t.data.(translate_y t ~y).(x);
   ;;
 
+  let fold_internal t ~init ~f =
+    let acc = ref init in
+    for y = 0 to t.num_rows - 1 do
+      for x = 0 to t.dim.width - 1 do
+        acc := f !acc ~x ~y t.data.(translate_y t ~y).(x)
+      done
+    done;
+    !acc
+  ;;
+
+  let fold t ~init ~f =
+    let acc = ref init in
+    for y = 0 to t.dim.height - 1 do
+      for x = 0 to t.dim.width - 1 do
+        acc := f !acc ~x ~y (get t { x; y })
+      done
+    done;
+    !acc
+  ;;
+
   let scroll t n =
     if abs n >= t.dim.height
     then clear_all t
@@ -206,7 +231,7 @@ end = struct
   ;;
 
   let find_all t target =
-    fold t ~init:[] ~f:(fun acc ~x ~y elt ->
+    fold_internal t ~init:[] ~f:(fun acc ~x ~y elt ->
       if Char.(=) target (Cell.code elt)
       then { x; y; } :: acc
       else acc)
@@ -257,6 +282,11 @@ let create dim spec = {
 
 let dim t =
   Grid.dim t.grid
+
+(* Set all locations to a parcitular character, useful for testing *)
+let paint t chr =
+  Grid.fold t.grid ~init:() ~f:(fun () ~x:_ ~y:_ cell ->
+    Cell.set_code cell chr)
 
 let invariant t =
   assert (t.cursor.x <= (dim t).width && t.cursor.y <= (dim t).height);
@@ -321,6 +351,25 @@ let clear t =
   t.cursor <- origin;
 ;;
 
+let erase_in_display t which =
+  let last = { x = (dim t).width - 1; y = (dim t).height - 1 } in
+  let start, stop =
+    match which with
+    | `From_start -> (origin, t.cursor)
+    | `To_end -> (t.cursor, last)
+    | `All -> (origin, last)
+    in
+    let rec loop coord =
+      (* We're always guaranteed to delete at least the cursor *)
+      Cell.clear (Grid.get t.grid coord);
+      let next = incr coord (dim t) in
+      if compare coord stop >= 0 (* coord > stop *)
+      || compare coord next > 0 (* coord > next, b/c [incr] wraps *)
+      then ()
+      else loop next
+  in
+  loop start
+
 let update t chr =
   let parse_result = t.parse chr in
   let to_send =
@@ -356,6 +405,9 @@ let update t chr =
           Cell.clear (Grid.get t.grid { t.cursor with x })
         done;
         None
+      | Erase_display_including_cursor which ->
+        erase_in_display t which;
+        None
       | Set_scrolling_region { top; bottom } ->
         (* http://www.vt100.net/docs/vt510-rm/DECSTBM.html *)
         let top = Option.value top ~default:0 in
@@ -363,6 +415,12 @@ let update t chr =
         t.cursor <- { x = top; y = 0; };
         t.scroll_region <- (top, bottom);
         None
+      | Dec_mode (_, _)
+      | Designate_char_set { g = _; character_set = _ }
+        -> None
+      | Send_device_attribute `primary ->
+        Some "\027[>1;95;0c"
+
       | Other (["VPA"], [Some row]) ->
         t.cursor <- { t.cursor with y = row-1; }; None
       | Other (["CUP"], []) -> t.cursor <- origin; None
@@ -370,8 +428,6 @@ let update t chr =
       | Other (["DECSET"], [Some 1049]) ->
         clear t; None
       | Other (["ED"], [Some 2]) -> Grid.clear_all t.grid; None
-      | Other (["Send Device Attrib (secondary)"], [Some 0]) ->
-        Some "\027[>1;95;0c"
       | Other ([ "smcup"; ], []) ->
         (* CR datkin: Actually implement the two buffer modes. *)
         (* This is "start cursor addressing mode". In xterm it means "switch to
@@ -456,10 +512,66 @@ let%expect_test _ =
     | A[  ]  |  |  |
     |  |  |  |  |  |
     |  |  |  |  |  | |}];
+  putc t '\n';
+  putc t '\n';
+  printf !"%s" (render t);
+  [%expect {|
+    | A|  |  |  |  |
+    |  |  |  |  |  |
+    |  [  ]  |  |  | |}];
   t.cursor <- { x = 4; y = 1; };
   printf !"%s" (render t);
   [%expect {|
     | A|  |  |  |  |
     |  |  |  |  [  ]
+    |  |  |  |  |  | |}];
+  putc t 'A';
+  printf !"%s" (render t);
+  [%expect {|
+    | A|  |  |  |  |
+    |  |  |  |  | A|
+    [  ]  |  |  |  | |}];
+;;
+
+let%expect_test _ =
+  let t = create { width = 5; height = 3; } Control_functions.Parser.default in
+  paint t 'X';
+  printf !"%s" (render t);
+  [%expect {|
+    [ X] X| X| X| X|
+    | X| X| X| X| X|
+    | X| X| X| X| X| |}];
+  t.cursor <- { y = 1; x = 2; };
+  erase_in_display t `From_start;
+  printf !"%s" (render t);
+  [%expect {|
+    |  |  |  |  |  |
+    |  |  [  ] X| X|
+    | X| X| X| X| X| |}];
+  paint t 'X';
+  printf !"%s" (render t);
+  [%expect {|
+    | X| X| X| X| X|
+    | X| X[ X] X| X|
+    | X| X| X| X| X| |}];
+  t.cursor <- { y = 1; x = 2; };
+  erase_in_display t `To_end;
+  printf !"%s" (render t);
+  [%expect {|
+    | X| X| X| X| X|
+    | X| X[  ]  |  |
+    |  |  |  |  |  | |}];
+  paint t 'X';
+  printf !"%s" (render t);
+  [%expect {|
+    | X| X| X| X| X|
+    | X| X[ X] X| X|
+    | X| X| X| X| X| |}];
+  t.cursor <- { y = 1; x = 2; };
+  erase_in_display t `All;
+  printf !"%s" (render t);
+  [%expect {|
+    |  |  |  |  |  |
+    |  |  [  ]  |  |
     |  |  |  |  |  | |}];
 ;;
