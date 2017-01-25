@@ -37,3 +37,4 @@ val get : t -> coord -> Char.t
 
 (* CR-someday datkin: Perhaps this should take a write callback of some sort. *)
 val render : t -> string
+val render_html : t -> string

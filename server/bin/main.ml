@@ -23,6 +23,7 @@ let tty_cmd =
       let dim = Arg_type.create Window.dim_of_string in
       empty
       +> flag "term" (optional string) ~doc:"name Terminfo name"
+      +> flag "html" (optional string) ~doc:"file Write html files to given location"
       +> flag "dim" (optional dim) ~doc:"<width>x<height> Dimensions of terminal"
       +> flag "cwd" (required string) ~doc:"dir cwd"
       +> flag "exe" (required string) ~doc:"exe exe"
@@ -32,7 +33,7 @@ let tty_cmd =
         ~doc:" Use the current environment as the base environment"
       +> flag "--" escape ~doc:"args"
     )
-    (fun term dim cwd exe env include_this_env args () ->
+    (fun term html dim cwd exe env include_this_env args () ->
       let dim = Option.value dim ~default:{ Window. width = 20; height = 15; } in
       let base_env =
         if include_this_env
@@ -95,7 +96,7 @@ let tty_cmd =
               Core.Std.eprintf !"Error parsing '%s': %{Exn}\n%!" str exn
           )
       );
-      Pipe.iter_without_pushback (Reader.pipe reader) ~f:(fun str ->
+      Pipe.iter (Reader.pipe reader) ~f:(fun str ->
         (* The idea here is we want to show each character that was read, and
          * after each interpretable sequence, we print the interpretation.
          * We'd also like to render the screen periodically. The most sensible
@@ -145,9 +146,15 @@ let tty_cmd =
           end);
         begin
           if List.is_empty pre_render_steps
-          then () (* the screen didn't upgade, don't redraw it *)
-          else Core.Std.printf "=== start ===\n%s=== stop ===\n%!" (Window.render window)
+          then Deferred.unit (* the screen didn't upgade, don't redraw it *)
+          else begin
+            Core.Std.printf "=== start ===\n%s=== stop ===\n%!" (Window.render window);
+            Option.value_map html ~default:Deferred.unit ~f:(fun file ->
+              Writer.save ~temp_file:(file ^ ".tmp")
+                file ~contents:(Window.render_html window))
+          end
         end;
+        >>| fun () ->
         List.iter post_render_steps ~f:(fun chr ->
           Core.Std.printf "  %02x (%s)\n%!"
             (Char.to_int chr)

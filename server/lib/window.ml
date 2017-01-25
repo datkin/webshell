@@ -576,3 +576,60 @@ let%expect_test _ =
     |  |  [  ]  |  |
     |  |  |  |  |  | |}];
 ;;
+
+let html_pre = {|
+<html>
+  <head>
+    <style>
+      .terminal {
+        background-color: black;
+        color: white;
+        display: inline-block;
+        border-style: solid;
+        border-color: black;
+        padding: 0.1em;
+        letter-spacing: 0.2em;
+        font-family: "Courier", sans-serif;
+      }
+      .X {
+        background-color: red;
+      }
+    </style>
+
+    <script type="text/javascript">
+      setTimeout(function(){
+           window.location.reload(1);
+      }, 200);
+    </script>
+
+  </head>
+  <body>
+    <div class="terminal">
+|}
+
+let html_post = {|
+    </div>
+  </body>
+</html>
+|}
+
+let render_html t =
+  let buf = ref "" in
+  let output str = buf := !buf ^ str in
+  let newline () = output "<br/>\n" in
+  for y = 0 to (dim t).height - 1 do
+    for x = 0 to (dim t).width - 1 do
+      let coord = { x; y; } in
+      let chr = Grid.get t.grid coord |> Cell.code in
+      let chr =
+        if chr = null_byte
+        || chr = ' '
+        then "&nbsp;"
+        else Char.escaped chr
+      in
+      output chr
+    done;
+    newline ();
+  done;
+  html_pre ^ !buf ^ html_post
+;;
