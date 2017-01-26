@@ -184,6 +184,7 @@ module Spec = struct
      * Device Attributes (Secondary DA)". *)
     [c "\x06"], s Ack;
     [c "\x07"], s Bell;
+    [c "\027M"], s (Cursor_rel (Up, 1)); (* http://www.vt100.net/docs/vt510-rm/chapter4.html#T4-2, See "RI" *)
     [csi; n; c "@"], n1 1 (fun x -> Insert_blank x);
     [csi; n; c "A"], n1 1 (fun x -> Cursor_rel (Up, x));
     [csi; n; c "B"], n1 1 (fun x -> Cursor_rel (Down, x));

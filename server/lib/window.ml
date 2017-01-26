@@ -212,6 +212,8 @@ end = struct
     !acc
   ;;
 
+  (* CR datkin: Check/test the scrolling logic for scrolling up (w/ scroll
+   * back). *)
   let scroll t n =
     if abs n >= t.dim.height
     then clear_all t
@@ -624,10 +626,13 @@ let render_html t =
       let coord = { x; y; } in
       let chr = Grid.get t.grid coord |> Cell.code in
       let chr =
-        if chr = null_byte
-        || chr = ' '
-        then "&nbsp;"
-        else Char.escaped chr
+        match chr with
+        | '\000'
+        | ' ' -> "&nbsp;"
+        | '<' -> "&lt;"
+        | '>' -> "&gt;"
+        | '&' -> "&amp;"
+        | _ -> Char.escaped chr
       in
       output chr
     done;
