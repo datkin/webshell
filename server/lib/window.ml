@@ -587,12 +587,14 @@ let html_pre = {|
         display: inline-block;
         border-style: solid;
         border-color: black;
-        padding: 0.1em;
-        letter-spacing: 0.2em;
-        font-family: "Courier", sans-serif;
+        padding: 0.2em;
+        letter-spacing: 0.1em;
+        font-size: 10pt;
+        font-family: "Monaco", "Courier New", sans-serif;
       }
-      .X {
-        background-color: red;
+      .cursor {
+        background-color: white;
+        color: black;
       }
     </style>
 

@@ -14,8 +14,8 @@
 
  - Emulator references:
    * Spec of xterm control sequences:
-       http://www.xfree86.org/4.5.0/ctlseqs.html (newer)
-       http://invisible-island.net/xterm/ctlseqs/ctlseqs.html
+       http://invisible-island.net/xterm/ctlseqs/ctlseqs.html (latest)
+       http://www.xfree86.org/4.5.0/ctlseqs.html
    * http://bjh21.me.uk/all-escapes/all-escapes.txt
    * http://vt100.net/docs/vt100-ug/chapter3.html
    * Relevant standards: ANSI X3.64, ECMA-48
