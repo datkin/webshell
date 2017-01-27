@@ -372,6 +372,15 @@ let erase_in_display t which =
   in
   loop start
 
+let bound ~min x ~max =
+  Int.max min (Int.min x max)
+
+let%expect_test _ =
+  [%test_result: int] (bound ~min:0 ~max:5 (-1)) ~expect:0;
+  [%test_result: int] (bound ~min:0 ~max:5   6 ) ~expect:5;
+  [%test_result: int] (bound ~min:0 ~max:5   3 ) ~expect:3;
+;;
+
 let update t chr =
   let parse_result = t.parse chr in
   let to_send =
@@ -390,10 +399,17 @@ let update t chr =
       match (f : Control_functions.t) with
       | Ack -> None
       | Bell -> None
-      | Insert_blank _
-      | Cursor_rel (_, _)
-      | Start_of_line_rel (_, _) ->
+      | Insert_blank _ -> None
+      | Cursor_rel (dir, n) ->
+        let cursor =
+          match dir with
+          | Down  -> { t.cursor with y = bound ~min:0 t.cursor.y ~max:(dim t).height - 1 }
+          | Right -> { t.cursor with x = bound ~min:0 t.cursor.x ~max:(dim t).height - 1 }
+        in
+        t.cursor <- cursor;
         None
+      | Start_of_line_rel (`Down, n) ->
+        Grid.scroll t.grid n; None
       | Cursor_abs { x=col; y=row; } ->
         t.cursor <- { x=col-1; y=row-1 }; None
       | Erase_line_including_cursor which ->
@@ -536,7 +552,7 @@ let%expect_test _ =
     [  ]  |  |  |  | |}];
 ;;
 
-let%expect_test _ =
+let%expect_test "Erase Display (ED)" =
   let t = create { width = 5; height = 3; } Control_functions.Parser.default in
   paint t 'X';
   printf !"%s" (render t);
@@ -577,6 +593,34 @@ let%expect_test _ =
     |  |  |  |  |  |
     |  |  [  ]  |  |
     |  |  |  |  |  | |}];
+;;
+
+(* CR datkin: In theory there are two screen modes, "regular"(?) and "alternate
+ * buffer". We want scrollback in regular, but presumably not in alternate. *)
+let%expect_test "Scrolling" =
+  let t = create { width = 3; height = 3; } Control_functions.Parser.default in
+  paint t 'X';
+  putc t 'A';
+  printf !"%s" (render t);
+  [%expect {|
+    | A[ X] X|
+    | X| X| X|
+    | X| X| X| |}];
+  t.cursor <- { x = 0; y = 2; };
+  putc t '\n';
+  putc t 'Y';
+  printf !"%s" (render t);
+  [%expect {|
+    | X| X| X|
+    | X| X| X|
+    | Y[  ]  | |}];
+  t.cursor <- origin;
+  Grid.scroll t.grid (-1);
+  printf !"%s" (render t);
+  [%expect {|
+    [  ]  |  |
+    | X| X| X|
+    | X| X| X| |}];
 ;;
 
 let html_pre = {|

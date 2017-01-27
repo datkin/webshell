@@ -5,15 +5,8 @@ open Core.Std
 [@@@ocaml.warning "-4"]
 
 type dir =
-  | Up
   | Down
-  | Left
   | Right
-[@@deriving sexp, compare]
-
-type up_or_down =
-  | Up
-  | Down
 [@@deriving sexp, compare]
 
 type coord = {
@@ -26,7 +19,7 @@ type t =
   | Bell
   | Insert_blank of int
   | Cursor_rel of dir * int
-  | Start_of_line_rel of up_or_down * int
+  | Start_of_line_rel of [`Down] * int
   | Cursor_abs of coord
   | Erase_line_including_cursor of [ `Left | `Right | `All ] (* http://www.vt100.net/docs/vt510-rm/EL.html *)
   | Erase_display_including_cursor of [ `From_start | `To_end | `All ] (* http://www.vt100.net/docs/vt510-rm/ED.html *)
@@ -90,12 +83,12 @@ module Spec = struct
     [c "\x06"], s Ack;
     [c "\x07"], s Bell;
     [csi; n; c "@"], n1 1 (fun x -> Insert_blank x);
-    [csi; n; c "A"], n1 1 (fun x -> Cursor_rel (Up, x));
+    [csi; n; c "A"], n1 1 (fun x -> Cursor_rel (Down, (-x)));
     [csi; n; c "B"], n1 1 (fun x -> Cursor_rel (Down, x));
-    [csi; n; c "C"], n1 1 (fun x -> Cursor_rel (Left, x));
+    [csi; n; c "C"], n1 1 (fun x -> Cursor_rel (Right, (-x)));
     [csi; n; c "D"], n1 1 (fun x -> Cursor_rel (Right, x));
-    [csi; n; c "E"], n1 1 (fun x -> Start_of_line_rel (Down, x));
-    [csi; n; c "F"], n1 1 (fun x -> Start_of_line_rel (Up, x));
+    [csi; n; c "E"], n1 1 (fun x -> Start_of_line_rel (`Down, x)); (* scroll down *)
+    [csi; n; c "F"], n1 1 (fun x -> Start_of_line_rel (`Down, -x)); (* scroll up *)
     [csi; n; c ";"; n; c "H"], n2 1 1 (fun x y -> Cursor_abs {x; y});
   ]
 
@@ -184,14 +177,14 @@ module Spec = struct
      * Device Attributes (Secondary DA)". *)
     [c "\x06"], s Ack;
     [c "\x07"], s Bell;
-    [c "\027M"], s (Cursor_rel (Up, 1)); (* http://www.vt100.net/docs/vt510-rm/chapter4.html#T4-2, See "RI" *)
+    [c "\027M"], s (Cursor_rel (Down, -1)); (* http://www.vt100.net/docs/vt510-rm/chapter4.html#T4-2, See "RI" *)
     [csi; n; c "@"], n1 1 (fun x -> Insert_blank x);
-    [csi; n; c "A"], n1 1 (fun x -> Cursor_rel (Up, x));
+    [csi; n; c "A"], n1 1 (fun x -> Cursor_rel (Down, -x));
     [csi; n; c "B"], n1 1 (fun x -> Cursor_rel (Down, x));
-    [csi; n; c "C"], n1 1 (fun x -> Cursor_rel (Left, x));
+    [csi; n; c "C"], n1 1 (fun x -> Cursor_rel (Right, -x));
     [csi; n; c "D"], n1 1 (fun x -> Cursor_rel (Right, x));
-    [csi; n; c "E"], n1 1 (fun x -> Start_of_line_rel (Down, x));
-    [csi; n; c "F"], n1 1 (fun x -> Start_of_line_rel (Up, x));
+    [csi; n; c "E"], n1 1 (fun x -> Start_of_line_rel (`Down, x));
+    [csi; n; c "F"], n1 1 (fun x -> Start_of_line_rel (`Down, -x));
     [csi; ps; c "J"], n1 0 (fun x ->
       let which =
         match x with
@@ -697,7 +690,7 @@ let%test_unit _ =
   test [%here] '[' `pending;
   test [%here] '5' `pending;
   test [%here] '1' `pending;
-  test [%here] 'A' (`func (Cursor_rel (Up, 51)));
+  test [%here] 'A' (`func (Cursor_rel (Down, -51)));
   test [%here] '\x1b' `pending;
   test [%here] '[' `pending;
   test [%here] 'X' (`junk "\x1b[X");
@@ -720,7 +713,7 @@ let%test_unit _ =
     in
     loop (String.to_list str)
   in
-  test_seq [%here] "\x1b[A" (Cursor_rel (Up, 1));
+  test_seq [%here] "\x1b[A" (Cursor_rel (Down, -1));
   test_seq [%here] "\x1b[;H" (Cursor_abs {x = 1; y = 1;});
   test_seq [%here] "\x1b[5;H" (Cursor_abs {x = 5; y = 1;});
   test_seq [%here] "\x1b[;5H" (Cursor_abs {x = 1; y = 5;});

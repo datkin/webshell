@@ -10,15 +10,8 @@ module Parser : sig
 end
 
 type dir =
-  | Up
   | Down
-  | Left
   | Right
-[@@deriving sexp, compare]
-
-type up_or_down =
-  | Up
-  | Down
 [@@deriving sexp, compare]
 
 type coord = {
@@ -31,7 +24,7 @@ type t =
   | Bell
   | Insert_blank of int
   | Cursor_rel of dir * int
-  | Start_of_line_rel of up_or_down * int
+  | Start_of_line_rel of [`Down] * int
   | Cursor_abs of coord
   | Erase_line_including_cursor of [ `Left | `Right | `All ] (* http://www.vt100.net/docs/vt510-rm/EL.html *)
   | Erase_display_including_cursor of [ `From_start | `To_end | `All ] (* http://www.vt100.net/docs/vt510-rm/ED.html *)
