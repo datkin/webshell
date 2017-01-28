@@ -381,98 +381,107 @@ let%expect_test _ =
   [%test_result: int] (bound ~min:0 ~max:5   3 ) ~expect:3;
 ;;
 
+let handle t parse_result =
+  match parse_result with
+  | `literal chr -> putc t chr; None
+  | `pending -> None
+  | `junk "\027[m" ->
+    (* I believe this is a sgr for xterm where none of the settings have been
+     * explicitly passed. The only source I've found that suggests that the
+     * "default" value is 0 is here:
+     * http://bjh21.me.uk/all-escapes/all-escapes.txt
+     * See "Sequence: CSI Ps ... m" *)
+    None
+  | `junk _ -> None
+  | `func (f, _data) ->
+    match (f : Control_functions.t) with
+    | Ack -> None
+    | Bell -> None
+    | Insert_blank _ -> None
+    | Cursor_rel (dir, n) ->
+      let cursor =
+        match dir with
+        | Down  ->
+          let y = bound ~min:0 (t.cursor.y+n) ~max:((dim t).height - 1) in
+          let scroll = (t.cursor.y+n) - y in
+          Grid.scroll t.grid scroll;
+          { t.cursor with y }
+        | Right ->
+          (* CR datkin: Line wrap? *)
+          { t.cursor with
+          x = bound ~min:0 (t.cursor.x+n) ~max:((dim t).width - 1) }
+      in
+      t.cursor <- cursor;
+      None
+    | Start_of_line_rel (`Down, n) ->
+      Grid.scroll t.grid n; None
+    | Cursor_abs { x=col; y=row; } ->
+      t.cursor <- { x=col-1; y=row-1 }; None
+    | Erase_line_including_cursor which ->
+      let (min_x, max_x) =
+        match which with
+        | `Left -> 0, t.cursor.x
+        | `Right -> t.cursor.x, (dim t).width - 1
+        | `All -> 0, (dim t).width - 1
+      in
+      for x = min_x to max_x; do
+        Cell.clear (Grid.get t.grid { t.cursor with x })
+      done;
+      None
+    | Erase_display_including_cursor which ->
+      erase_in_display t which;
+      None
+    | Set_scrolling_region { top; bottom } ->
+      (* http://www.vt100.net/docs/vt510-rm/DECSTBM.html *)
+      let top = Option.value top ~default:0 in
+      let bottom = Option.value bottom ~default:(dim t).height in
+      t.cursor <- { x = top; y = 0; };
+      t.scroll_region <- (top, bottom);
+      None
+    | Dec_mode (_, _)
+    | Designate_char_set { g = _; character_set = _ }
+    | Send_device_attribute `primary
+      -> None
+    | Send_device_attribute `secondary ->
+      Some "\027[>1;95;0c"
+    | Other (["VPA"], [Some row]) ->
+      t.cursor <- { t.cursor with y = row-1; }; None
+    | Other (["CUP"], []) -> t.cursor <- origin; None
+    | Other (["CUP"], [Some row; Some col]) -> t.cursor <- { x=col-1; y=row-1 }; None
+    | Other (["DECSET"], [Some 1049]) ->
+      clear t; None
+    | Other (["ED"], [Some 2]) -> Grid.clear_all t.grid; None
+    | Other ([ "smcup"; ], []) ->
+      (* CR datkin: Actually implement the two buffer modes. *)
+      (* This is "start cursor addressing mode". In xterm it means "switch to
+       * the alternate buffer". I.e., leave scroll back mode. *)
+      clear t; None
+    | Other ([ "smkx"; ], [])
+      (* smkx = "start application keypad mode"
+       * for emulating within a terminal emulator, I think we need to send
+       * this on to the emulator. It detemrines how keys on the numpad are
+       * interpreted?
+       * https://ttssh2.osdn.jp/manual/en/usage/tips/appkeypad.html *)
+    | Other (["csr"], [_; _]) ->
+      (* Set Scrolling Region/Set Margins/"DECSTBM" *)
+      None
+    | Other (["ccvis"], []) ->
+      (* Set cursor "very" visible (12 = show, 25 = blink) *)
+      None
+    | Other (["cnorm"], []) ->
+      (* Opposite of ccvis; hide cursor, stop blinking *)
+      None
+    | Other (["rmso"], []) ->
+      (* Exit "standout" mode *)
+      None
+    | Other _ ->
+      None
+;;
+
 let update t chr =
   let parse_result = t.parse chr in
-  let to_send =
-    match parse_result with
-    | `literal chr -> putc t chr; None
-    | `pending -> None
-    | `junk "\027[m" ->
-      (* I believe this is a sgr for xterm where none of the settings have been
-       * explicitly passed. The only source I've found that suggests that the
-       * "default" value is 0 is here:
-       * http://bjh21.me.uk/all-escapes/all-escapes.txt
-       * See "Sequence: CSI Ps ... m" *)
-      None
-    | `junk _ -> None
-    | `func (f, _data) ->
-      match (f : Control_functions.t) with
-      | Ack -> None
-      | Bell -> None
-      | Insert_blank _ -> None
-      | Cursor_rel (dir, n) ->
-        let cursor =
-          match dir with
-          | Down  -> { t.cursor with y = bound ~min:0 t.cursor.y ~max:(dim t).height - 1 }
-          | Right -> { t.cursor with x = bound ~min:0 t.cursor.x ~max:(dim t).height - 1 }
-        in
-        t.cursor <- cursor;
-        None
-      | Start_of_line_rel (`Down, n) ->
-        Grid.scroll t.grid n; None
-      | Cursor_abs { x=col; y=row; } ->
-        t.cursor <- { x=col-1; y=row-1 }; None
-      | Erase_line_including_cursor which ->
-        let (min_x, max_x) =
-          match which with
-          | `Left -> 0, t.cursor.x
-          | `Right -> t.cursor.x, (dim t).width - 1
-          | `All -> 0, (dim t).width - 1
-        in
-        for x = min_x to max_x; do
-          Cell.clear (Grid.get t.grid { t.cursor with x })
-        done;
-        None
-      | Erase_display_including_cursor which ->
-        erase_in_display t which;
-        None
-      | Set_scrolling_region { top; bottom } ->
-        (* http://www.vt100.net/docs/vt510-rm/DECSTBM.html *)
-        let top = Option.value top ~default:0 in
-        let bottom = Option.value bottom ~default:(dim t).height in
-        t.cursor <- { x = top; y = 0; };
-        t.scroll_region <- (top, bottom);
-        None
-      | Dec_mode (_, _)
-      | Designate_char_set { g = _; character_set = _ }
-      | Send_device_attribute `primary
-        -> None
-      | Send_device_attribute `secondary ->
-        Some "\027[>1;95;0c"
-      | Other (["VPA"], [Some row]) ->
-        t.cursor <- { t.cursor with y = row-1; }; None
-      | Other (["CUP"], []) -> t.cursor <- origin; None
-      | Other (["CUP"], [Some row; Some col]) -> t.cursor <- { x=col-1; y=row-1 }; None
-      | Other (["DECSET"], [Some 1049]) ->
-        clear t; None
-      | Other (["ED"], [Some 2]) -> Grid.clear_all t.grid; None
-
-      | Other ([ "smcup"; ], []) ->
-        (* CR datkin: Actually implement the two buffer modes. *)
-        (* This is "start cursor addressing mode". In xterm it means "switch to
-         * the alternate buffer". I.e., leave scroll back mode. *)
-        clear t; None
-      | Other ([ "smkx"; ], [])
-        (* smkx = "start application keypad mode"
-         * for emulating within a terminal emulator, I think we need to send
-         * this on to the emulator. It detemrines how keys on the numpad are
-         * interpreted?
-         * https://ttssh2.osdn.jp/manual/en/usage/tips/appkeypad.html *)
-      | Other (["csr"], [_; _]) ->
-        (* Set Scrolling Region/Set Margins/"DECSTBM" *)
-        None
-      | Other (["ccvis"], []) ->
-        (* Set cursor "very" visible (12 = show, 25 = blink) *)
-        None
-      | Other (["cnorm"], []) ->
-        (* Opposite of ccvis; hide cursor, stop blinking *)
-        None
-      | Other (["rmso"], []) ->
-        (* Exit "standout" mode *)
-        None
-      | Other _ ->
-        None
-  in
+  Core.Std.printf !"%{sexp:Control_functions.parse_result}\n%!" parse_result;
+  let to_send = handle t parse_result in
   (parse_result, to_send)
 ;;
 
@@ -600,27 +609,39 @@ let%expect_test "Erase Display (ED)" =
 let%expect_test "Scrolling" =
   let t = create { width = 3; height = 3; } Control_functions.Parser.default in
   paint t 'X';
-  putc t 'A';
+  let handle (cf : Control_functions.parse_result) = ignore (handle t cf : string option) in
+  handle (`literal 'A');
   printf !"%s" (render t);
   [%expect {|
     | A[ X] X|
     | X| X| X|
     | X| X| X| |}];
-  t.cursor <- { x = 0; y = 2; };
-  putc t '\n';
-  putc t 'Y';
+  handle (`func (Cursor_abs { x = 1; y = 3 }, ""));
+  handle (`literal '\n');
+  handle (`literal 'Y');
+  handle (`literal '\n');
+  handle (`literal 'Y');
   printf !"%s" (render t);
   [%expect {|
     | X| X| X|
-    | X| X| X|
-    | Y[  ]  | |}];
-  t.cursor <- origin;
-  Grid.scroll t.grid (-1);
+    | Y|  |  |
+    |  | Y[  ] |}];
+  handle (`func (Cursor_abs { x = 1; y = 1 }, ""));
+  handle (`func (Cursor_rel (Down, (-1)), ""));
+  printf !"%{sexp:coord}\n%!" t.cursor;
+  [%expect "((y 0) (x 0))"];
+  handle (`literal 'X');
   printf !"%s" (render t);
   [%expect {|
-    [  ]  |  |
+    | X[  ]  |
     | X| X| X|
-    | X| X| X| |}];
+    | Y|  |  | |}];
+  handle (`func (Cursor_rel (Down, 3), ""));
+  printf !"%s" (render t);
+  [%expect {|
+    | X| X| X|
+    | Y|  |  |
+    |  [  ]  | |}];
 ;;
 
 let html_pre = {|
