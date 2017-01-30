@@ -175,10 +175,39 @@ let terminfo_cmd =
       return (Ok ()))
 ;;
 
+let test_cmd =
+  Command.basic
+    ~summary:"Set some termios settings and grab input."
+    Command.Spec.(empty)
+    (fun () ->
+      let terminfo = Core.Std.Unix.Terminal_io.tcgetattr Core.Std.Unix.stdin in
+      let newterminfo =
+        { terminfo with
+        c_icanon = false;
+        c_istrip = false;
+        c_isig = false;
+        c_echo = false;
+        c_vmin = 0;
+        c_vtime = 0;
+      } in
+      Core.Std.Unix.Terminal_io.tcsetattr newterminfo Core.Std.Unix.stdin ~mode:TCSAFLUSH;
+      at_exit (fun _ ->
+        (* reset stdin when you quit *)
+        Core.Std.Unix.Terminal_io.tcsetattr terminfo Core.Std.Unix.stdin ~mode:TCSAFLUSH
+      );
+      Core.Std.printf "Ok, waiting one second for input.\n%!";
+      Core.Std.Unix.sleep 1;
+      (*let c = In_channel.input_char In_channel.stdin |> Option.value_exn in*)
+      let data = In_channel.input_all In_channel.stdin in
+      Core.Std.printf "%s\n%!" (String.escaped data);
+      )
+;;
+
 let () =
   Command.group
     ~summary:"tty tools" [
       "tty", tty_cmd;
       "terminfo", terminfo_cmd;
+      "test", test_cmd;
     ]
   |> Command.run

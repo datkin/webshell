@@ -316,6 +316,12 @@ let incr { x; y; } { width; height; } =
   let x = next % width in
   { x; y; }
 
+let decr { x; y; } { width; height; } =
+  let prev = (y * width) + x - 1 in
+  let y = (prev / width) % height in
+  let x = prev % width in
+  { x; y; }
+
 let%test_unit "incr coord" =
   [%test_result: coord]
     ~expect:origin
@@ -332,6 +338,11 @@ let putc t chr =
     else t.cursor <- { t.cursor with y }
   | '\r' ->
     t.cursor <- { t.cursor with x = 0 }
+  | '\b' ->
+    let cursor' = decr t.cursor (dim t) in
+    let cell = Grid.get t.grid cursor' in
+    Cell.clear_code cell;
+    t.cursor <- cursor';
     (*
   | '\t' ->
       *)

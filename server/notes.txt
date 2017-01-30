@@ -22,8 +22,7 @@
    * `man terminfo` and `infocmp`
 
  - An interesting example command to run:
-
-   $ (exe=vim; term=xterm; ./main.native tty -dim 50x30 -cwd "/tmp" -env TERM=$term -env HOME=/Users/datkin -exe $(which $exe) -- $exe) 2>&1
+   $ (exe=bash; term=xterm; ./main.native tty -html /tmp/x.html -dim 50x30 -cwd "/tm -env TERM=$term -env HOME=/Users/datkin -exe $(which $exe) -- $exe) 2>&1
 
  - To investigate issues on OS X, I've been tracing via `dtruss`. Let's say we
    want to start by trace on a "normal" nano process. First, weirdly, dtruss
@@ -63,3 +62,15 @@
 
  - This program seems useful for testing terminal emulator behavior:
    http://invisible-island.net/vttest/vttest.html
+
+ - Useful references:
+   http://stackoverflow.com/questions/6691631/how-to-differentiate-between-escape-and-up-down-left-right-with-termios
+   https://www.ecma-international.org/publications/files/ECMA-ST/Ecma-048.pdf
+   https://en.wikipedia.org/wiki/ANSI_escape_code#Colors
+   http://www.leonerd.org.uk/code/libtermkey/
+   http://www.leonerd.org.uk/hacks/fixterms/
+   http://www.leonerd.org.uk/hacks/hints/xterm-8bit.html
+   http://stackoverflow.com/questions/30960767/vim-remove-lag-for-esc-and-ctrl
+   http://man7.org/linux/man-pages/man4/console_codes.4.html
+   https://github.com/mintty/mintty/wiki/CtrlSeqs
+   http://vi.stackexchange.com/questions/3225/disable-esc-but-keep-c
