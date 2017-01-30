@@ -74,3 +74,41 @@
    http://man7.org/linux/man-pages/man4/console_codes.4.html
    https://github.com/mintty/mintty/wiki/CtrlSeqs
    http://vi.stackexchange.com/questions/3225/disable-esc-but-keep-c
+
+ - The "table" (see 'static Key key') here:
+
+     http://git.suckless.org/st/tree/config.def.h
+
+   in conjuction with with 'kmap' function here:
+
+     http://git.suckless.org/st/tree/st.c
+
+   is useful for understanding what key presses generate what control sequences
+   in which modes (app key, app cursor, crlf). If the mode column is 0, it's
+   setting is irrelevant to which key get's generated. If it's +1, that means that
+   sequence is used for that key press when the mode is on, or if -1, that
+   sequence is used for that key press when the mode is off.
+
+ - For converting between hex and binary, this python is useful:
+   bin(0x1b)
+   hex(0b00001000)
+
+ - A terminal emulator both sends and receives control sequences. There are
+   both 7-bit and 8-bit modes. In 7-bit mode, a sequence is sent as two bytes,
+   ESC followed by a character, <C>. In 8-bit mode, it seems that the sequence
+   sent is the single byte represented *by* the "^<C>" character, with the high
+   bit set. E.g., in 7-bit mode, 'Next Line' is ESC and 'E', in 8-bit mode it's
+   0x85 (which is '^E' with the high bit set).
+
+   According to the xterm spec, in application cursor mode, down arrow is sent
+   as 'SS3' and 'B'. In 7-bit mode the control sequence for SS3 is 'ESC' and 'O'.
+   In 8-bit mode it's 0x8f.
+
+   I wondered if setting 8-bit mode (S8C1T), and then sending an arrow key to the
+   application would result in an emulator sending one of these 8-bit codes. It
+   seems neither terminal.app, nor iTerm2 does this, based on sending an arrow
+   key to these commands:
+
+     $ ./main.native test -to-send "$(echo -ne '\x1b G')"
+
+     $ ./main.native test -to-send "$(echo -ne '\x1b[63;2"p')"

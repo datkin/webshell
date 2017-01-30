@@ -178,8 +178,13 @@ let terminfo_cmd =
 let test_cmd =
   Command.basic
     ~summary:"Set some termios settings and grab input."
-    Command.Spec.(empty)
-    (fun () ->
+    Command.Spec.(
+      empty
+      +> flag "to-send" (optional string)
+        ~doc:"ctrl Control sequence to send from the application to the terminal"
+    )
+    (fun to_send () ->
+      Option.iter to_send ~f:(Core.Std.printf "%s%!");
       let terminfo = Core.Std.Unix.Terminal_io.tcgetattr Core.Std.Unix.stdin in
       let newterminfo =
         { terminfo with
