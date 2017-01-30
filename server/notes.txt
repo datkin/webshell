@@ -93,6 +93,33 @@
    bin(0x1b)
    hex(0b00001000)
 
+ - "Application cursor mode", and others. In the xterm docs, the "cursor" keys
+   refers to the arrow keys.
+
+   Here's what the xterm docs say about how arrow keys get transmitted to apps,
+   which I found a bit unclear:
+
+   > The cursor keys transmit the following escape sequences depending on the
+   > mode specified via the DECCKM escape sequence.
+   >
+   >              Key            Normal     Application
+   >              -------------+----------+-------------
+   >              Cursor Up    | CSI A    | SS3 A
+   >              Cursor Down  | CSI B    | SS3 B
+   >              Cursor Right | CSI C    | SS3 C
+   >              Cursor Left  | CSI D    | SS3 D
+   >              -------------+----------+-------------
+
+   They never really define "CSI", although it's pretty clearly 'ESC' and '['.
+   SS3 is even less explicitly defined, but it turns out it refers to the sequence
+   'ESC' and 'O'.
+
+   In particular, it's "defined" in the "C1 (8-Bit) Control Characters"
+   section, which lists sequences, an english description, and then in parantheses
+   give the 8-bit code (see below) by saying something like "XYZ is 0xAB" where
+   "XYZ" is a canonical 3 letter abbreviation for the sequence that's usually the
+   preferred way to identify it.
+
  - A terminal emulator both sends and receives control sequences. There are
    both 7-bit and 8-bit modes. In 7-bit mode, a sequence is sent as two bytes,
    ESC followed by a character, <C>. In 8-bit mode, it seems that the sequence
@@ -112,3 +139,8 @@
      $ ./main.native test -to-send "$(echo -ne '\x1b G')"
 
      $ ./main.native test -to-send "$(echo -ne '\x1b[63;2"p')"
+
+ - Curiously, the VT100 manuals seem to refer to the 'CSI' sequence as a single
+   byte, '9/11', in their notation, meaning the nibble 9 followed by the nibble
+   11, which is 'ESC' with the high bit set, which makes some sense b/c 'ESC'
+   is the character encoded by '^['.
