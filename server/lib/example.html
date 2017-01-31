@@ -15,6 +15,27 @@
         background-color: red;
       }
     </style>
+
+    <script type="text/javascript">
+      window.onload = function () {
+
+        console.log("loaded");
+
+      document.body.onkeydown = function (event) {
+        console.log("Key Down");
+        console.log(event);
+        console.log(event.location);
+      };
+
+      document.body.onkeyup = function (event) {
+        console.log("Key Up");
+        console.log(event);
+        console.log(event.location);
+      };
+
+      };
+    </script>
+
   </head>
   <body>
     <div class="terminal">

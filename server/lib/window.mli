@@ -27,6 +27,13 @@ val set_dimensions : t -> dim -> unit
 (* Returns the parse_result but also applies the change. *)
 val update : t -> char -> (Control_functions.parse_result * string option)
 
+(* Translate key presses and other user events into actual bytes to send to the
+ * pty. *)
+val from_user : t -> User_input.t list -> string option
+
+(* CR-soon datkin: We'll need an 'advance clock' function, for cases where a
+ * user holds down a key. *)
+
 val cursor : t -> coord
 
 (*
