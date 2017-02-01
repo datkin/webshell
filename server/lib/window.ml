@@ -272,6 +272,8 @@ type t = {
   mutable cursor : coord;
   (* CR-soon datkin: [scroll_region] doesn't do anything at the moment. *)
   mutable scroll_region : (int * int);
+  mutable keypad : [ `Application | `Numeric ];
+  mutable cursor_keys : [ `Application | `Normal ];
   parse : (char -> Control_functions.parse_result);
 }
 
@@ -279,6 +281,8 @@ let create dim spec = {
   grid = Grid.create dim;
   cursor = origin;
   scroll_region = (0, dim.height);
+  keypad = `Numeric;
+  cursor_keys = `Application;
   parse = Control_functions.parser spec |> unstage;
 }
 
@@ -449,7 +453,15 @@ let handle t parse_result =
       t.cursor <- { x = top; y = 0; };
       t.scroll_region <- (top, bottom);
       None
-    | Dec_mode (_, _)
+    | Dec_mode (set_or_clear, options) ->
+      List.iter options ~f:(function
+        | Application_cursor_keys ->
+          t.cursor_keys <- (match set_or_clear with | `set -> `Application | `clear -> `Normal)
+        | Application_keypad ->
+          t.keypad <- (match set_or_clear with | `set -> `Application | `clear -> `Numeric)
+        | _ ->
+            ());
+      None
     | Designate_char_set { g = _; character_set = _ }
     | Send_device_attribute `primary
       -> None
@@ -487,6 +499,22 @@ let handle t parse_result =
       None
     | Other _ ->
       None
+;;
+
+let from_user t str =
+  let rec loop chars =
+    match chars with
+    | '\027' :: '[' :: ('A' | 'B' | 'C' | 'D' as x) :: chars ->
+      let y =
+        match t.cursor_keys with
+        | `Application -> 'O'
+        | `Normal      -> '['
+      in
+      '\027' :: y :: x :: (loop chars)
+    | chr :: chars -> chr :: (loop chars)
+    | [] -> []
+  in
+  loop (String.to_list str) |> String.of_char_list
 ;;
 
 let update t chr =

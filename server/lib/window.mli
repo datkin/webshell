@@ -28,11 +28,17 @@ val set_dimensions : t -> dim -> unit
 val update : t -> char -> (Control_functions.parse_result * string option)
 
 (* Translate key presses and other user events into actual bytes to send to the
- * pty. *)
-val from_user : t -> User_input.t list -> string option
-
-(* CR-soon datkin: We'll need an 'advance clock' function, for cases where a
- * user holds down a key. *)
+ * pty. Eventually we'll probably need to model the input stream using something
+ * more descriptive than strings, but this should do for now.
+ *
+ * We could in theory also have some of clock tick function, to determine how
+ * the terminal behaves when a key is held down. However, in practice I think
+ * the terminal behavior is always:
+ *  - emit a key press immediately on key down
+ *  - emit more key presses if the key continues to be held down for a period
+ * This could all be handled in the driver that calls [from_user].
+ *)
+val from_user : t -> string -> string
 
 val cursor : t -> coord
 

@@ -80,18 +80,19 @@ let tty_cmd =
             if String.is_empty str
             then ()
             else
-            match Scanf.sscanf str "%S" (fun unescaped_str ->
+            match Scanf.sscanf str "%S" ident with
+            | unescaped_str ->
+              let to_send = Window.from_user window unescaped_str in
               (* In theory, the unescaped str will look identical to the
                * string we just typed... *)
-              Core.Std.printf "writing: %S\n%!" unescaped_str;
+
+              Core.Std.printf "writing: %S -> %S\n%!" unescaped_str to_send;
               (*
               String.iter str ~f:(fun char ->
                 Core.Std.printf " %02x" (Char.to_int char));
               Core.Std.printf "\n";
               *)
-              Writer.write writer unescaped_str)
-            with
-            | () -> ()
+              Writer.write writer to_send
             | exception exn ->
               Core.Std.eprintf !"Error parsing '%s': %{Exn}\n%!" str exn
           )
