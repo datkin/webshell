@@ -519,7 +519,7 @@ let from_user t str =
 
 let update t chr =
   let parse_result = t.parse chr in
-  Core.Std.printf !"%{sexp:Control_functions.parse_result}\n%!" parse_result;
+  printf !"%{sexp:Control_functions.parse_result}\n%!" parse_result;
   let to_send = handle t parse_result in
   (parse_result, to_send)
 ;;
@@ -539,7 +539,7 @@ let render t =
   (* Each line will be 1 + 5*width + 1 (for '|' + 5 * '    |' + '\n') *)
   let buf = String.create ((height t) * (1 + 3 * (width t) + 1)) in
   let idx = ref 0 in
-  let output_char chr = String.set buf !idx chr; Core.Std.incr idx in
+  let output_char chr = String.set buf !idx chr; Core_kernel.Std.incr idx in
   let newline () = output_char '\n' in
   let output_string str = String.iter str ~f:output_char in
   for y = 0 to (dim t).height - 1 do

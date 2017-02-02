@@ -1,4 +1,4 @@
-open Core.Std
+open Core_kernel.Std
 
 module Parser : sig
   type state
@@ -44,6 +44,6 @@ type parse_result = [
 
 val parser : Parser.state -> (char -> parse_result) Staged.t
 
-open Async.Std
+open Async_kernel.Std
 
-val parse : Reader.t -> Parser.state -> parse_result Pipe.Reader.t
+val parse : string Pipe.Reader.t -> Parser.state -> parse_result Pipe.Reader.t

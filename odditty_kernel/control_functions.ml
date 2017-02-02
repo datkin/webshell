@@ -1,4 +1,4 @@
-open Core.Std
+open Core_kernel.Std
 
 (* CR datkin: This is needed to warnings on the generated sexp functions in this
  * file, I believe. Not sure why. But obviously it should be removed. *)
@@ -461,7 +461,7 @@ module Parser = struct
           | `one_optional (Some n)
           | `many (Some n) ->
             (* CR datkin: If we his this case things are *very* werid. *)
-            Core.Std.eprintf "\n!!! SOMETHING WEIRD HAPPENED !!!\n%!";
+            eprintf "\n!!! SOMETHING WEIRD HAPPENED !!!\n%!";
             Some n :: state.stack
         in
         (* CR datkin: We need to do [next_by_char_skipping_number] for both
@@ -751,13 +751,12 @@ let%test_unit _ =
     "\x1b[m" (Other (["SGR"], []));
 ;;
 
-open Async.Std
+open Async_kernel.Std
 
 let parse reader init =
   let init = [init] in
   Pipe.create_reader ~close_on_exception:true (fun writer ->
-    Reader.pipe reader
-    |> Pipe.fold_without_pushback ~init ~f:(fun state str ->
+    Pipe.fold_without_pushback reader ~init ~f:(fun state str ->
       String.fold str ~init:state ~f:(fun state chr ->
         match Parser.step state chr with
         | `keep_going state -> state
