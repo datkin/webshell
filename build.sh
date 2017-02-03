@@ -13,9 +13,14 @@ ocamlbuild \
   -pkg ppx_expect \
   -pkg ppx_expect.evaluator \
   -tag thread \
- -tag 'ppx(ppx-jane -as-ppx -inline-test-lib odditty_kernel)' \
+  -tag 'ppx(ppx-jane -as-ppx -inline-test-lib odditty_kernel)' \
   -cflags -w,+a-40-42-44 \
-  odditty_kernel.cmx
+  odditty_kernel/odditty_kernel.cmxa \
+  odditty_kernel/inline_test_runner.native
 
+./inline_test_runner.native \
+  inline-test-runner \
+  odditty_kernel \
+  -verbose
 
 echo done
