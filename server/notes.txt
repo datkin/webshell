@@ -144,3 +144,6 @@
    byte, '9/11', in their notation, meaning the nibble 9 followed by the nibble
    11, which is 'ESC' with the high bit set, which makes some sense b/c 'ESC'
    is the character encoded by '^['.
+
+ - TODO: Test a lot of the behavior described here (e.g. around backspacing on tabs)
+   https://utcc.utoronto.ca/~cks/space/blog/unix/HowUnixBackspaces

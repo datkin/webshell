@@ -1,1 +1,3 @@
+true: -traverse
 <odditty_kernel/*.ml>: for-pack(Odditty_kernel)
+<odditty/*.ml>: for-pack(Odditty)
