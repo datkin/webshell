@@ -28,6 +28,7 @@ ocamlbuild \
   -pkg ppx_expect \
   -pkg ppx_expect.evaluator \
   -tag thread \
+  -tag odditty-stubs \
   -tag 'ppx(ppx-jane -as-ppx -inline-test-lib odditty)' \
   -cflags -w,+a-40-42-44 \
   -cflags -cclib,-lodditty_stubs \
@@ -38,13 +39,14 @@ ocamlbuild \
 # -I odditty \
 ocamlbuild \
   -use-ocamlfind \
-  -mod Odditty_kernel_x \
-  -mod Odditty \
+  -lib Odditty_kernel \
+  -lib Odditty \
   -pkg core \
   -pkg async \
   -pkg ppx_expect \
   -pkg ppx_expect.evaluator \
   -tag thread \
+  -tag odditty-stubs-x \
   -tag 'ppx(ppx-jane -as-ppx -inline-test-lib odditty)' \
   -cflags -w,+a-40-42-44 \
   test/inline_test_runner.native
