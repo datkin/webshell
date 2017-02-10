@@ -5,3 +5,4 @@ a.out
 *.o
 *.native
 *.swo
+.datkin-build

@@ -1,0 +1,6 @@
+../odditty_kernel/character_attributes
+../odditty_kernel/character_set
+../odditty_kernel/control_functions
+../odditty_kernel/dec_private_mode
+../odditty_kernel/terminfo
+../odditty_kernel/window
