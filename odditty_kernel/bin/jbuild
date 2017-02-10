@@ -1,7 +1,0 @@
-(executables (
-  (names (inline_test_runner))
-  (libraries (
-    core
-    odditty_kernel
-  ))
-))

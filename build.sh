@@ -5,10 +5,9 @@ set -x
 
 opam switch 4.03.0 && eval $(opam config env)
 
-# -I odditty_kernel \
-# CR datkin: Pass different ppx flags for inline test runner and main.
 ocamlbuild \
   -use-ocamlfind \
+  -I odditty_kernel \
   -pkg core_kernel \
   -pkg async_kernel \
   -pkg ppx_expect \
@@ -16,13 +15,14 @@ ocamlbuild \
   -tag thread \
   -tag 'ppx(ppx-jane -as-ppx -inline-test-lib odditty_kernel)' \
   -cflags -w,+a-40-42-44 \
-  odditty_kernel/odditty_kernel.cmxa \
-  odditty_kernel/inline_test_runner.native
+  odditty_kernel_lib/odditty_kernel.cmxa
 
-# CR datkin: Pass different ppx flags for inline test runner and main.
+# -I odditty_kernel \
+
 ocamlbuild \
   -use-ocamlfind \
-  -I odditty_kernel \
+  -I odditty \
+  -I odditty_kernel_lib \
   -pkg core \
   -pkg async \
   -pkg ppx_expect \
@@ -31,12 +31,29 @@ ocamlbuild \
   -tag 'ppx(ppx-jane -as-ppx -inline-test-lib odditty)' \
   -cflags -w,+a-40-42-44 \
   -cflags -cclib,-lodditty_stubs \
-  -verbose 3 \
-  odditty/odditty.cmxa \
+  -verbose 1 \
+  odditty.cmxa
 
-./inline_test_runner.native \
-  inline-test-runner \
-  odditty_kernel \
-  -verbose
+# -I odditty_kernel_lib \
+# -I odditty \
+ocamlbuild \
+  -use-ocamlfind \
+  -mod Odditty_kernel_x \
+  -mod Odditty \
+  -pkg core \
+  -pkg async \
+  -pkg ppx_expect \
+  -pkg ppx_expect.evaluator \
+  -tag thread \
+  -tag 'ppx(ppx-jane -as-ppx -inline-test-lib odditty)' \
+  -cflags -w,+a-40-42-44 \
+  test/inline_test_runner.native
+
+for lib in odditty odditty_kernel; do
+  ./inline_test_runner.native \
+    inline-test-runner \
+    $lib \
+    -verbose
+done
 
 echo done

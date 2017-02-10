@@ -1,7 +1,7 @@
 open Core.Std
 open Async.Std
 
-include Odditty_kernel.Terminfo
+include Odditty_kernel_x.Terminfo
 
 let load name =
   (* I haven't found a spec of any sort of the format of the terminfo "compiled"
