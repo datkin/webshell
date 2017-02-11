@@ -77,6 +77,8 @@ function c {
 function pack {
   lib=$1
 
+  mkdir -p ${build_dir}/libs/
+
   mods=""
   for mod in $(get_modules ${lib}); do
     mods="${mods} ${build_dir}/${lib}/${mod}.EXT"
@@ -87,17 +89,8 @@ function pack {
 
   ocamlfind ocamlc   -pack -o ${build_dir}/${lib}.cmo $cmo_mods
   ocamlfind ocamlopt -pack -o ${build_dir}/${lib}.cmx $cmx_mods
-}
-
-function skip {
-
-c odditty_kernel character_attributes
-c odditty_kernel character_set
-c odditty_kernel terminfo
-c odditty_kernel dec_private_mode
-c odditty_kernel control_functions
-c odditty_kernel window
-
+  ocamlfind ocamlc   -a    -o ${build_dir}/libs/${lib}.cma  ${build_dir}/${lib}.cmo
+  ocamlfind ocamlopt -a    -o ${build_dir}/libs/${lib}.cmxa ${build_dir}/${lib}.cmx
 }
 
 for lib in odditty_kernel; do
