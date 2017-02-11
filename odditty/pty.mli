@@ -1,5 +1,5 @@
 open Core.Std
-open Odditty_kernel_x
+open Odditty_kernel
 
 type pty_child = {
   fd : Unix.File_descr.t;

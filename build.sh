@@ -7,6 +7,7 @@ opam switch 4.03.0 && eval $(opam config env)
 
 build_dir=.datkin-build
 
+# Get modules in dependency order.
 function get_modules {
   lib=$1
 
@@ -21,9 +22,15 @@ function get_modules {
         window
 EOF
         ;;
+    odditty)
+      cat <<EOF
+        pty
+        terminfo
+EOF
+        ;;
       *)
-        echo "Hrmm"
-        exit
+        echo "get_modules err"
+        exit 1
         ;;
     esac
 }
@@ -33,23 +40,29 @@ function pack_name {
     odditty_kernel)
       echo "Odditty_kernel"
       ;;
+    odditty)
+      echo "Odditty"
+      ;;
     *)
       echo "pack_name err"
-      exit
+      exit 1
       ;;
   esac
 }
 
-function get_packages {
+function get_flags {
   lib=$1
 
   case ${lib} in
     odditty_kernel)
       echo "-package core_kernel -package async_kernel"
       ;;
+    odditty)
+      echo "-thread -package core -package async -I ${build_dir}/odditty_kernel/lib"
+      ;;
     *)
-      echo "get_packages err"
-      exit
+      echo "get_flags err"
+      exit 1
       ;;
   esac
 }
@@ -58,45 +71,47 @@ function c {
   lib=$1
   mod=$2
 
-  packages=$(get_packages ${lib})
+  packages=$(get_flags ${lib})
 
-  mkdir -p ${build_dir}/${lib}/
+  mkdir -p ${build_dir}/${lib}/src
 
   if [ -e ${lib}/${mod}.mli ]; then
-    ppx-jane ${lib}/${mod}.mli > ${build_dir}/${lib}/${mod}.mli
-    ocamlfind ocamlc ${packages} -I ${build_dir}/${lib} -c ${build_dir}/${lib}/${mod}.mli -o ${build_dir}/${lib}/${mod}.cmi
+    ppx-jane ${lib}/${mod}.mli > ${build_dir}/${lib}/src/${mod}.mli
+    ocamlfind ocamlc ${packages} -I ${build_dir}/${lib}/src -c ${build_dir}/${lib}/src/${mod}.mli -o ${build_dir}/${lib}/src/${mod}.cmi
   else
     echo "skipping mli"
   fi
 
-  ppx-jane -inline-test-lib odditty-kernel ${lib}/${mod}.ml > ${build_dir}/${lib}/${mod}.ml
-  ocamlfind ocamlc   ${packages} -I ${build_dir}/${lib} -for-pack $(pack_name ${lib}) -c ${build_dir}/${lib}/${mod}.ml -o ${build_dir}/${lib}/${mod}.cmo
-  ocamlfind ocamlopt ${packages} -I ${build_dir}/${lib} -for-pack $(pack_name ${lib}) -c ${build_dir}/${lib}/${mod}.ml -o ${build_dir}/${lib}/${mod}.cmx
+  ppx-jane -inline-test-lib odditty-kernel ${lib}/${mod}.ml > ${build_dir}/${lib}/src/${mod}.ml
+  ocamlfind ocamlc   ${packages} -I ${build_dir}/${lib}/src -for-pack $(pack_name ${lib}) -c ${build_dir}/${lib}/src/${mod}.ml -o ${build_dir}/${lib}/src/${mod}.cmo
+  ocamlfind ocamlopt ${packages} -I ${build_dir}/${lib}/src -for-pack $(pack_name ${lib}) -c ${build_dir}/${lib}/src/${mod}.ml -o ${build_dir}/${lib}/src/${mod}.cmx
 }
 
 function pack {
   lib=$1
 
-  mkdir -p ${build_dir}/libs/
+  mkdir -p ${build_dir}/${lib}/lib
 
   mods=""
   for mod in $(get_modules ${lib}); do
-    mods="${mods} ${build_dir}/${lib}/${mod}.EXT"
+    mods="${mods} ${build_dir}/${lib}/src/${mod}.EXT"
   done
 
   cmo_mods=$(echo ${mods} | sed 's/\.EXT/.cmo/g')
   cmx_mods=$(echo ${mods} | sed 's/\.EXT/.cmx/g')
 
-  ocamlfind ocamlc   -pack -o ${build_dir}/${lib}.cmo $cmo_mods
-  ocamlfind ocamlopt -pack -o ${build_dir}/${lib}.cmx $cmx_mods
-  ocamlfind ocamlc   -a    -o ${build_dir}/libs/${lib}.cma  ${build_dir}/${lib}.cmo
-  ocamlfind ocamlopt -a    -o ${build_dir}/libs/${lib}.cmxa ${build_dir}/${lib}.cmx
+  ocamlfind ocamlc   -pack -o ${build_dir}/${lib}/lib/${lib}.cmo  $cmo_mods
+  ocamlfind ocamlopt -pack -o ${build_dir}/${lib}/lib/${lib}.cmx  $cmx_mods
+  ocamlfind ocamlc   -a    -o ${build_dir}/${lib}/lib/${lib}.cma  ${build_dir}/${lib}/lib/${lib}.cmo
+  ocamlfind ocamlopt -a    -o ${build_dir}/${lib}/lib/${lib}.cmxa ${build_dir}/${lib}/lib/${lib}.cmx
 }
 
-for lib in odditty_kernel; do
-  for mod in $(get_modules odditty_kernel); do
+for lib in odditty_kernel odditty; do
+# function skip {
+  for mod in $(get_modules ${lib}); do
     c ${lib} ${mod}
   done
+# }
 
   pack ${lib}
 done
