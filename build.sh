@@ -66,7 +66,7 @@ function get_flags {
   esac
 }
 
-function c {
+function compile_module {
   lib=$1
   mod=$2
 
@@ -84,6 +84,24 @@ function c {
   ppx-jane -inline-test-lib ${lib} ${lib}/${mod}.ml > ${build_dir}/${lib}/src/${mod}.ml
   ocamlfind ocamlc   ${packages} -I ${build_dir}/${lib}/src -for-pack $(pack_name ${lib}) -c ${build_dir}/${lib}/src/${mod}.ml -o ${build_dir}/${lib}/src/${mod}.cmo
   ocamlfind ocamlopt ${packages} -I ${build_dir}/${lib}/src -for-pack $(pack_name ${lib}) -c ${build_dir}/${lib}/src/${mod}.ml -o ${build_dir}/${lib}/src/${mod}.cmx
+}
+
+function compile_clib {
+  lib=$1
+
+  mkdir -p ${build_dir}/${lib}/c
+
+  if [ ! -e ${lib}/*_stubs.c ]; then
+    echo "No c stubs for ${lib}"
+    return
+  fi
+
+  for stub in ${lib}/*_stubs.c; do
+    base=$(basename $stub | sed 's/\.c//')
+    gcc -I $(ocamlc -where) -c ${lib}/${base}.c -o ${build_dir}/${lib}/c/${base}.o
+  done
+
+  ar cr ${build_dir}/${lib}/c/lib${lib}.a ${build_dir}/${lib}/c/*.o
 }
 
 function pack {
@@ -116,29 +134,35 @@ function exe {
 
   case $1 in
     test/inline_test_runner.ml)
-      c_flags="-thread -package core_kernel -package async_kernel -package ppx_expect -package ppx_expect.evaluator -I ${build_dir}/odditty_kernel/src"
-      l_flags="-thread -package core_kernel -package async_kernel -package ppx_expect -package ppx_expect.evaluator    ${build_dir}/odditty_kernel/lib/odditty_kernel.cmxa"
+      shared_flags="-thread -package core -package async -package ppx_expect -package ppx_expect.evaluator"
+      c_flags="${shared_flags} -I ${build_dir}/odditty_kernel/src                     -I ${build_dir}/odditty/src"
+      l_flags="${shared_flags}    ${build_dir}/odditty_kernel/lib/odditty_kernel.cmxa    ${build_dir}/odditty/lib/odditty.cmxa -ccopt -L${build_dir}/odditty/c/ -cclib -lodditty"
       ;;
     *)
+      echo "exe flags err"
+      exit 1
       ;;
   esac
 
   ppx-jane ${file} > ${build_dir}/${dir}/src/${base}.ml
   ocamlfind ocamlopt ${c_flags} -c       ${build_dir}/${dir}/src/${base}.ml  -o ${build_dir}/${dir}/src/${base}.cmx
-  ocamlfind ocamlopt ${l_flags} -linkpkg ${build_dir}/${dir}/src/${base}.cmx -o ${build_dir}/${dir}/exe/${base}.native
+  ocamlfind ocamlopt ${l_flags} -linkall -linkpkg ${build_dir}/${dir}/src/${base}.cmx -o ${build_dir}/${dir}/exe/${base}.native
 }
 
+#function skip {
 for lib in odditty_kernel odditty; do
-  for mod in $(get_modules_in_dep_order ${lib}); do
-    c ${lib} ${mod}
-  done
+# for mod in $(get_modules_in_dep_order ${lib}); do
+#   compile_module ${lib} ${mod}
+# done
+   compile_clib ${lib}
 
   pack ${lib}
 done
+#}
 
 exe test/inline_test_runner.ml
 
-for lib in odditty_kernel; do
+for lib in odditty_kernel odditty; do
   ./${build_dir}/test/exe/inline_test_runner.native \
     inline-test-runner \
     $lib \
