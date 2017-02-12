@@ -149,16 +149,14 @@ function exe {
   ocamlfind ocamlopt ${l_flags} -linkall -linkpkg ${build_dir}/${dir}/src/${base}.cmx -o ${build_dir}/${dir}/exe/${base}.native
 }
 
-#function skip {
 for lib in odditty_kernel odditty; do
-# for mod in $(get_modules_in_dep_order ${lib}); do
-#   compile_module ${lib} ${mod}
-# done
+  for mod in $(get_modules_in_dep_order ${lib}); do
+    compile_module ${lib} ${mod}
+  done
    compile_clib ${lib}
 
   pack ${lib}
 done
-#}
 
 exe test/inline_test_runner.ml
 
