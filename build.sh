@@ -114,13 +114,20 @@ function pack {
     mods="${mods} ${build_dir}/${lib}/src/${mod}.EXT"
   done
 
+  clib=${build_dir}/${lib}/c/lib${lib}.a
+  if [ -e ${clib} ]; then
+    ccopts="-ccopt -L${build_dir}/${lib}/c -cclib -l${lib}"
+  else
+    ccopts=""
+  fi
+
   cmo_mods=$(echo ${mods} | sed 's/\.EXT/.cmo/g')
   cmx_mods=$(echo ${mods} | sed 's/\.EXT/.cmx/g')
 
-  #ocamlfind ocamlc   -pack -o ${build_dir}/${lib}/src/${lib}.cmo  $cmo_mods
-  ocamlfind ocamlopt -pack -o ${build_dir}/${lib}/src/${lib}.cmx  $cmx_mods
-  #ocamlfind ocamlc   -a    -o ${build_dir}/${lib}/lib/${lib}.cma  ${build_dir}/${lib}/src/${lib}.cmo
-  ocamlfind ocamlopt -a    -o ${build_dir}/${lib}/lib/${lib}.cmxa ${build_dir}/${lib}/src/${lib}.cmx
+  ocamlfind ocamlc   -pack        -o ${build_dir}/${lib}/src/${lib}.cmo  $cmo_mods
+  ocamlfind ocamlopt -pack        -o ${build_dir}/${lib}/src/${lib}.cmx  $cmx_mods
+  ocamlfind ocamlc   -a ${ccopts} -o ${build_dir}/${lib}/lib/${lib}.cma  ${build_dir}/${lib}/src/${lib}.cmo
+  ocamlfind ocamlopt -a ${ccopts} -o ${build_dir}/${lib}/lib/${lib}.cmxa ${build_dir}/${lib}/src/${lib}.cmx
 }
 
 function exe {
@@ -136,7 +143,7 @@ function exe {
     test/inline_test_runner.ml)
       shared_flags="-thread -package core -package async -package ppx_expect -package ppx_expect.evaluator"
       c_flags="${shared_flags} -I ${build_dir}/odditty_kernel/src                     -I ${build_dir}/odditty/src"
-      l_flags="${shared_flags}    ${build_dir}/odditty_kernel/lib/odditty_kernel.cmxa    ${build_dir}/odditty/lib/odditty.cmxa -ccopt -L${build_dir}/odditty/c/ -cclib -lodditty"
+      l_flags="${shared_flags}    ${build_dir}/odditty_kernel/lib/odditty_kernel.cmxa    ${build_dir}/odditty/lib/odditty.cmxa"
       ;;
     *)
       echo "exe flags err"
