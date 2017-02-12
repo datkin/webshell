@@ -114,6 +114,10 @@ function pack {
     mods="${mods} ${build_dir}/${lib}/src/${mod}.EXT"
   done
 
+  # CR datkin: It's presumably bad to include the '-L' option here?
+  # An equally non-kosher option: we can omit these flags, and just pass
+  # ${clib} in the list of libs to include in the archive (I think this
+  # approach only references the lib by name, though).
   clib=${build_dir}/${lib}/c/lib${lib}.a
   if [ -e ${clib} ]; then
     ccopts="-ccopt -L${build_dir}/${lib}/c -cclib -l${lib}"
@@ -143,6 +147,14 @@ function exe {
     test/inline_test_runner.ml)
       shared_flags="-thread -package core -package async -package ppx_expect -package ppx_expect.evaluator"
       c_flags="${shared_flags} -I ${build_dir}/odditty_kernel/src                     -I ${build_dir}/odditty/src"
+      # We pass '-linkall' b/c it ensures that the inline test runner will be
+      # linked against the inline test libs, even though it doesn't actually
+      # reference them.
+      l_flags="${shared_flags}    ${build_dir}/odditty_kernel/lib/odditty_kernel.cmxa    ${build_dir}/odditty/lib/odditty.cmxa -linkall"
+      ;;
+    bin/main.ml)
+      shared_flags="-thread -package core -package async"
+      c_flags="${shared_flags} -I ${build_dir}/odditty_kernel/src                     -I ${build_dir}/odditty/src"
       l_flags="${shared_flags}    ${build_dir}/odditty_kernel/lib/odditty_kernel.cmxa    ${build_dir}/odditty/lib/odditty.cmxa"
       ;;
     *)
@@ -153,7 +165,7 @@ function exe {
 
   ppx-jane ${file} > ${build_dir}/${dir}/src/${base}.ml
   ocamlfind ocamlopt ${c_flags} -c       ${build_dir}/${dir}/src/${base}.ml  -o ${build_dir}/${dir}/src/${base}.cmx
-  ocamlfind ocamlopt ${l_flags} -linkall -linkpkg ${build_dir}/${dir}/src/${base}.cmx -o ${build_dir}/${dir}/exe/${base}.native
+  ocamlfind ocamlopt ${l_flags} -linkpkg ${build_dir}/${dir}/src/${base}.cmx -o ${build_dir}/${dir}/exe/${base}.native
 }
 
 for lib in odditty_kernel odditty; do
@@ -166,13 +178,16 @@ for lib in odditty_kernel odditty; do
 done
 
 exe test/inline_test_runner.ml
+exe bin/main.ml
 
-for lib in odditty_kernel odditty; do
+for lib in core_kernel odditty_kernel odditty; do
   ./${build_dir}/test/exe/inline_test_runner.native \
     inline-test-runner \
     $lib \
     -verbose
 done
+
+${build_dir}/bin/exe/main.native -help
 
 exit
 

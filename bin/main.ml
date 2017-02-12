@@ -4,7 +4,8 @@ open Async.Std
 (* CR datkin: It seems that we also happen to have access directly to the
  * server_lib modules when compiling this (probably from the `include` rule in
  * _tags). See if we can fix that. *)
-open Server_lib
+open Odditty_kernel
+open Odditty
 
 let split_by_last_rendered
   (steps : (char * Control_functions.parse_result) list)
