@@ -27,7 +27,12 @@ EOF
         terminfo
 EOF
         ;;
-      *)
+      web)
+        cat <<EOF
+        main
+EOF
+        ;;
+        *)
         echo "get_modules_in_dep_order err"
         exit 1
         ;;
@@ -41,6 +46,9 @@ function pack_name {
       ;;
     odditty)
       echo "Odditty"
+      ;;
+    web)
+      echo "Web"
       ;;
     *)
       echo "pack_name err"
@@ -59,6 +67,9 @@ function get_flags {
     odditty)
       echo "-thread -package core -package async -I ${build_dir}/odditty_kernel/src"
       ;;
+    web)
+      echo "-package js_of_ocaml.async"
+      ;;
     *)
       echo "get_flags err"
       exit 1
@@ -74,16 +85,29 @@ function compile_module {
 
   mkdir -p ${build_dir}/${lib}/src
 
+  p1="-ppx"
+  p2="ppx-jane -as-ppx -inline-test-lib ${lib}"
+  p3=""
+  p4=""
+  case ${lib} in
+    web)
+      p3="-ppx"
+      p4="$(opam config var lib)/js_of_ocaml/ppx_js"
+      ;;
+    *)
+      ;;
+  esac
+
   if [ -e ${lib}/${mod}.mli ]; then
-    ppx-jane ${lib}/${mod}.mli > ${build_dir}/${lib}/src/${mod}.mli
-    ocamlfind ocamlc ${packages} -I ${build_dir}/${lib}/src -c ${build_dir}/${lib}/src/${mod}.mli -o ${build_dir}/${lib}/src/${mod}.cmi
+    cp ${lib}/${mod}.mli ${build_dir}/${lib}/src/${mod}.mli
+    ocamlfind ocamlc $p1 "$p2" $p3 $p4 ${packages} -I ${build_dir}/${lib}/src -c ${build_dir}/${lib}/src/${mod}.mli -o ${build_dir}/${lib}/src/${mod}.cmi
   else
     echo "skipping mli"
   fi
 
-  ppx-jane -inline-test-lib ${lib} ${lib}/${mod}.ml > ${build_dir}/${lib}/src/${mod}.ml
-  ocamlfind ocamlc   ${packages} -I ${build_dir}/${lib}/src -for-pack $(pack_name ${lib}) -c ${build_dir}/${lib}/src/${mod}.ml -o ${build_dir}/${lib}/src/${mod}.cmo
-  ocamlfind ocamlopt ${packages} -I ${build_dir}/${lib}/src -for-pack $(pack_name ${lib}) -c ${build_dir}/${lib}/src/${mod}.ml -o ${build_dir}/${lib}/src/${mod}.cmx
+  cp ${lib}/${mod}.ml ${build_dir}/${lib}/src/${mod}.ml
+  ocamlfind ocamlc   $p1 "$p2" $p3 $p4 ${packages} -I ${build_dir}/${lib}/src -for-pack $(pack_name ${lib}) -c ${build_dir}/${lib}/src/${mod}.ml -o ${build_dir}/${lib}/src/${mod}.cmo
+  ocamlfind ocamlopt $p1 "$p2" $p3 $p4 ${packages} -I ${build_dir}/${lib}/src -for-pack $(pack_name ${lib}) -c ${build_dir}/${lib}/src/${mod}.ml -o ${build_dir}/${lib}/src/${mod}.cmx
 }
 
 function compile_clib {
@@ -168,6 +192,7 @@ function exe {
   ocamlfind ocamlopt ${l_flags} -linkpkg ${build_dir}/${dir}/src/${base}.cmx -o ${build_dir}/${dir}/exe/${base}.native
 }
 
+function skip {
 for lib in odditty_kernel odditty; do
   for mod in $(get_modules_in_dep_order ${lib}); do
     compile_module ${lib} ${mod}
@@ -188,55 +213,29 @@ for lib in core_kernel odditty_kernel odditty; do
 done
 
 ${build_dir}/bin/exe/main.native -help
+}
+
+# = Notes on building the js side =
+#
+# `4.03.0+for-js` is an installation of 4.03.0+32bit-natdynlink, an opam compiler switch defined at:
+# https://github.com/datkin/local-opam-repository.
+#
+# It installs (in the following order):
+#  async_kernel
+#  camlp4 (b/c js_of_ocaml seems to require it)
+#  js_of_ocaml
+#  async_js
+
+opam switch 4.03.0+for-js && eval $(opam config env)
+
+build_dir=.datkin-js-build
+
+for lib in odditty_kernel web; do
+  for mod in $(get_modules_in_dep_order ${lib}); do
+    compile_module ${lib} ${mod}
+  done
+
+  pack ${lib}
+done
 
 exit
-
-ocamlbuild \
-  -use-ocamlfind \
-  -I odditty_kernel \
-  -pkg core_kernel \
-  -pkg async_kernel \
-  -pkg ppx_expect \
-  -pkg ppx_expect.evaluator \
-  -tag thread \
-  -tag 'ppx(ppx-jane -as-ppx -inline-test-lib odditty_kernel)' \
-  -cflags -w,+a-40-42-44 \
-  odditty_kernel_lib/odditty_kernel.cmxa
-
-# -I odditty_kernel \
-
-ocamlbuild \
-  -use-ocamlfind \
-  -I odditty \
-  -I odditty_kernel_lib \
-  -mod Odditty_kernel \
-  -mod Odditty_kernel_x \
-  -pkg core \
-  -pkg async \
-  -pkg ppx_expect \
-  -pkg ppx_expect.evaluator \
-  -tag thread \
-  -tag odditty-stubs \
-  -tag 'ppx(ppx-jane -as-ppx -inline-test-lib odditty)' \
-  -cflags -w,+a-40-42-44 \
-  -cflags -cclib,-lodditty_stubs \
-  -verbose 1 \
-  odditty.cmxa
-
-# -I odditty_kernel_lib \
-# -I odditty \
-ocamlbuild \
-  -use-ocamlfind \
-  -lib Odditty_kernel \
-  -lib Odditty \
-  -pkg core \
-  -pkg async \
-  -pkg ppx_expect \
-  -pkg ppx_expect.evaluator \
-  -tag thread \
-  -tag odditty-stubs-x \
-  -tag 'ppx(ppx-jane -as-ppx -inline-test-lib odditty)' \
-  -cflags -w,+a-40-42-44 \
-  test/inline_test_runner.native
-
-echo done

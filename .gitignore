@@ -6,3 +6,4 @@ a.out
 *.native
 *.swo
 .datkin-build
+.datkin-js-build
