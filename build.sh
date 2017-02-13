@@ -219,6 +219,8 @@ function js {
     +bin_prot.js \
     +core_kernel.js \
     +nat.js \
+    +weak.js \
+    +base/runtime.js \
     ${build_dir}/${dir}/exe/${base}.byte \
     -o ${build_dir}/${dir}/exe/${base}.js \
     --source-map-inline
