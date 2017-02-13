@@ -68,7 +68,8 @@ function get_flags {
       echo "-thread -package core -package async -I ${build_dir}/odditty_kernel/src"
       ;;
     web)
-      echo "-package js_of_ocaml.async"
+      # Another option is "js_of_ocaml.async"?
+      echo "-package js_of_ocaml -package js_of_ocaml.async -package async_js"
       ;;
     *)
       echo "get_flags err"
@@ -100,14 +101,14 @@ function compile_module {
 
   if [ -e ${lib}/${mod}.mli ]; then
     cp ${lib}/${mod}.mli ${build_dir}/${lib}/src/${mod}.mli
-    ocamlfind ocamlc $p1 "$p2" $p3 $p4 ${packages} -I ${build_dir}/${lib}/src -c ${build_dir}/${lib}/src/${mod}.mli -o ${build_dir}/${lib}/src/${mod}.cmi
+    ocamlfind ocamlc -g $p1 "$p2" $p3 $p4 ${packages} -I ${build_dir}/${lib}/src -c ${build_dir}/${lib}/src/${mod}.mli -o ${build_dir}/${lib}/src/${mod}.cmi
   else
     echo "skipping mli"
   fi
 
   cp ${lib}/${mod}.ml ${build_dir}/${lib}/src/${mod}.ml
-  ocamlfind ocamlc   $p1 "$p2" $p3 $p4 ${packages} -I ${build_dir}/${lib}/src -for-pack $(pack_name ${lib}) -c ${build_dir}/${lib}/src/${mod}.ml -o ${build_dir}/${lib}/src/${mod}.cmo
-  ocamlfind ocamlopt $p1 "$p2" $p3 $p4 ${packages} -I ${build_dir}/${lib}/src -for-pack $(pack_name ${lib}) -c ${build_dir}/${lib}/src/${mod}.ml -o ${build_dir}/${lib}/src/${mod}.cmx
+  ocamlfind ocamlc   -g $p1 "$p2" $p3 $p4 ${packages} -I ${build_dir}/${lib}/src -for-pack $(pack_name ${lib}) -c ${build_dir}/${lib}/src/${mod}.ml -o ${build_dir}/${lib}/src/${mod}.cmo
+  ocamlfind ocamlopt -g $p1 "$p2" $p3 $p4 ${packages} -I ${build_dir}/${lib}/src -for-pack $(pack_name ${lib}) -c ${build_dir}/${lib}/src/${mod}.ml -o ${build_dir}/${lib}/src/${mod}.cmx
 }
 
 function compile_clib {
@@ -167,7 +168,7 @@ function exe {
   mkdir -p ${build_dir}/${dir}/src
   mkdir -p ${build_dir}/${dir}/exe
 
-  case $1 in
+  case $file in
     test/inline_test_runner.ml)
       shared_flags="-thread -package core -package async -package ppx_expect -package ppx_expect.evaluator"
        c_flags="${shared_flags} -I ${build_dir}/odditty_kernel/src                     -I ${build_dir}/odditty/src"
@@ -182,9 +183,11 @@ function exe {
       ln_flags="${shared_flags}    ${build_dir}/odditty_kernel/lib/odditty_kernel.cmxa    ${build_dir}/odditty/lib/odditty.cmxa"
       ;;
     bin/web_main.ml)
-      shared_flags="-thread -package async_js"
-       c_flags="${shared_flags} -I ${build_dir}/odditty_kernel/src                     -I ${build_dir}/web/src"
-      ln_flags="${shared_flags}    ${build_dir}/odditty_kernel/lib/odditty_kernel.cmxa    ${build_dir}/web/lib/web.cmxa"
+      shared_flags="-thread -package js_of_ocaml.async -package core_kernel -package async_kernel -package js_of_ocaml"
+      # c_flags="${shared_flags} -I ${build_dir}/odditty_kernel/src                     -I ${build_dir}/web/src"
+      #ln_flags="${shared_flags}    ${build_dir}/odditty_kernel/lib/odditty_kernel.cmxa    ${build_dir}/web/lib/web.cmxa"
+       c_flags="${shared_flags} -I ${build_dir}/web/src"
+      ln_flags="${shared_flags}    ${build_dir}/web/lib/web.cmxa"
       ;;
     *)
       echo "exe flags err"
@@ -196,11 +199,14 @@ function exe {
 
   ppx-jane ${file} > ${build_dir}/${dir}/src/${base}.ml
 
-  ocamlfind ocamlc   ${c_flags}  -c       ${build_dir}/${dir}/src/${base}.ml  -o ${build_dir}/${dir}/src/${base}.cmo
-  ocamlfind ocamlc   ${lb_flags} -linkpkg ${build_dir}/${dir}/src/${base}.cmo -o ${build_dir}/${dir}/exe/${base}.byte
+  ocamlfind ocamlc   -g ${c_flags}  -c       ${build_dir}/${dir}/src/${base}.ml  -o ${build_dir}/${dir}/src/${base}.cmo
+  ocamlfind ocamlc   -g ${lb_flags} -linkpkg ${build_dir}/${dir}/src/${base}.cmo -o ${build_dir}/${dir}/exe/${base}.byte
 
-  ocamlfind ocamlopt ${c_flags}  -c       ${build_dir}/${dir}/src/${base}.ml  -o ${build_dir}/${dir}/src/${base}.cmx
-  ocamlfind ocamlopt ${ln_flags} -linkpkg ${build_dir}/${dir}/src/${base}.cmx -o ${build_dir}/${dir}/exe/${base}.native
+  # Can't link cmxa for js-of-ocaml code
+  if [ $file != "bin/web_main.ml" ]; then
+    ocamlfind ocamlopt -g ${c_flags}  -c       ${build_dir}/${dir}/src/${base}.ml  -o ${build_dir}/${dir}/src/${base}.cmx
+    ocamlfind ocamlopt    ${ln_flags} -linkpkg ${build_dir}/${dir}/src/${base}.cmx -o ${build_dir}/${dir}/exe/${base}.native
+  fi
 }
 
 function js {
@@ -256,15 +262,13 @@ opam switch 4.03.0+for-js && eval $(opam config env)
 
 build_dir=.datkin-js-build
 
-function skip {
-for lib in odditty_kernel web; do
+for lib in web; do
   for mod in $(get_modules_in_dep_order ${lib}); do
     compile_module ${lib} ${mod}
   done
 
   pack ${lib}
 done
-}
 
 exe bin/web_main.ml
 js bin/web_main.ml

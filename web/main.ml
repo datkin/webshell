@@ -32,6 +32,7 @@ type event =
   | Key of Dom_html.keyboardEvent Js.t
 
 let () =
+  Firebug.console##log (Js.string "started");
   don't_wait_for (
     (*
     make_ws ~url:"ws://localhost:8081"
