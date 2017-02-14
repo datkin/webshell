@@ -3,7 +3,6 @@ open Async_kernel.Std
 
 let () = Async_js.init ()
 
-(*
 let make_ws ~url =
   let from_ws_r, from_ws_w = Pipe.create () in
   let to_ws_r, to_ws_w = Pipe.create () in
@@ -25,7 +24,6 @@ let make_ws ~url =
   );
   return (from_ws_r, to_ws_w)
 ;;
-*)
 
 type event =
   | Message of WebSockets.webSocket WebSockets.messageEvent Js.t
@@ -34,22 +32,15 @@ type event =
 let () =
   Firebug.console##log (Js.string "started");
   don't_wait_for (
-    (*
     make_ws ~url:"ws://localhost:8081"
     >>= fun (from_ws, to_ws) ->
-      *)
     Clock_ns.every (Time_ns.Span.of_int_sec 1) (fun () ->
       let ns_since_epoch = Time_ns.to_int63_ns_since_epoch (Time_ns.now ()) in
       let message = sprintf !"%{Int63}" ns_since_epoch in
       Firebug.console##log (Js.string ("sending: " ^ message));
-      (*
       Pipe.write_without_pushback to_ws message;
-      *)
     );
-    Deferred.never ()
-    (*
     Pipe.iter_without_pushback from_ws ~f:(fun str ->
       Firebug.console##log (Js.string ("received: " ^ str)))
-  *)
   )
 ;;

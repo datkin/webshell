@@ -115,16 +115,17 @@ function compile_module {
       ;;
   esac
 
+  # CR datkin: Ordering of the ppx extensions matters here? I'm unsure why/how. Perhaps the ppx-jane expander raises "untranslated extension" errors?
   if [ -e ${lib}/${mod}.mli ]; then
     cp ${lib}/${mod}.mli ${build_dir}/${lib}/src/${mod}.mli
-    ocamlfind ocamlc -g $p1 "$p2" $p3 $p4 ${packages} -I ${build_dir}/${lib}/src -c ${build_dir}/${lib}/src/${mod}.mli -o ${build_dir}/${lib}/src/${mod}.cmi
+    ocamlfind ocamlc -g $p3 $p4 $p1 "$p2" ${packages} -I ${build_dir}/${lib}/src -c ${build_dir}/${lib}/src/${mod}.mli -o ${build_dir}/${lib}/src/${mod}.cmi
   else
     echo "skipping mli"
   fi
 
   cp ${lib}/${mod}.ml ${build_dir}/${lib}/src/${mod}.ml
-  ocamlfind ocamlc   -g $p1 "$p2" $p3 $p4 ${packages} -I ${build_dir}/${lib}/src -for-pack $(pack_name ${lib}) -c ${build_dir}/${lib}/src/${mod}.ml -o ${build_dir}/${lib}/src/${mod}.cmo
-  ocamlfind ocamlopt -g $p1 "$p2" $p3 $p4 ${packages} -I ${build_dir}/${lib}/src -for-pack $(pack_name ${lib}) -c ${build_dir}/${lib}/src/${mod}.ml -o ${build_dir}/${lib}/src/${mod}.cmx
+  ocamlfind ocamlc   -g $p3 $p4 $p1 "$p2" ${packages} -I ${build_dir}/${lib}/src -for-pack $(pack_name ${lib}) -c ${build_dir}/${lib}/src/${mod}.ml -o ${build_dir}/${lib}/src/${mod}.cmo
+  ocamlfind ocamlopt -g $p3 $p4 $p1 "$p2" ${packages} -I ${build_dir}/${lib}/src -for-pack $(pack_name ${lib}) -c ${build_dir}/${lib}/src/${mod}.ml -o ${build_dir}/${lib}/src/${mod}.cmx
 }
 
 function compile_clib {
@@ -243,6 +244,7 @@ function js {
     --source-map-inline
 }
 
+function skip {
 for lib in odditty_kernel odditty server; do
   for mod in $(get_modules_in_dep_order ${lib}); do
     compile_module ${lib} ${mod}
@@ -263,6 +265,7 @@ for lib in core_kernel odditty_kernel odditty; do
 done
 
 ${build_dir}/bin/exe/main.native -help
+}
 
 # = Notes on building the js side =
 #
