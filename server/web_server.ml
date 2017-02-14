@@ -41,7 +41,9 @@ let run ~ws_port ~http_port =
         in
         Pipe.write_without_pushback to_ws_w frame
       );
+      Log.Global.set_level `Debug;
       Websocket_async.server
+        ~log:(force Log.Global.log)
         ~app_to_ws:to_ws_r
         ~ws_to_app:from_ws_w
         ~reader
