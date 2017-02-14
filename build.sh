@@ -1,5 +1,10 @@
 #!/bin/bash
 
+# CR datkin: "Features to add"
+#  - use ocamlfind for packages
+#  - add caching logic (only rebuild changed files)
+#  - port to ocaml (aka jenga :/)
+
 set -o errexit
 set -x
 
@@ -20,18 +25,23 @@ function get_modules_in_dep_order {
         control_functions
         window
 EOF
-        ;;
+;;
     odditty)
       cat <<EOF
         pty
         terminfo
 EOF
-        ;;
+;;
       web)
         cat <<EOF
         main
 EOF
-        ;;
+;;
+      server)
+        cat <<EOF
+        web_server
+EOF
+;;
         *)
         echo "get_modules_in_dep_order err"
         exit 1
@@ -49,6 +59,9 @@ function pack_name {
       ;;
     web)
       echo "Web"
+      ;;
+    server)
+      echo "Server"
       ;;
     *)
       echo "pack_name err"
@@ -70,6 +83,9 @@ function get_flags {
     web)
       # Another option is "js_of_ocaml.async"?
       echo "-package js_of_ocaml -package js_of_ocaml.async -package async_js"
+      ;;
+    server)
+      echo "-thread -package async"
       ;;
     *)
       echo "get_flags err"
@@ -179,13 +195,11 @@ function exe {
       ;;
     bin/main.ml)
       shared_flags="-thread -package core -package async"
-       c_flags="${shared_flags} -I ${build_dir}/odditty_kernel/src                     -I ${build_dir}/odditty/src"
-      ln_flags="${shared_flags}    ${build_dir}/odditty_kernel/lib/odditty_kernel.cmxa    ${build_dir}/odditty/lib/odditty.cmxa"
+       c_flags="${shared_flags} -I ${build_dir}/odditty_kernel/src                     -I ${build_dir}/odditty/src              -I ${build_dir}/server/src"
+      ln_flags="${shared_flags}    ${build_dir}/odditty_kernel/lib/odditty_kernel.cmxa    ${build_dir}/odditty/lib/odditty.cmxa    ${build_dir}/server/lib/server.cmxa"
       ;;
     bin/web_main.ml)
       shared_flags="-thread -package js_of_ocaml.async -package core_kernel -package async_kernel -package js_of_ocaml"
-      # c_flags="${shared_flags} -I ${build_dir}/odditty_kernel/src                     -I ${build_dir}/web/src"
-      #ln_flags="${shared_flags}    ${build_dir}/odditty_kernel/lib/odditty_kernel.cmxa    ${build_dir}/web/lib/web.cmxa"
        c_flags="${shared_flags} -I ${build_dir}/web/src"
       ln_flags="${shared_flags}    ${build_dir}/web/lib/web.cmxa"
       ;;
@@ -199,13 +213,16 @@ function exe {
 
   ppx-jane ${file} > ${build_dir}/${dir}/src/${base}.ml
 
-  ocamlfind ocamlc   -g ${c_flags}  -c       ${build_dir}/${dir}/src/${base}.ml  -o ${build_dir}/${dir}/src/${base}.cmo
-  ocamlfind ocamlc   -g ${lb_flags} -linkpkg ${build_dir}/${dir}/src/${base}.cmo -o ${build_dir}/${dir}/exe/${base}.byte
+  # Can't link fork_in_pty for the bytecode? Not sure why.
+  if [ $file == "bin/web_main.ml" ]; then
+    ocamlfind ocamlc   -g ${c_flags}  -c       ${build_dir}/${dir}/src/${base}.ml  -o ${build_dir}/${dir}/src/${base}.cmo
+    ocamlfind ocamlc   -g ${lb_flags} -linkpkg ${build_dir}/${dir}/src/${base}.cmo -o ${build_dir}/${dir}/exe/${base}.byte
+  fi
 
   # Can't link cmxa for js-of-ocaml code
   if [ $file != "bin/web_main.ml" ]; then
     ocamlfind ocamlopt -g ${c_flags}  -c       ${build_dir}/${dir}/src/${base}.ml  -o ${build_dir}/${dir}/src/${base}.cmx
-    ocamlfind ocamlopt    ${ln_flags} -linkpkg ${build_dir}/${dir}/src/${base}.cmx -o ${build_dir}/${dir}/exe/${base}.native
+    ocamlfind ocamlopt -g ${ln_flags} -linkpkg ${build_dir}/${dir}/src/${base}.cmx -o ${build_dir}/${dir}/exe/${base}.native
   fi
 }
 
@@ -226,8 +243,7 @@ function js {
     --source-map-inline
 }
 
-function skip {
-for lib in odditty_kernel odditty; do
+for lib in odditty_kernel odditty server; do
   for mod in $(get_modules_in_dep_order ${lib}); do
     compile_module ${lib} ${mod}
   done
@@ -247,7 +263,6 @@ for lib in core_kernel odditty_kernel odditty; do
 done
 
 ${build_dir}/bin/exe/main.native -help
-}
 
 # = Notes on building the js side =
 #
