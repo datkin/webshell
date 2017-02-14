@@ -85,7 +85,7 @@ function get_flags {
       echo "-package js_of_ocaml -package js_of_ocaml.async -package async_js"
       ;;
     server)
-      echo "-thread -package async"
+      echo "-thread -package async -package websocket.async"
       ;;
     *)
       echo "get_flags err"
@@ -194,7 +194,7 @@ function exe {
       ln_flags="${shared_flags}    ${build_dir}/odditty_kernel/lib/odditty_kernel.cmxa    ${build_dir}/odditty/lib/odditty.cmxa -linkall"
       ;;
     bin/main.ml)
-      shared_flags="-thread -package core -package async"
+      shared_flags="-thread -package core -package async -package websocket.async"
        c_flags="${shared_flags} -I ${build_dir}/odditty_kernel/src                     -I ${build_dir}/odditty/src              -I ${build_dir}/server/src"
       ln_flags="${shared_flags}    ${build_dir}/odditty_kernel/lib/odditty_kernel.cmxa    ${build_dir}/odditty/lib/odditty.cmxa    ${build_dir}/server/lib/server.cmxa"
       ;;
