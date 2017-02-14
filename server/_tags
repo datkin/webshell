@@ -1,3 +1,0 @@
-<lib>: include
-
-<lib/*.ml>: for-pack(Server_lib)
