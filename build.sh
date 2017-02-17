@@ -8,6 +8,8 @@
 set -o errexit
 set -x
 
+warnings=+a-40-42-44
+
 opam switch 4.03.0 && eval $(opam config env)
 
 build_dir=.datkin-build
@@ -82,7 +84,7 @@ function get_flags {
       ;;
     web)
       # Another option is "js_of_ocaml.async"?
-      echo "-package js_of_ocaml -package js_of_ocaml.async -package async_js"
+      echo "-package js_of_ocaml -package js_of_ocaml.async -package async_js -package virtual_dom"
       ;;
     server)
       echo "-thread -package async -package websocket.async"
@@ -124,8 +126,8 @@ function compile_module {
   fi
 
   cp ${lib}/${mod}.ml ${build_dir}/${lib}/src/${mod}.ml
-  ocamlfind ocamlc   -g $p3 $p4 $p1 "$p2" ${packages} -I ${build_dir}/${lib}/src -for-pack $(pack_name ${lib}) -c ${build_dir}/${lib}/src/${mod}.ml -o ${build_dir}/${lib}/src/${mod}.cmo
-  ocamlfind ocamlopt -g $p3 $p4 $p1 "$p2" ${packages} -I ${build_dir}/${lib}/src -for-pack $(pack_name ${lib}) -c ${build_dir}/${lib}/src/${mod}.ml -o ${build_dir}/${lib}/src/${mod}.cmx
+  ocamlfind ocamlc   -w ${warnings} -g $p3 $p4 $p1 "$p2" ${packages} -I ${build_dir}/${lib}/src -for-pack $(pack_name ${lib}) -c ${build_dir}/${lib}/src/${mod}.ml -o ${build_dir}/${lib}/src/${mod}.cmo
+  ocamlfind ocamlopt -w ${warnings} -g $p3 $p4 $p1 "$p2" ${packages} -I ${build_dir}/${lib}/src -for-pack $(pack_name ${lib}) -c ${build_dir}/${lib}/src/${mod}.ml -o ${build_dir}/${lib}/src/${mod}.cmx
 }
 
 function compile_clib {
@@ -187,7 +189,9 @@ function exe {
 
   case $file in
     test/inline_test_runner.ml)
-      shared_flags="-thread -package core -package async -package ppx_expect -package ppx_expect.evaluator"
+      # ppx_inline_test.runner.lib introduces a new defn to the external
+      # [Base_am_testing] function, which is required for tests to run.
+      shared_flags="-thread -package core -package async -package ppx_expect -package ppx_inline_test.runner.lib -package ppx_expect.evaluator"
        c_flags="${shared_flags} -I ${build_dir}/odditty_kernel/src                     -I ${build_dir}/odditty/src"
       # We pass '-linkall' b/c it ensures that the inline test runner will be
       # linked against the inline test libs, even though it doesn't actually
@@ -200,7 +204,7 @@ function exe {
       ln_flags="${shared_flags}    ${build_dir}/odditty_kernel/lib/odditty_kernel.cmxa    ${build_dir}/odditty/lib/odditty.cmxa    ${build_dir}/server/lib/server.cmxa"
       ;;
     bin/web_main.ml)
-      shared_flags="-thread -package js_of_ocaml.async -package core_kernel -package async_kernel -package js_of_ocaml"
+      shared_flags="-thread -package js_of_ocaml.async -package core_kernel -package async_kernel -package js_of_ocaml -package virtual_dom"
        c_flags="${shared_flags} -I ${build_dir}/web/src"
       ln_flags="${shared_flags}    ${build_dir}/web/lib/web.cmxa"
       ;;
@@ -216,14 +220,14 @@ function exe {
 
   # Can't link fork_in_pty for the bytecode? Not sure why.
   if [ $file == "bin/web_main.ml" ]; then
-    ocamlfind ocamlc   -g ${c_flags}  -c       ${build_dir}/${dir}/src/${base}.ml  -o ${build_dir}/${dir}/src/${base}.cmo
-    ocamlfind ocamlc   -g ${lb_flags} -linkpkg ${build_dir}/${dir}/src/${base}.cmo -o ${build_dir}/${dir}/exe/${base}.byte
+    ocamlfind ocamlc   -w ${warnings} -g ${c_flags}  -c       ${build_dir}/${dir}/src/${base}.ml  -o ${build_dir}/${dir}/src/${base}.cmo
+    ocamlfind ocamlc   -w ${warnings} -g ${lb_flags} -linkpkg ${build_dir}/${dir}/src/${base}.cmo -o ${build_dir}/${dir}/exe/${base}.byte
   fi
 
   # Can't link cmxa for js-of-ocaml code
   if [ $file != "bin/web_main.ml" ]; then
-    ocamlfind ocamlopt -g ${c_flags}  -c       ${build_dir}/${dir}/src/${base}.ml  -o ${build_dir}/${dir}/src/${base}.cmx
-    ocamlfind ocamlopt -g ${ln_flags} -linkpkg ${build_dir}/${dir}/src/${base}.cmx -o ${build_dir}/${dir}/exe/${base}.native
+    ocamlfind ocamlopt -w ${warnings} -g ${c_flags}  -c       ${build_dir}/${dir}/src/${base}.ml  -o ${build_dir}/${dir}/src/${base}.cmx
+    ocamlfind ocamlopt -w ${warnings} -g ${ln_flags} -linkpkg ${build_dir}/${dir}/src/${base}.cmx -o ${build_dir}/${dir}/exe/${base}.native
   fi
 }
 
@@ -233,7 +237,7 @@ function js {
   dir=$(dirname ${file})
   base=$(basename ${file} | sed 's/\.ml$//')
 
-  js_of_ocaml \
+  time js_of_ocaml \
     +bin_prot.js \
     +core_kernel.js \
     +nat.js \
@@ -244,7 +248,6 @@ function js {
     --source-map-inline
 }
 
-function skip {
 for lib in odditty_kernel odditty server; do
   for mod in $(get_modules_in_dep_order ${lib}); do
     compile_module ${lib} ${mod}
@@ -257,7 +260,7 @@ done
 exe test/inline_test_runner.ml
 exe bin/main.ml
 
-for lib in core_kernel odditty_kernel odditty; do
+for lib in odditty_kernel odditty; do
   ./${build_dir}/test/exe/inline_test_runner.native \
     inline-test-runner \
     $lib \
@@ -265,7 +268,6 @@ for lib in core_kernel odditty_kernel odditty; do
 done
 
 ${build_dir}/bin/exe/main.native -help
-}
 
 # = Notes on building the js side =
 #

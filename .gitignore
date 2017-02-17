@@ -7,3 +7,6 @@ a.out
 *.swo
 .datkin-build
 .datkin-js-build
+**/*.corrected
+*.cm*
+dbuild

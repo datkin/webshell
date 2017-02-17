@@ -3,6 +3,34 @@ open Async_kernel.Std
 
 let () = Async_js.init ()
 
+let view (_ : 'a) =
+  let open Virtual_dom.Vdom in
+  Node.div [
+    Attr.class_ "terminal";
+  ] [
+    Node.text "&nbsp;";
+    Node.text "foobar";
+  ]
+;;
+
+let () =
+  Dom_html.window##.onload := Dom.handler (fun _ ->
+    Firebug.console##log (Js.string "onload callback");
+    let k    = ref 0 in
+    let vdom = ref (view !k) in
+    let elt  = ref (Virtual_dom.Vdom.Node.to_dom !vdom :> Dom.element Js.t) in
+    Dom.appendChild Dom_html.document##.body !elt;
+    (*
+    Dom_html.window##setInterval (Js.wrap_callback (fun _ ->
+      incr k;
+      let new_vdom = view !k in
+      elt := Node.Patch.apply (Node.Patch.create ~previous:!vdom ~current:new_vdom) !elt;
+      vdom := new_vdom
+    )) 100. |> ignore;
+    *)
+    Js._false
+  )
+
 let make_ws ~url =
   let from_ws_r, from_ws_w = Pipe.create () in
   let to_ws_r, to_ws_w = Pipe.create () in

@@ -721,6 +721,20 @@ let html_post = {|
 </html>
 |}
 
+let to_lists t =
+  let rows = ref [] in
+  for y = 0 to (dim t).height - 1 do
+    let row = ref [] in
+    for x = 0 to (dim t).width - 1 do
+      let coord = { x; y; } in
+      let chr = Grid.get t.grid coord |> Cell.code in
+      row := chr :: !row
+    done;
+    rows := (List.rev !row) :: !rows
+  done;
+  List.rev !rows
+;;
+
 let render_html t =
   let buf = ref "" in
   let output str = buf := !buf ^ str in
