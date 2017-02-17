@@ -3,6 +3,8 @@
 set -o errexit
 set -x
 
+opam switch 4.03.0 && eval $(opam config env)
+
 # All warnings, disable:
 #   - 40: Constructor / label name out of scope
 #   - 42: Disambiguated constructor
