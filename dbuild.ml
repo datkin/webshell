@@ -204,7 +204,6 @@ end = struct
        (inputs (.dbuild/native/foo/c/bar.o .dbuild/native/foo/c/baz.o))
        (outputs (.dbuild/native/foo/c/foo.a))) |}];
   ;;
-
 end
 
 module Ocaml_compiler : sig
@@ -217,11 +216,11 @@ module Ocaml_compiler : sig
     -> [ `ml | `mli ]
     -> Build_graph.node
 
+  val pack : kind -> modules_in_dep_order:Module_name.t list -> Lib_name.t -> Build_graph.node
+
+  val archive : kind -> c_stubs:string list -> Lib_name.t -> Build_graph.node
+
     (*
-  val pack : unit
-
-  val archive : unit
-
   val link : unit
   *)
 end = struct
