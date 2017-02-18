@@ -164,6 +164,8 @@ end = struct
     | Js, `ml -> "cmo"
     | _, `mli -> "cmi"
 
+  let f x = List.map x ~f:File_name.of_string |> File_name.Set.of_list
+
   let compile kind pkgs libs lib_name module_name which_file =
     let maybe_js_ppx =
       match kind with
@@ -175,6 +177,8 @@ end = struct
       |> List.concat_map ~f:(fun lib ->
           [ "-I"; build_dir kind `pack lib; ])
     in
+    (* CR datkin: If we instead look at the modules in the `module dir, we might
+     * get more parallelism. *)
     let extra_inputs =
       Set.to_list libs
       |> List.map ~f:(fun lib ->
@@ -212,7 +216,6 @@ end = struct
       ];
     }
     in
-    let f x = List.map x ~f:File_name.of_string |> File_name.Set.of_list in
     { Build_graph.
       cmd;
       inputs = f (input :: extra_inputs);
@@ -238,12 +241,16 @@ end = struct
        (outputs (.dbuild/native/foo/modules/bar.cmx))) |}];
   ;;
 
-  (*
   let pack kind ~modules_in_dep_order lib_name =
-    let modules =
-      List.map modules_in_dep_order ~f:(fun module_name ->
-        build_dir kind 
+    let inputs =
+      List.concat_map modules_in_dep_order ~f:(fun module_name ->
+        List.map [`ml; `mli] ~f:(fun file_kind ->
+          sprintf !"%s/%{Module_name}.%s" (build_dir kind `modules lib_name) module_name (ext kind file_kind)))
     in
+    let output =
+      sprintf !"%s/%{Lib_name}.%s" (build_dir kind `pack lib_name) lib_name (ext kind `ml)
+    in
+    let cmd =
     { Cmd.
       opam_switch = Some (opam_switch kind);
       exe = "ocamlfind";
@@ -251,12 +258,36 @@ end = struct
         ocamlc kind;
         "-pack";
       ] @
-      modules
+      inputs
       @ [
-        "-o"; sprintf !"%s/%{Lib_name}.%s" (build_dir kind `pack lib_name) lib_name (ext kind `ml);
+        "-o"; output;
       ];
     }
+    in
+    { Build_graph.
+      cmd;
+      inputs = f inputs;
+      outputs = f [ output ];
+    }
 
+  let%expect_test _ =
+    let modules_in_dep_order = List.map ["x"; "y"] ~f:Module_name.of_string in
+    printf !"%{sexp:Build_graph.node}" (pack Native ~modules_in_dep_order (Lib_name.of_string "foo"));
+    [%expect {|
+      ((cmd
+        ((exe ocamlfind)
+         (args
+          (ocamlopt -pack .dbuild/native/foo/modules/x.cmx
+           .dbuild/native/foo/modules/x.cmi .dbuild/native/foo/modules/y.cmx
+           .dbuild/native/foo/modules/y.cmi -o .dbuild/native/foo/pack/foo.cmx))
+         (opam_switch (4.03.0))))
+       (inputs
+        (.dbuild/native/foo/modules/x.cmi .dbuild/native/foo/modules/x.cmx
+         .dbuild/native/foo/modules/y.cmi .dbuild/native/foo/modules/y.cmx))
+       (outputs (.dbuild/native/foo/pack/foo.cmx))) |}];
+  ;;
+
+    (*
   let archive kind ~c_stubs ~modules_in_dep_order lib_name
   *)
 end
