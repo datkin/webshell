@@ -48,7 +48,7 @@ module Project_spec = struct
   type library = {
     dir : Lib_name.t;
     modules_in_dep_order : Module_name.t list;
-    c_stubs : string list;
+    c_stubs : string sexp_list;
     direct_deps : direct_deps;
   } [@@deriving sexp]
 
@@ -152,6 +152,7 @@ end = struct
     | `modules
     | `pack
     | `archive
+    | `c
   ] [@@deriving sexp]
 
   let build_dir kind dir_kind lib_name =
@@ -162,6 +163,8 @@ end = struct
     match kind, which_file with
     | Native, `ml -> "cmx"
     | Js, `ml -> "cmo"
+    | Native, `archive -> "cmxa"
+    | Js, `archive -> "cma"
     | _, `mli -> "cmi"
 
   let f x = List.map x ~f:File_name.of_string |> File_name.Set.of_list
@@ -287,18 +290,66 @@ end = struct
        (outputs (.dbuild/native/foo/pack/foo.cmx))) |}];
   ;;
 
-    (*
-  let archive kind ~c_stubs ~modules_in_dep_order lib_name
-  *)
+  let archive kind ~c_stubs lib_name =
+    let input =
+      sprintf !"%s/%{Lib_name}.%s" (build_dir kind `pack lib_name) lib_name (ext kind `ml)
+    in
+    let output =
+      sprintf !"%s/%{Lib_name}.%s" (build_dir kind `archive lib_name) lib_name (ext kind `archive)
+    in
+    let c_opts =
+      match c_stubs with
+      | [] -> []
+      | _ :: _ -> [
+        "-ccopt"; sprintf !"-L%s" (build_dir kind `c lib_name);
+        "-cclib"; sprintf !"-l%{Lib_name}" lib_name;
+      ]
+    in
+    let cmd =
+      { Cmd.
+        opam_switch = Some (opam_switch kind);
+        exe = "ocamlfind";
+        args = [
+          ocamlc kind;
+          "-a";
+        ] @
+        c_opts
+        @ [
+          input;
+          "-o"; output;
+        ];
+      }
+    in
+    { Build_graph.
+      cmd;
+      (* I don't think this actually does anything with the c archive... so it's
+       * not actually a dependency? *)
+      inputs = f [ input ];
+      outputs = f [ output ];
+    }
+
+  let%expect_test _ =
+    printf !"%{sexp:Build_graph.node}" (archive Native ~c_stubs:["blah"] (Lib_name.of_string "foo"));
+    [%expect {|
+      ((cmd
+        ((exe ocamlfind)
+         (args
+          (ocamlopt -a -ccopt -L.dbuild/native/foo/c -cclib -lfoo
+           .dbuild/native/foo/pack/foo.cmx -o .dbuild/native/foo/archive/foo.cmxa))
+         (opam_switch (4.03.0))))
+       (inputs (.dbuild/native/foo/pack/foo.cmx))
+       (outputs (.dbuild/native/foo/archive/foo.cmxa))) |}];
+  ;;
 end
 
 let spec_to_nodes { Project_spec. libraries; binaries; } : Build_graph.node list =
   (* CR datkin: Need to track library dep closure. *)
-  let of_lib { Project_spec. dir; modules_in_dep_order; direct_deps = { packages; libs; }; } =
+  let of_lib { Project_spec. dir; modules_in_dep_order; c_stubs; direct_deps = { packages; libs; }; } =
     ignore dir;
     ignore modules_in_dep_order;
     ignore packages;
     ignore libs;
+    ignore c_stubs;
     []
   in
   let of_bin { Project_spec. file; direct_deps = { packages; libs; }; output; } =
@@ -317,6 +368,19 @@ let project_spec =
   [%of_sexp: Project_spec.t] (Sexp.of_string {|
   (
     (libraries (
+      (
+        (dir odditty_kernel)
+        (modules_in_dep_order (
+          character_attributes
+          character_set
+          control_functions
+          dec_private_mode
+        ))
+        (direct_deps (
+          (packages ())
+          (libs ())
+        ))
+      )
     ))
     (binaries (
     ))
