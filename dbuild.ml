@@ -35,21 +35,25 @@ module File_name = String_id.Make (struct
   let module_name = "File"
 end) ()
 
+module Opam_switch_name = String_id.Make (struct
+  let module_name = "Opam_switch_name"
+end) ()
+
 module Project_spec = struct
-  type deps = {
-    direct_packages_deps : Package_name.Set.t; (* i.e. findlib packages *)
-    direct_lib_deps : Lib_name.Set.t; (* i.e. other non-findlib packages *)
+  type direct_deps = {
+    packages : Package_name.Set.t; (* i.e. findlib packages *)
+    libs : Lib_name.Set.t; (* i.e. other non-findlib packages *)
   } [@@deriving sexp]
 
   type library = {
     dir : Lib_name.t;
     modules_in_dep_order : Module_name.t list;
-    deps : deps;
+    direct_deps : direct_deps;
   } [@@deriving sexp]
 
   type binary = {
     file : string;
-    deps : deps;
+    direct_deps : direct_deps;
     output : [`native | `js];
   } [@@deriving sexp]
 
@@ -59,11 +63,16 @@ module Project_spec = struct
   } [@@deriving sexp]
 end
 
+let opam_native = Opam_switch_name.of_string "4.03.0"
+let opam_js = Opam_switch_name.of_string "4.03.0+for-js"
+
 (* _Not_ Command, the Core module *)
 module Cmd = struct
   type t = {
     exe : string;
     args : string list;
+    (* Switch opam environment to eval before running the command. *)
+    opam_switch : Opam_switch_name.t option;
   } [@@deriving sexp]
 end
 
@@ -107,11 +116,104 @@ module Build_graph = struct
     { nodes; by_file; }
 end
 
-(*
-val build : Build_graph.t -> file_cache -> unit Deferred.Or_error.t
+type kind =
+  | Native
+  | Js
+[@@deriving sexp]
 
-val to_graph : Project_spec.t -> Build_graph.t Deferred.Or_error.t
-*)
+module Ocaml_compiler : sig
+  val compile
+    :  kind
+    -> Package_name.Set.t
+    -> Lib_name.Set.t
+    -> Lib_name.t
+    -> Module_name.t
+    -> [ `ml | `mli ]
+    -> Cmd.t
+
+    (*
+  val pack : unit
+
+  val archive : unit
+
+  val link : unit
+  *)
+end = struct
+
+  let opam_switch = function
+    | Native -> opam_native
+    | Js -> opam_js
+
+  let ocamlc = function
+    | Native -> "ocamlopt"
+    | Js -> "ocamlc"
+
+  let build_dir kind lib_name =
+    sprintf !".dbuild/%{sexp:kind}/%{Lib_name}/modules/" kind lib_name
+    |> String.lowercase
+
+  let compile kind pkgs libs lib_name module_name which_file =
+    let ext =
+      match kind, which_file with
+      | Native, `ml -> "cmx"
+      | Js, `ml -> "cmo"
+      | _, `mli -> "cmi"
+    in
+    let maybe_js_ppx =
+      match kind with
+      | Native -> []
+      | Js -> ["-ppx"; "$(opam config var lib)/js_of_ocaml/ppx_js"]
+    in
+    let extra_includes =
+      Set.to_list libs
+      |> List.concat_map ~f:(fun lib ->
+          [ "-I"; build_dir kind lib; ])
+    in
+    let build_dir = build_dir kind lib_name in
+    { Cmd.
+      opam_switch = Some (opam_switch kind);
+      exe = "ocamlfind";
+      args = [
+        ocamlc kind;
+        "-w"; "+a-40-42-44";
+        "-g";
+      ]
+      @ maybe_js_ppx
+      @ [
+        "-ppx"; sprintf !"ppx-jane -as-ppx -inline-test-lib %{Lib_name}" lib_name;
+        "-thread";
+        "-package"; Set.to_list pkgs |> List.map ~f:Package_name.to_string |> String.concat ~sep:",";
+      ]
+      @ extra_includes
+      @ [
+        "-I"; build_dir;
+        "-for-pack"; Lib_name.to_string lib_name |> String.uppercase;
+        "-c"; sprintf !"%{Lib_name}/%{Module_name}.%s" lib_name module_name (match which_file with | `ml -> "ml" | `mli -> "mli");
+        "-o"; sprintf !"%s/%{Module_name}.%s" build_dir module_name ext;
+      ];
+    }
+end
+
+let spec_to_nodes { Project_spec. libraries; binaries; } : Build_graph.node list =
+  (* CR datkin: Need to track library dep closure. *)
+  let of_lib { Project_spec. dir; modules_in_dep_order; direct_deps = { packages; libs; }; } =
+    ignore dir;
+    ignore modules_in_dep_order;
+    ignore packages;
+    ignore libs;
+    []
+  in
+  let of_bin { Project_spec. file; direct_deps = { packages; libs; }; output; } =
+    ignore file;
+    ignore packages;
+    ignore libs;
+    ignore output;
+    []
+  in
+  let libs = List.concat_map libraries ~f:of_lib in
+  let bins = List.concat_map binaries ~f:of_bin in
+  List.concat_no_order [libs; bins;]
+;;
 
 let project_spec =
   [%of_sexp: Project_spec.t] (Sexp.of_string {|
