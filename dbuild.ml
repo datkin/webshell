@@ -122,6 +122,91 @@ type kind =
   | Js
 [@@deriving sexp]
 
+type dir_kind = [
+  | `modules
+  | `pack
+  | `archive
+  | `c
+] [@@deriving sexp]
+
+let build_dir kind dir_kind lib_name =
+  sprintf !".dbuild/%{sexp:kind}/%{Lib_name}/%{sexp:dir_kind}" kind lib_name dir_kind
+  |> String.lowercase
+
+let f x = List.map x ~f:File_name.of_string |> File_name.Set.of_list
+
+let opam_switch = function
+  | Native -> opam_native
+  | Js -> opam_js
+
+module C_compiler : sig
+  val compile : Lib_name.t -> c_base:string -> Build_graph.node
+  val archive : Lib_name.t -> c_bases:string list -> Build_graph.node
+end = struct
+  let compile lib_name ~c_base =
+    let input = sprintf !"%{Lib_name}/%s.c" lib_name c_base in
+    let output = sprintf !"%s/%s.o" (build_dir Native `c lib_name) c_base in
+    let cmd =
+      { Cmd.
+        (* Could be [None], but we need this for ocamlc. *)
+        opam_switch = Some (opam_switch Native);
+        exe = "gcc";
+        args = [
+          "-I"; "$(ocamlc -where)";
+          "-c"; input;
+          "-o"; output;
+        ];
+      }
+    in
+    { Build_graph.
+      cmd;
+      inputs = f [ input ];
+      outputs = f [ output ];
+    }
+
+  let archive lib_name ~c_bases =
+    let inputs =
+      List.map c_bases ~f:(fun c_base ->
+        sprintf !"%s/%s.o" (build_dir Native `c lib_name) c_base)
+    in
+    let output = sprintf !"%s/%{Lib_name}.a" (build_dir Native `c lib_name) lib_name in
+    let cmd =
+      { Cmd.
+        opam_switch = None;
+        exe = "ar";
+        args = [
+          "cr";
+          output;
+        ] @ inputs;
+      }
+    in
+    { Build_graph.
+      cmd;
+      inputs = f inputs;
+      outputs = f [ output ];
+    }
+
+  let%expect_test _ =
+    printf !"%{sexp:Build_graph.node}\n%!" (compile (Lib_name.of_string "foo") ~c_base:"bar");
+    printf !"%{sexp:Build_graph.node}\n%!" (archive (Lib_name.of_string "foo") ~c_bases:["bar"; "baz"]);
+    [%expect {|
+      ((cmd
+        ((exe gcc)
+         (args (-I "$(ocamlc -where)" -c foo/bar.c -o .dbuild/native/foo/c/bar.o))
+         (opam_switch (4.03.0))))
+       (inputs (foo/bar.c)) (outputs (.dbuild/native/foo/c/bar.o)))
+      ((cmd
+        ((exe ar)
+         (args
+          (cr .dbuild/native/foo/c/foo.a .dbuild/native/foo/c/bar.o
+           .dbuild/native/foo/c/baz.o))
+         (opam_switch ())))
+       (inputs (.dbuild/native/foo/c/bar.o .dbuild/native/foo/c/baz.o))
+       (outputs (.dbuild/native/foo/c/foo.a))) |}];
+  ;;
+
+end
+
 module Ocaml_compiler : sig
   val compile
     :  kind
@@ -140,24 +225,10 @@ module Ocaml_compiler : sig
   val link : unit
   *)
 end = struct
-  let opam_switch = function
-    | Native -> opam_native
-    | Js -> opam_js
 
   let ocamlc = function
     | Native -> "ocamlopt"
     | Js -> "ocamlc"
-
-  type dir_kind = [
-    | `modules
-    | `pack
-    | `archive
-    | `c
-  ] [@@deriving sexp]
-
-  let build_dir kind dir_kind lib_name =
-    sprintf !".dbuild/%{sexp:kind}/%{Lib_name}/%{sexp:dir_kind}" kind lib_name dir_kind
-    |> String.lowercase
 
   let ext kind which_file =
     match kind, which_file with
@@ -166,8 +237,6 @@ end = struct
     | Native, `archive -> "cmxa"
     | Js, `archive -> "cma"
     | _, `mli -> "cmi"
-
-  let f x = List.map x ~f:File_name.of_string |> File_name.Set.of_list
 
   let compile kind pkgs libs lib_name module_name which_file =
     let maybe_js_ppx =
