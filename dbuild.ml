@@ -48,6 +48,7 @@ module Project_spec = struct
   type library = {
     dir : Lib_name.t;
     modules_in_dep_order : Module_name.t list;
+    c_stubs : string list;
     direct_deps : direct_deps;
   } [@@deriving sexp]
 
@@ -129,7 +130,7 @@ module Ocaml_compiler : sig
     -> Lib_name.t
     -> Module_name.t
     -> [ `ml | `mli ]
-    -> Cmd.t
+    -> Build_graph.node
 
     (*
   val pack : unit
@@ -139,7 +140,6 @@ module Ocaml_compiler : sig
   val link : unit
   *)
 end = struct
-
   let opam_switch = function
     | Native -> opam_native
     | Js -> opam_js
@@ -148,17 +148,23 @@ end = struct
     | Native -> "ocamlopt"
     | Js -> "ocamlc"
 
-  let build_dir kind lib_name =
-    sprintf !".dbuild/%{sexp:kind}/%{Lib_name}/modules/" kind lib_name
+  type dir_kind = [
+    | `modules
+    | `pack
+    | `archive
+  ] [@@deriving sexp]
+
+  let build_dir kind dir_kind lib_name =
+    sprintf !".dbuild/%{sexp:kind}/%{Lib_name}/%{sexp:dir_kind}" kind lib_name dir_kind
     |> String.lowercase
 
+  let ext kind which_file =
+    match kind, which_file with
+    | Native, `ml -> "cmx"
+    | Js, `ml -> "cmo"
+    | _, `mli -> "cmi"
+
   let compile kind pkgs libs lib_name module_name which_file =
-    let ext =
-      match kind, which_file with
-      | Native, `ml -> "cmx"
-      | Js, `ml -> "cmo"
-      | _, `mli -> "cmi"
-    in
     let maybe_js_ppx =
       match kind with
       | Native -> []
@@ -167,9 +173,22 @@ end = struct
     let extra_includes =
       Set.to_list libs
       |> List.concat_map ~f:(fun lib ->
-          [ "-I"; build_dir kind lib; ])
+          [ "-I"; build_dir kind `pack lib; ])
     in
-    let build_dir = build_dir kind lib_name in
+    let extra_inputs =
+      Set.to_list libs
+      |> List.map ~f:(fun lib ->
+          sprintf !"%s/%{Lib_name}.%s" (build_dir kind `modules lib) lib (ext kind `ml))
+    in
+    let build_dir = build_dir kind `modules lib_name in
+    let output =
+      let ext = ext kind which_file in
+      sprintf !"%s/%{Module_name}.%s" build_dir module_name ext
+    in
+    let input =
+      sprintf !"%{Lib_name}/%{Module_name}.%s" lib_name module_name (match which_file with | `ml -> "ml" | `mli -> "mli")
+    in
+    let cmd =
     { Cmd.
       opam_switch = Some (opam_switch kind);
       exe = "ocamlfind";
@@ -188,25 +207,58 @@ end = struct
       @ [
         "-I"; build_dir;
         "-for-pack"; Lib_name.to_string lib_name |> String.capitalize;
-        "-c"; sprintf !"%{Lib_name}/%{Module_name}.%s" lib_name module_name (match which_file with | `ml -> "ml" | `mli -> "mli");
-        "-o"; sprintf !"%s/%{Module_name}.%s" build_dir module_name ext;
+        "-c"; input;
+        "-o"; output;
       ];
+    }
+    in
+    let f x = List.map x ~f:File_name.of_string |> File_name.Set.of_list in
+    { Build_graph.
+      cmd;
+      inputs = f (input :: extra_inputs);
+      outputs = f [ output ];
     }
 
   let%expect_test _ =
     let pkgs = List.map ["a"; "b"] ~f:Package_name.of_string |> Package_name.Set.of_list in
     let libs = List.map ["x"; "y"] ~f:Lib_name.of_string |> Lib_name.Set.of_list in
-    printf !"%{sexp:Cmd.t}"
+    printf !"%{sexp:Build_graph.node}"
       (compile Native pkgs libs (Lib_name.of_string "foo") (Module_name.of_string "bar") `ml);
     [%expect {|
-      ((exe ocamlfind)
-       (args
-        (ocamlopt -w +a-40-42-44 -g -ppx "ppx-jane -as-ppx -inline-test-lib foo"
-         -thread -package a,b -I .dbuild/native/x/modules/ -I
-         .dbuild/native/y/modules/ -I .dbuild/native/foo/modules/ -for-pack Foo -c
-         foo/bar.ml -o .dbuild/native/foo/modules//bar.cmx))
-       (opam_switch (4.03.0))) |}];
+      ((cmd
+        ((exe ocamlfind)
+         (args
+          (ocamlopt -w +a-40-42-44 -g -ppx "ppx-jane -as-ppx -inline-test-lib foo"
+           -thread -package a,b -I .dbuild/native/x/pack -I .dbuild/native/y/pack
+           -I .dbuild/native/foo/modules -for-pack Foo -c foo/bar.ml -o
+           .dbuild/native/foo/modules/bar.cmx))
+         (opam_switch (4.03.0))))
+       (inputs
+        (.dbuild/native/x/modules/x.cmx .dbuild/native/y/modules/y.cmx foo/bar.ml))
+       (outputs (.dbuild/native/foo/modules/bar.cmx))) |}];
   ;;
+
+  (*
+  let pack kind ~modules_in_dep_order lib_name =
+    let modules =
+      List.map modules_in_dep_order ~f:(fun module_name ->
+        build_dir kind 
+    in
+    { Cmd.
+      opam_switch = Some (opam_switch kind);
+      exe = "ocamlfind";
+      args = [
+        ocamlc kind;
+        "-pack";
+      ] @
+      modules
+      @ [
+        "-o"; sprintf !"%s/%{Lib_name}.%s" (build_dir kind `pack lib_name) lib_name (ext kind `ml);
+      ];
+    }
+
+  let archive kind ~c_stubs ~modules_in_dep_order lib_name
+  *)
 end
 
 let spec_to_nodes { Project_spec. libraries; binaries; } : Build_graph.node list =
