@@ -187,11 +187,26 @@ end = struct
       @ extra_includes
       @ [
         "-I"; build_dir;
-        "-for-pack"; Lib_name.to_string lib_name |> String.uppercase;
+        "-for-pack"; Lib_name.to_string lib_name |> String.capitalize;
         "-c"; sprintf !"%{Lib_name}/%{Module_name}.%s" lib_name module_name (match which_file with | `ml -> "ml" | `mli -> "mli");
         "-o"; sprintf !"%s/%{Module_name}.%s" build_dir module_name ext;
       ];
     }
+
+  let%expect_test _ =
+    let pkgs = List.map ["a"; "b"] ~f:Package_name.of_string |> Package_name.Set.of_list in
+    let libs = List.map ["x"; "y"] ~f:Lib_name.of_string |> Lib_name.Set.of_list in
+    printf !"%{sexp:Cmd.t}"
+      (compile Native pkgs libs (Lib_name.of_string "foo") (Module_name.of_string "bar") `ml);
+    [%expect {|
+      ((exe ocamlfind)
+       (args
+        (ocamlopt -w +a-40-42-44 -g -ppx "ppx-jane -as-ppx -inline-test-lib foo"
+         -thread -package a,b -I .dbuild/native/x/modules/ -I
+         .dbuild/native/y/modules/ -I .dbuild/native/foo/modules/ -for-pack Foo -c
+         foo/bar.ml -o .dbuild/native/foo/modules//bar.cmx))
+       (opam_switch (4.03.0))) |}];
+  ;;
 end
 
 let spec_to_nodes { Project_spec. libraries; binaries; } : Build_graph.node list =
