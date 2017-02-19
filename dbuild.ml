@@ -225,9 +225,8 @@ module Ocaml_compiler : sig
 
   val archive : kind -> c_stubs:string list -> Lib_name.t -> Build_graph.node
 
-    (*
-  val link : unit
-  *)
+  val link
+    : kind -> Package_name.Set.t -> Lib_name.Set.t -> Module_name.t -> Build_graph.node
 end = struct
 
   let ocamlc = function
@@ -415,9 +414,6 @@ end = struct
   ;;
 
   let link kind pkgs libs module_name =
-    (*
-    let base = String.chop_suffix_exn file ~suffix:".ml" |> Filename.basename in
-  *)
     let output =
       let ext =
         match kind with
@@ -488,21 +484,23 @@ end = struct
 
 end
 
-let closure ~empty_set ~roots ~f =
-  let rec loop worklist deps =
+let fold_closure ~key_set ~roots ~direct_deps ~init ~f =
+  let rec loop worklist key_set acc =
     match worklist with
-    | []-> deps
+    | [] -> acc
     | node :: worklist ->
-      let deps = Set.add deps node in
+      let key_set = Set.add key_set node in
+      let acc = f node acc in
       let worklist =
-        List.fold ~init:worklist (f node) ~f:(fun worklist node ->
-          if Set.mem deps node
+        List.fold ~init:worklist (direct_deps node) ~f:(fun worklist node ->
+          if Set.mem key_set node
           then worklist
           else node :: worklist)
       in
-      loop worklist deps
+      loop worklist key_set acc
   in
-  loop roots empty_set
+  assert (Set.is_empty key_set);
+  loop roots key_set init
 ;;
 
 let spec_to_nodes { Project_spec. libraries; binaries; } : Build_graph.node list =
@@ -511,26 +509,59 @@ let spec_to_nodes { Project_spec. libraries; binaries; } : Build_graph.node list
       dir, direct_deps)
     |> Lib_name.Map.of_alist_exn
   in
+  (*
+  val compile
+    :  kind
+    -> Package_name.Set.t
+    -> Lib_name.Set.t
+    -> Lib_name.t
+    -> Module_name.t
+    -> [ `ml | `mli ]
+    -> Build_graph.node
+
+  val pack : kind -> modules_in_dep_order:Module_name.t list -> Lib_name.t -> Build_graph.node
+
+  val archive : kind -> c_stubs:string list -> Lib_name.t -> Build_graph.node
+
+  val link
+    : kind -> Package_name.Set.t -> Lib_name.Set.t -> Module_name.t -> Build_graph.node
+    *)
   let of_lib { Project_spec. dir; modules_in_dep_order; c_stubs; direct_deps = { packages; libs; }; } =
-    let lib_closure : Lib_name.Set.t =
-      closure ~empty_set:Lib_name.Set.empty ~roots:(Set.to_list libs) ~f:(fun lib ->
-        match Map.find deps_by_lib_name lib with
-        | Some { Project_spec. packages; libs; } -> Set.to_list libs
-        | None -> [])
-    in
     ignore dir;
     ignore modules_in_dep_order;
     ignore packages;
-    ignore lib_closure;
+    ignore libs;
     ignore c_stubs;
     []
   in
   let of_bin { Project_spec. module_name; direct_deps = { packages; libs; }; output; } =
-    ignore module_name;
-    ignore packages;
-    ignore libs;
-    ignore output;
-    []
+    let { packages = extra_pkgs; libs; } : Project_spec.direct_deps =
+      fold_closure
+        ~key_set:Lib_name.Set.empty
+        ~roots:(Set.to_list libs)
+        ~direct_deps:(fun lib ->
+          match Map.find deps_by_lib_name lib with
+          | Some { Project_spec. packages = _; libs; } -> Set.to_list libs
+          | None -> assert false)
+        ~init:{ Project_spec.
+            packages = Package_name.Set.empty;
+            libs = Lib_name.Set.empty;
+          }
+        ~f:(fun lib { Project_spec. packages; libs; } ->
+          match Map.find deps_by_lib_name lib with
+          | Some { Project_spec. packages = p; libs = l; } ->
+            { Project_spec.
+              packages = Set.union packages p;
+              libs = Set.union libs l;
+            }
+          | None -> assert false)
+    in
+    let packages = Set.union packages extra_pkgs in
+    let kind = match output with `native -> Native | `js -> Js in
+    [
+      Ocaml_compiler.compile kind packages libs bin_lib module_name `ml;
+      Ocaml_compiler.link kind packages libs module_name;
+    ]
   in
   let libs = List.concat_map libraries ~f:of_lib in
   let bins = List.concat_map binaries ~f:of_bin in
