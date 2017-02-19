@@ -506,12 +506,22 @@ let closure ~empty_set ~roots ~f =
 ;;
 
 let spec_to_nodes { Project_spec. libraries; binaries; } : Build_graph.node list =
-  (* CR datkin: Need to track library dep closure. *)
+  let deps_by_lib_name =
+    List.map libraries ~f:(fun { Project_spec. dir; direct_deps; _ } ->
+      dir, direct_deps)
+    |> Lib_name.Map.of_alist_exn
+  in
   let of_lib { Project_spec. dir; modules_in_dep_order; c_stubs; direct_deps = { packages; libs; }; } =
+    let lib_closure : Lib_name.Set.t =
+      closure ~empty_set:Lib_name.Set.empty ~roots:(Set.to_list libs) ~f:(fun lib ->
+        match Map.find deps_by_lib_name lib with
+        | Some { Project_spec. packages; libs; } -> Set.to_list libs
+        | None -> [])
+    in
     ignore dir;
     ignore modules_in_dep_order;
     ignore packages;
-    ignore libs;
+    ignore lib_closure;
     ignore c_stubs;
     []
   in
