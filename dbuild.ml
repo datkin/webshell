@@ -53,7 +53,8 @@ module Project_spec = struct
   } [@@deriving sexp]
 
   type binary = {
-    file : string;
+    (* Must be defined in the bin/ directory. *)
+    module_name : Module_name.t;
     direct_deps : direct_deps;
     output : [`native | `js];
   } [@@deriving sexp]
@@ -127,6 +128,7 @@ type dir_kind = [
   | `pack
   | `archive
   | `c
+  | `linked
 ] [@@deriving sexp]
 
 let build_dir kind dir_kind lib_name =
@@ -205,6 +207,9 @@ end = struct
        (outputs (.dbuild/native/foo/c/foo.a))) |}];
   ;;
 end
+
+(* Special "library" name for executables *)
+let bin_lib = Lib_name.of_string "bin"
 
 module Ocaml_compiler : sig
   val compile
@@ -408,7 +413,97 @@ end = struct
        (inputs (.dbuild/native/foo/pack/foo.cmx))
        (outputs (.dbuild/native/foo/archive/foo.cmxa))) |}];
   ;;
+
+  let link kind pkgs libs module_name =
+    (*
+    let base = String.chop_suffix_exn file ~suffix:".ml" |> Filename.basename in
+  *)
+    let output =
+      let ext =
+        match kind with
+        | Js -> "byte"
+        | Native -> "native"
+      in
+      sprintf !"%s/%{Module_name}.%s" (build_dir kind `linked bin_lib) module_name ext
+    in
+    let packages =
+      Set.to_list pkgs
+      |> List.map ~f:Package_name.to_string
+      |> String.concat ~sep:","
+    in
+    let input_archives =
+      (* CR datkin: Do we need to check for c archives too? *)
+      Set.to_list libs
+      |> List.map ~f:(fun lib ->
+        sprintf !"%s/%{Lib_name}.%s"
+          (build_dir kind `archive lib)
+          lib
+          (ext kind `archive))
+    in
+    let input_module =
+      sprintf !"%s/%{Module_name}.%s"
+        (build_dir kind `modules bin_lib)
+        module_name
+        (ext kind `ml)
+    in
+    let cmd =
+      { Cmd.
+        opam_switch = Some (opam_switch kind);
+        exe = "ocamlfind";
+        args = [
+          ocamlc kind;
+          "-linkpkg";
+          "-package"; packages;
+        ] @ input_archives
+        @ [
+          input_module;
+          "-o"; output;
+        ];
+      }
+    in
+    { Build_graph.
+      cmd;
+      inputs = f (input_module :: input_archives);
+      outputs = f [ output ];
+    }
+
+  let%expect_test _ =
+    let pkgs = List.map ["a"; "b"] ~f:Package_name.of_string |> Package_name.Set.of_list in
+    let libs = List.map ["x"; "y"] ~f:Lib_name.of_string |> Lib_name.Set.of_list in
+    let module_name = Module_name.of_string "main" in
+    printf !"%{sexp:Build_graph.node}" (link Native pkgs libs module_name);
+    [%expect {|
+      ((cmd
+        ((exe ocamlfind)
+         (args
+          (ocamlopt -linkpkg -package a,b .dbuild/native/x/archive/x.cmxa
+           .dbuild/native/y/archive/y.cmxa .dbuild/native/bin/modules/main.cmx -o
+           .dbuild/native/bin/linked/main.native))
+         (opam_switch (4.03.0))))
+       (inputs
+        (.dbuild/native/bin/modules/main.cmx .dbuild/native/x/archive/x.cmxa
+         .dbuild/native/y/archive/y.cmxa))
+       (outputs (.dbuild/native/bin/linked/main.native))) |}];
+  ;;
+
 end
+
+let closure ~empty_set ~roots ~f =
+  let rec loop worklist deps =
+    match worklist with
+    | []-> deps
+    | node :: worklist ->
+      let deps = Set.add deps node in
+      let worklist =
+        List.fold ~init:worklist (f node) ~f:(fun worklist node ->
+          if Set.mem deps node
+          then worklist
+          else node :: worklist)
+      in
+      loop worklist deps
+  in
+  loop roots empty_set
+;;
 
 let spec_to_nodes { Project_spec. libraries; binaries; } : Build_graph.node list =
   (* CR datkin: Need to track library dep closure. *)
@@ -420,8 +515,8 @@ let spec_to_nodes { Project_spec. libraries; binaries; } : Build_graph.node list
     ignore c_stubs;
     []
   in
-  let of_bin { Project_spec. file; direct_deps = { packages; libs; }; output; } =
-    ignore file;
+  let of_bin { Project_spec. module_name; direct_deps = { packages; libs; }; output; } =
+    ignore module_name;
     ignore packages;
     ignore libs;
     ignore output;
