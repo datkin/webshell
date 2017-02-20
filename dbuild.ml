@@ -16,10 +16,15 @@
 open Core.Std
 open Async.Std
 
+(* Package names refer to ocamlfind packages (defined outside of this project). *)
 module Package_name = String_id.Make (struct
   let module_name = "Package_name"
 end) ()
 
+(* CR datkin: May change the build rules to produce ocamlfind packages for
+ * libraries. *)
+(* Lib name refers to a packed library of ocaml modules defined within a dbuild
+ * project. *)
 (* lowercase name *)
 module Lib_name = String_id.Make (struct
   let module_name = "Lib_name"
@@ -48,7 +53,7 @@ module Project_spec = struct
   type library = {
     dir : Lib_name.t;
     modules_in_dep_order : Module_name.t list;
-    c_stubs : string sexp_list;
+    c_stub_basenames : string sexp_list;
     direct_deps : direct_deps;
   } [@@deriving sexp]
 
@@ -214,9 +219,10 @@ let bin_lib = Lib_name.of_string "bin"
 module Ocaml_compiler : sig
   val compile
     :  kind
-    -> Package_name.Set.t
-    -> Lib_name.Set.t
+    -> Package_name.Set.t (* package dependencies *)
+    -> Lib_name.Set.t (* library dependencies *)
     -> Lib_name.t
+    -> Module_name.Set.t (* module dependencies in this lib *)
     -> Module_name.t
     -> [ `ml | `mli ]
     -> Build_graph.node
@@ -241,7 +247,7 @@ end = struct
     | Js, `archive -> "cma"
     | _, `mli -> "cmi"
 
-  let compile kind pkgs libs lib_name module_name which_file =
+  let compile kind pkgs libs lib_name modules module_name which_file =
     let maybe_js_ppx =
       match kind with
       | Native -> []
@@ -252,17 +258,25 @@ end = struct
       |> List.concat_map ~f:(fun lib ->
           [ "-I"; build_dir kind `pack lib; ])
     in
-    (* CR datkin: If we instead look at the modules in the `module dir, we might
-     * get more parallelism. *)
+    (* CR datkin: If we instead look at the modules in the `modules dir, we might
+     * get more parallelism? *)
     let extra_inputs =
       Set.to_list libs
       |> List.map ~f:(fun lib ->
-          sprintf !"%s/%{Lib_name}.%s" (build_dir kind `modules lib) lib (ext kind `ml))
+          sprintf !"%s/%{Lib_name}.%s" (build_dir kind `pack lib) lib (ext kind `mli))
     in
     let build_dir = build_dir kind `modules lib_name in
     let output =
       let ext = ext kind which_file in
       sprintf !"%s/%{Module_name}.%s" build_dir module_name ext
+    in
+    let module_deps =
+      (* The build dir needs to have the cmi's of the modules we depend on
+       * compiled. *)
+      Set.to_list modules
+      |> List.map ~f:(fun module_name ->
+        let ext = ext kind `mli in
+        sprintf !"%s/%{Module_name}.%s" build_dir module_name ext)
     in
     let input =
       sprintf !"%{Lib_name}/%{Module_name}.%s" lib_name module_name (match which_file with | `ml -> "ml" | `mli -> "mli")
@@ -291,6 +305,8 @@ end = struct
       ];
     }
     in
+    (* CR datkin: In some cases this outputs the cmi too, I think. Check. E.g.,
+     * if there's no mli, and maybe even if there is? *)
     { Build_graph.
       cmd;
       inputs = f (input :: extra_inputs);
@@ -300,8 +316,9 @@ end = struct
   let%expect_test _ =
     let pkgs = List.map ["a"; "b"] ~f:Package_name.of_string |> Package_name.Set.of_list in
     let libs = List.map ["x"; "y"] ~f:Lib_name.of_string |> Lib_name.Set.of_list in
+    let mods = List.map ["flub"; "blub"] ~f:Module_name.of_string |> Module_name.Set.of_list in
     printf !"%{sexp:Build_graph.node}"
-      (compile Native pkgs libs (Lib_name.of_string "foo") (Module_name.of_string "bar") `ml);
+      (compile Native pkgs libs (Lib_name.of_string "foo") mods (Module_name.of_string "bar") `ml);
     [%expect {|
       ((cmd
         ((exe ocamlfind)
@@ -312,18 +329,27 @@ end = struct
            .dbuild/native/foo/modules/bar.cmx))
          (opam_switch (4.03.0))))
        (inputs
-        (.dbuild/native/x/modules/x.cmx .dbuild/native/y/modules/y.cmx foo/bar.ml))
+        (.dbuild/native/x/pack/x.cmi .dbuild/native/y/pack/y.cmi foo/bar.ml))
        (outputs (.dbuild/native/foo/modules/bar.cmx))) |}];
   ;;
 
+  (* CR datkin: Is it possible to pack the cmi independently? Presumably that would allow
+   * you to avoid rebuilding upstream libraries when the implementation of a
+   * downstream library changes. Hopefully you can go off the md5sum of the cmi
+   * to decide if anything actually changed, but it's sad that you have to
+   * rebuild the packed cmi even if just an implementation changed. On the plus
+   * side, I suppose the pack operation is extremely cheap? *)
   let pack kind ~modules_in_dep_order lib_name =
     let inputs =
       List.concat_map modules_in_dep_order ~f:(fun module_name ->
         List.map [`ml; `mli] ~f:(fun file_kind ->
           sprintf !"%s/%{Module_name}.%s" (build_dir kind `modules lib_name) module_name (ext kind file_kind)))
     in
-    let output =
-      sprintf !"%s/%{Lib_name}.%s" (build_dir kind `pack lib_name) lib_name (ext kind `ml)
+    let output, output_cmi =
+      let f ext_kind =
+        sprintf !"%s/%{Lib_name}.%s" (build_dir kind `pack lib_name) lib_name (ext kind ext_kind)
+      in
+      f `ml, f `mli
     in
     let cmd =
     { Cmd.
@@ -342,7 +368,7 @@ end = struct
     { Build_graph.
       cmd;
       inputs = f inputs;
-      outputs = f [ output ];
+      outputs = f [ output; output_cmi ];
     }
 
   let%expect_test _ =
@@ -359,7 +385,7 @@ end = struct
        (inputs
         (.dbuild/native/foo/modules/x.cmi .dbuild/native/foo/modules/x.cmx
          .dbuild/native/foo/modules/y.cmi .dbuild/native/foo/modules/y.cmx))
-       (outputs (.dbuild/native/foo/pack/foo.cmx))) |}];
+       (outputs (.dbuild/native/foo/pack/foo.cmi .dbuild/native/foo/pack/foo.cmx))) |}];
   ;;
 
   let archive kind ~c_stubs lib_name =
@@ -503,36 +529,54 @@ let fold_closure ~key_set ~roots ~direct_deps ~init ~f =
   loop roots key_set init
 ;;
 
-let spec_to_nodes { Project_spec. libraries; binaries; } : Build_graph.node list =
-  let deps_by_lib_name =
-    List.map libraries ~f:(fun { Project_spec. dir; direct_deps; _ } ->
+let spec_to_nodes ~file_exists { Project_spec. libraries; binaries; } : Build_graph.node list =
+  let of_lib { Project_spec. dir; modules_in_dep_order; c_stub_basenames; direct_deps = { packages; libs; }; } =
+    let file module_name ext =
+      sprintf !"%{Lib_name}/%{Module_name}.%s" dir module_name ext
+    in
+    let _, mlis =
+      List.fold modules_in_dep_order ~init:(Module_name.Set.empty, []) ~f:(fun (module_deps, mlis) module_name ->
+        let mli = file module_name "mli" in
+        if not (file_exists mli)
+        then (Set.add module_deps module_name, mlis)
+        else
+          (* CR datkin: Confirm that the compiler kind doesn't matter here. *)
+          let mli = Ocaml_compiler.compile Native packages libs dir module_deps module_name `mli in
+          let modules_deps = Set.add module_deps module_name in
+          (module_deps, mli :: mlis))
+    in
+    let ml =
+      List.concat_map [Native; Js;] ~f:(fun kind ->
+        let _, mls =
+          List.fold
+            modules_in_dep_order
+            ~init:(Module_name.Set.empty, [])
+            ~f:(fun (module_deps, mls) module_name ->
+              let ml =
+                Ocaml_compiler.compile kind packages libs dir module_deps module_name `ml
+              in
+              let module_deps = Set.add module_deps module_name in
+              (module_deps, ml :: mls))
+        in
+        let pack = Ocaml_compiler.pack kind ~modules_in_dep_order dir in
+        let archive = Ocaml_compiler.archive kind ~c_stubs:c_stub_basenames dir in
+        pack :: archive :: mls)
+    in
+    let c =
+      if List.is_empty c_stub_basenames
+      then []
+      else
+        let cs =
+          List.map c_stub_basenames ~f:(fun c_base -> C_compiler.compile dir ~c_base)
+        in
+        let c_archive = C_compiler.archive dir ~c_bases:c_stub_basenames in
+        c_archive :: cs
+    in
+    List.concat_no_order [ ml; c; ]
+  in
+  let deps_by_lib_name = List.map libraries ~f:(fun { Project_spec. dir; direct_deps; _ } ->
       dir, direct_deps)
     |> Lib_name.Map.of_alist_exn
-  in
-  (*
-  val compile
-    :  kind
-    -> Package_name.Set.t
-    -> Lib_name.Set.t
-    -> Lib_name.t
-    -> Module_name.t
-    -> [ `ml | `mli ]
-    -> Build_graph.node
-
-  val pack : kind -> modules_in_dep_order:Module_name.t list -> Lib_name.t -> Build_graph.node
-
-  val archive : kind -> c_stubs:string list -> Lib_name.t -> Build_graph.node
-
-  val link
-    : kind -> Package_name.Set.t -> Lib_name.Set.t -> Module_name.t -> Build_graph.node
-    *)
-  let of_lib { Project_spec. dir; modules_in_dep_order; c_stubs; direct_deps = { packages; libs; }; } =
-    ignore dir;
-    ignore modules_in_dep_order;
-    ignore packages;
-    ignore libs;
-    ignore c_stubs;
-    []
   in
   let of_bin { Project_spec. module_name; direct_deps = { packages; libs; }; output; } =
     let { packages = extra_pkgs; libs; } : Project_spec.direct_deps =
@@ -559,7 +603,7 @@ let spec_to_nodes { Project_spec. libraries; binaries; } : Build_graph.node list
     let packages = Set.union packages extra_pkgs in
     let kind = match output with `native -> Native | `js -> Js in
     [
-      Ocaml_compiler.compile kind packages libs bin_lib module_name `ml;
+      Ocaml_compiler.compile kind packages libs bin_lib Module_name.Set.empty module_name `ml;
       Ocaml_compiler.link kind packages libs module_name;
     ]
   in
