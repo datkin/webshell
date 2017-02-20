@@ -172,7 +172,7 @@ module Build_graph = struct
           then (cmd_set, nodes)
           else
             let cmd_set = Set.add cmd_set cmd in
-            (cmd_set, node :: nodes))
+            (cmd_set, nodes @ [node]))
     in
     of_nodes nodes
 end
@@ -629,10 +629,12 @@ let spec_to_nodes ~file_exists { Project_spec. libraries; binaries; } : Build_gr
           }
         ~f:(fun lib { Project_spec. packages; libs; } ->
           match Map.find deps_by_lib_name lib with
-          | Some { Project_spec. packages = p; libs = l; } ->
+          (* We ignore [libs] here, b/c we're traversing them later (from
+           * [direct_deps]. *)
+          | Some { Project_spec. packages = p; libs = _; } ->
             { Project_spec.
               packages = Set.union packages p;
-              libs = Set.union libs l;
+              libs = Set.add libs lib;
             }
           | None -> assert false)
     in
@@ -672,6 +674,7 @@ let project_spec =
           pty
           terminfo
         ))
+        (c_stub_basenames (pty_stubs))
         (direct_deps (
           (packages (core async))
           (libs (odditty_kernel))
@@ -734,14 +737,23 @@ let%expect_test _ =
     | "odditty_kernel/character_set.mli" -> false
     | _ -> true
   in
-  printf !"%{sexp:Build_graph.node list}"
     (spec_to_nodes ~file_exists project_spec
     |> Build_graph.of_nodes
     |> Build_graph.prune ~roots:[
       File_name.of_string (sprintf "%s/main.native" (build_dir Native `linked bin_lib));
     ]
     |> fun x -> x.Build_graph.nodes
-  );
+    |> List.iter ~f:(fun node ->
+        printf "%s\n"
+          (node.Build_graph.outputs
+          |> Set.to_list
+          |> List.map ~f:File_name.to_string
+          |> String.concat ~sep:", ");
+        Set.iter node.Build_graph.inputs ~f:(fun file_name ->
+          printf "  %s\n" (File_name.to_string file_name));
+        printf "\n";
+      )
+    );
   [%expect {||}];
 ;;
 
