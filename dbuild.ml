@@ -46,8 +46,8 @@ end) ()
 
 module Project_spec = struct
   type direct_deps = {
-    packages : Package_name.Set.t; (* i.e. findlib packages *)
-    libs : Lib_name.Set.t; (* i.e. other non-findlib packages *)
+    packages : Package_name.Set.t [@default Package_name.Set.empty]; (* i.e. findlib packages *)
+    libs : Lib_name.Set.t [@default Lib_name.Set.empty]; (* i.e. other non-findlib packages *)
   } [@@deriving sexp]
 
   type library = {
@@ -622,19 +622,86 @@ let project_spec =
         (modules_in_dep_order (
           character_attributes
           character_set
-          control_functions
+          terminfo
           dec_private_mode
+          control_functions
+          window
         ))
         (direct_deps (
-          (packages ())
+          (packages (core_kernel async_kernel))
+        ))
+      )
+      (
+        (dir odditty)
+        (modules_in_dep_order (
+          pty
+          terminfo
+        ))
+        (direct_deps (
+          (packages (core async))
+          (libs (odditty_kernel))
+        ))
+      )
+      (
+        (dir web)
+        (modules_in_dep_order (
+          main
+        ))
+        (direct_deps (
+          (packages (js_of_ocaml js_of_ocaml.async async_js virtual_dom))
+          (libs ())
+        ))
+      )
+      (
+        (dir server)
+        (modules_in_dep_order (
+          web_server
+        ))
+        (direct_deps (
+          (packages (async websocket.async))
           (libs ())
         ))
       )
     ))
+
     (binaries (
+      (
+        (module_name inline_test_runner)
+        (direct_deps (
+          (packages (core async ppx_inline_test.runner.lib ppx_expect.evaluator))
+          (libs (odditty_kernel odditty))
+        ))
+        (output native)
+      )
+      (
+        (module_name main)
+        (direct_deps (
+          (packages (core async))
+          (libs (odditty_kernel odditty))
+        ))
+        (output native)
+      )
+      (
+        (module_name web_main)
+        (direct_deps (
+          (packages ())
+          (libs (web))
+        ))
+        (output js)
+      )
     ))
   )
   |})
+
+let%expect_test _ =
+  let file_exists = function
+    | "odditty_kernel/character_attributes.mli"
+    | "odditty_kernel/character_set.mli" -> false
+    | _ -> true
+  in
+  printf !"%{sexp:Build_graph.node list}" (spec_to_nodes ~file_exists project_spec);
+  [%expect {||}];
+;;
 
 let () =
   let is_test =
