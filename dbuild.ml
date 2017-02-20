@@ -309,7 +309,7 @@ end = struct
      * if there's no mli, and maybe even if there is? *)
     { Build_graph.
       cmd;
-      inputs = f (input :: extra_inputs);
+      inputs = f (input :: extra_inputs @ module_deps);
       outputs = f [ output ];
     }
 
@@ -329,7 +329,8 @@ end = struct
            .dbuild/native/foo/modules/bar.cmx))
          (opam_switch (4.03.0))))
        (inputs
-        (.dbuild/native/x/pack/x.cmi .dbuild/native/y/pack/y.cmi foo/bar.ml))
+        (.dbuild/native/foo/modules/blub.cmi .dbuild/native/foo/modules/flub.cmi
+         .dbuild/native/x/pack/x.cmi .dbuild/native/y/pack/y.cmi foo/bar.ml))
        (outputs (.dbuild/native/foo/modules/bar.cmx))) |}];
   ;;
 
@@ -534,7 +535,7 @@ let spec_to_nodes ~file_exists { Project_spec. libraries; binaries; } : Build_gr
     let file module_name ext =
       sprintf !"%{Lib_name}/%{Module_name}.%s" dir module_name ext
     in
-    let _, mlis =
+    let _, mli =
       List.fold modules_in_dep_order ~init:(Module_name.Set.empty, []) ~f:(fun (module_deps, mlis) module_name ->
         let mli = file module_name "mli" in
         if not (file_exists mli)
@@ -542,7 +543,7 @@ let spec_to_nodes ~file_exists { Project_spec. libraries; binaries; } : Build_gr
         else
           (* CR datkin: Confirm that the compiler kind doesn't matter here. *)
           let mli = Ocaml_compiler.compile Native packages libs dir module_deps module_name `mli in
-          let modules_deps = Set.add module_deps module_name in
+          let module_deps = Set.add module_deps module_name in
           (module_deps, mli :: mlis))
     in
     let ml =
@@ -572,7 +573,7 @@ let spec_to_nodes ~file_exists { Project_spec. libraries; binaries; } : Build_gr
         let c_archive = C_compiler.archive dir ~c_bases:c_stub_basenames in
         c_archive :: cs
     in
-    List.concat_no_order [ ml; c; ]
+    List.concat_no_order [ mli; ml; c; ]
   in
   let deps_by_lib_name = List.map libraries ~f:(fun { Project_spec. dir; direct_deps; _ } ->
       dir, direct_deps)
