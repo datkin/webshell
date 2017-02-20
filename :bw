@@ -144,7 +144,7 @@ module Build_graph = struct
             | nodes ->
               raise_s [%message "More than one command builds file"
                 (file : File_name.t)
-                (nodes : node list)
+                (nodes : Build_graph.node list)
               ]
           in
           { needs; provides; })
@@ -152,29 +152,15 @@ module Build_graph = struct
     { nodes; by_file; }
 
   let prune t ~roots =
-    let _, nodes =
     fold_closure
       ~key_set:File_name.Set.empty
       ~roots
       ~direct_deps:(fun file ->
         match Map.find t.by_file file with
-        | Some { needs = None; _ } -> []
-        | Some { needs = Some node; _ } -> File_name.Set.to_list node.inputs
-        | None -> raise_s [%message "Unknown" (file : File_name.t)])
-      ~init:(String.Set.empty, [])
-      ~f:(fun file (cmd_set, nodes) ->
-        match Map.find t.by_file file with
+        | Some { needs; _ } ->
+          x
         | None -> raise_s [%message "Unknown" (file : File_name.t)]
-        | Some { needs = None; _ } -> (cmd_set, nodes)
-        | Some { needs = Some node; _} ->
-          let cmd = sprintf "%s %s" node.cmd.exe (String.concat ~sep:" " node.cmd.args) in
-          if Set.mem cmd_set cmd
-          then (cmd_set, nodes)
-          else
-            let cmd_set = Set.add cmd_set cmd in
-            (cmd_set, node :: nodes))
-    in
-    of_nodes nodes
+
 end
 
 type kind =
@@ -734,14 +720,7 @@ let%expect_test _ =
     | "odditty_kernel/character_set.mli" -> false
     | _ -> true
   in
-  printf !"%{sexp:Build_graph.node list}"
-    (spec_to_nodes ~file_exists project_spec
-    |> Build_graph.of_nodes
-    |> Build_graph.prune ~roots:[
-      File_name.of_string (sprintf "%s/main.native" (build_dir Native `linked bin_lib));
-    ]
-    |> fun x -> x.Build_graph.nodes
-  );
+  printf !"%{sexp:Build_graph.node list}" (spec_to_nodes ~file_exists project_spec);
   [%expect {||}];
 ;;
 

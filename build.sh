@@ -196,7 +196,7 @@ function exe {
       # We pass '-linkall' b/c it ensures that the inline test runner will be
       # linked against the inline test libs, even though it doesn't actually
       # reference them.
-      ln_flags="${shared_flags}    ${build_dir}/odditty_kernel/lib/odditty_kernel.cmxa    ${build_dir}/odditty/lib/odditty.cmxa -linkall"
+      ln_flags="${shared_flags}    ${build_dir}/odditty_kernel/lib/odditty_kernel.cmxa    ${build_dir}/odditty/lib/odditty.cmxa"
       ;;
     bin/main.ml)
       shared_flags="-thread -package core -package async -package websocket.async"
