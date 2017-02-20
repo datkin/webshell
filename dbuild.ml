@@ -883,6 +883,40 @@ let%expect_test _ =
       bin/main.ml |}];
 ;;
 
+let file_arg = Command.Arg_type.create File_name.of_string
+
+let dot_cmd =
+  let open Command.Let_syntax in
+  Command.async'
+    ~summary:"Output a dot file for the graph spec. You can compile with, e.g.  `dot -Tpng /tmp/x.dot  > /tmp/x.png`."
+    [%map_open
+      let file_name = anon ("target" %: file_arg) in
+      fun () ->
+  let file_exists file =
+    match Core.Std.Unix.access file [`Exists] with
+    | Ok () -> true
+    | Error _ -> false
+  in
+  printf "digraph deps {\n%!";
+    (spec_to_nodes ~file_exists project_spec
+    |> Build_graph.of_nodes
+    |> Build_graph.prune ~roots:[
+      file_name
+      (*
+      File_name.of_string (sprintf "%s/main.native" (build_dir Native `linked bin_lib));
+      *)
+    ]
+    |> fun x -> x.Build_graph.nodes
+    |> List.iter ~f:(fun node ->
+        Set.iter node.Build_graph.outputs ~f:(fun output ->
+          Set.iter node.Build_graph.inputs ~f:(fun input ->
+            printf !{|  "%{File_name}" -> "%{File_name}";|} input output;
+            printf "\n";
+       )))
+    );
+    printf "}\n";
+    Deferred.unit]
+
 let () =
   let is_test =
     Core.Std.Unix.environment ()
@@ -894,12 +928,9 @@ let () =
     Runtime.exit ()
   else
     let open Command.Let_syntax in
-    Command.async'
-      ~summary:"X"
-      [%map_open
-        let () = return () in
-        fun () ->
-          Deferred.return ()
+    Command.group
+      ~summary:"Build commands" [
+        "dot-graph", dot_cmd;
       ]
     |> Command.run
 ;;
