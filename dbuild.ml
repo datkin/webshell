@@ -444,7 +444,14 @@ end = struct
   ;;
 
   let archive kind ~c_stubs lib_name =
-    let input =
+    let c_input =
+      if List.is_empty c_stubs
+      then None
+      else Some (
+        sprintf !"%s/%{Lib_name}.a" (build_dir kind `c lib_name) lib_name
+      )
+    in
+    let ml_input =
       sprintf !"%s/%{Lib_name}.%s" (build_dir kind `pack lib_name) lib_name (ext kind `ml)
     in
     let output =
@@ -468,7 +475,7 @@ end = struct
         ] @
         c_opts
         @ [
-          input;
+          ml_input;
           "-o"; output;
         ];
       }
@@ -477,7 +484,7 @@ end = struct
       cmd;
       (* I don't think this actually does anything with the c archive... so it's
        * not actually a dependency? *)
-      inputs = f [ input ];
+      inputs = f (List.filter_opt [ Some ml_input; c_input ]);
       outputs = f [ output ];
     }
 
@@ -490,7 +497,7 @@ end = struct
           (ocamlopt -a -ccopt -L.dbuild/native/foo/c -cclib -lfoo
            .dbuild/native/foo/pack/foo.cmx -o .dbuild/native/foo/archive/foo.cmxa))
          (opam_switch (4.03.0))))
-       (inputs (.dbuild/native/foo/pack/foo.cmx))
+       (inputs (.dbuild/native/foo/c/foo.a .dbuild/native/foo/pack/foo.cmx))
        (outputs (.dbuild/native/foo/archive/foo.cmxa))) |}];
   ;;
 
@@ -754,7 +761,126 @@ let%expect_test _ =
         printf "\n";
       )
     );
-  [%expect {||}];
+  [%expect {|
+    .dbuild/native/bin/linked/main.native
+      .dbuild/native/bin/modules/main.cmx
+      .dbuild/native/odditty/archive/odditty.cmxa
+      .dbuild/native/odditty_kernel/archive/odditty_kernel.cmxa
+
+    .dbuild/native/odditty_kernel/archive/odditty_kernel.cmxa
+      .dbuild/native/odditty_kernel/pack/odditty_kernel.cmx
+
+    .dbuild/native/odditty_kernel/pack/odditty_kernel.cmi, .dbuild/native/odditty_kernel/pack/odditty_kernel.cmx
+      .dbuild/native/odditty_kernel/modules/character_attributes.cmi
+      .dbuild/native/odditty_kernel/modules/character_attributes.cmx
+      .dbuild/native/odditty_kernel/modules/character_set.cmi
+      .dbuild/native/odditty_kernel/modules/character_set.cmx
+      .dbuild/native/odditty_kernel/modules/control_functions.cmi
+      .dbuild/native/odditty_kernel/modules/control_functions.cmx
+      .dbuild/native/odditty_kernel/modules/dec_private_mode.cmi
+      .dbuild/native/odditty_kernel/modules/dec_private_mode.cmx
+      .dbuild/native/odditty_kernel/modules/terminfo.cmi
+      .dbuild/native/odditty_kernel/modules/terminfo.cmx
+      .dbuild/native/odditty_kernel/modules/window.cmi
+      .dbuild/native/odditty_kernel/modules/window.cmx
+
+    .dbuild/native/odditty_kernel/modules/window.cmx
+      .dbuild/native/odditty_kernel/modules/character_attributes.cmi
+      .dbuild/native/odditty_kernel/modules/character_set.cmi
+      .dbuild/native/odditty_kernel/modules/control_functions.cmi
+      .dbuild/native/odditty_kernel/modules/dec_private_mode.cmi
+      .dbuild/native/odditty_kernel/modules/terminfo.cmi
+      odditty_kernel/window.ml
+
+    .dbuild/native/odditty_kernel/modules/terminfo.cmi
+      .dbuild/native/odditty_kernel/modules/character_attributes.cmi
+      .dbuild/native/odditty_kernel/modules/character_set.cmi
+      odditty_kernel/terminfo.mli
+
+    .dbuild/native/odditty_kernel/modules/dec_private_mode.cmi
+      .dbuild/native/odditty_kernel/modules/character_attributes.cmi
+      .dbuild/native/odditty_kernel/modules/character_set.cmi
+      .dbuild/native/odditty_kernel/modules/terminfo.cmi
+      odditty_kernel/dec_private_mode.mli
+
+    .dbuild/native/odditty_kernel/modules/control_functions.cmi
+      .dbuild/native/odditty_kernel/modules/character_attributes.cmi
+      .dbuild/native/odditty_kernel/modules/character_set.cmi
+      .dbuild/native/odditty_kernel/modules/dec_private_mode.cmi
+      .dbuild/native/odditty_kernel/modules/terminfo.cmi
+      odditty_kernel/control_functions.mli
+
+    .dbuild/native/odditty_kernel/modules/window.cmi
+      .dbuild/native/odditty_kernel/modules/character_attributes.cmi
+      .dbuild/native/odditty_kernel/modules/character_set.cmi
+      .dbuild/native/odditty_kernel/modules/control_functions.cmi
+      .dbuild/native/odditty_kernel/modules/dec_private_mode.cmi
+      .dbuild/native/odditty_kernel/modules/terminfo.cmi
+      odditty_kernel/window.mli
+
+    .dbuild/native/odditty_kernel/modules/terminfo.cmx
+      .dbuild/native/odditty_kernel/modules/character_attributes.cmi
+      .dbuild/native/odditty_kernel/modules/character_set.cmi
+      odditty_kernel/terminfo.ml
+
+    .dbuild/native/odditty_kernel/modules/dec_private_mode.cmx
+      .dbuild/native/odditty_kernel/modules/character_attributes.cmi
+      .dbuild/native/odditty_kernel/modules/character_set.cmi
+      .dbuild/native/odditty_kernel/modules/terminfo.cmi
+      odditty_kernel/dec_private_mode.ml
+
+    .dbuild/native/odditty_kernel/modules/control_functions.cmx
+      .dbuild/native/odditty_kernel/modules/character_attributes.cmi
+      .dbuild/native/odditty_kernel/modules/character_set.cmi
+      .dbuild/native/odditty_kernel/modules/dec_private_mode.cmi
+      .dbuild/native/odditty_kernel/modules/terminfo.cmi
+      odditty_kernel/control_functions.ml
+
+    .dbuild/native/odditty_kernel/modules/character_set.cmx
+      .dbuild/native/odditty_kernel/modules/character_attributes.cmi
+      odditty_kernel/character_set.ml
+
+    .dbuild/native/odditty_kernel/modules/character_attributes.cmx
+      odditty_kernel/character_attributes.ml
+
+    .dbuild/native/odditty/archive/odditty.cmxa
+      .dbuild/native/odditty/c/odditty.a
+      .dbuild/native/odditty/pack/odditty.cmx
+
+    .dbuild/native/odditty/pack/odditty.cmi, .dbuild/native/odditty/pack/odditty.cmx
+      .dbuild/native/odditty/modules/pty.cmi
+      .dbuild/native/odditty/modules/pty.cmx
+      .dbuild/native/odditty/modules/terminfo.cmi
+      .dbuild/native/odditty/modules/terminfo.cmx
+
+    .dbuild/native/odditty/modules/terminfo.cmx
+      .dbuild/native/odditty/modules/pty.cmi
+      .dbuild/native/odditty_kernel/pack/odditty_kernel.cmi
+      odditty/terminfo.ml
+
+    .dbuild/native/odditty/modules/pty.cmi
+      .dbuild/native/odditty_kernel/pack/odditty_kernel.cmi
+      odditty/pty.mli
+
+    .dbuild/native/odditty/modules/terminfo.cmi
+      .dbuild/native/odditty/modules/pty.cmi
+      .dbuild/native/odditty_kernel/pack/odditty_kernel.cmi
+      odditty/terminfo.mli
+
+    .dbuild/native/odditty/modules/pty.cmx
+      .dbuild/native/odditty_kernel/pack/odditty_kernel.cmi
+      odditty/pty.ml
+
+    .dbuild/native/odditty/c/odditty.a
+      .dbuild/native/odditty/c/pty_stubs.o
+
+    .dbuild/native/odditty/c/pty_stubs.o
+      odditty/pty_stubs.c
+
+    .dbuild/native/bin/modules/main.cmx
+      .dbuild/native/odditty/pack/odditty.cmi
+      .dbuild/native/odditty_kernel/pack/odditty_kernel.cmi
+      bin/main.ml |}];
 ;;
 
 let () =
