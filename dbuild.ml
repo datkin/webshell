@@ -52,7 +52,7 @@ module Project_spec = struct
 
   type library = {
     dir : Lib_name.t;
-    modules_in_dep_order : Module_name.t list;
+    modules : Module_name.t list;
     c_stub_basenames : string sexp_list;
     direct_deps : direct_deps;
   } [@@deriving sexp]
@@ -82,6 +82,30 @@ module Cmd = struct
     opam_switch : Opam_switch_name.t option;
   } [@@deriving sexp]
 end
+
+let topological_fold ~key_set ~roots ~next ~init ~f =
+  let loop queue visited sorted =
+    match queue with
+    | [] -> sorted
+    | x :: queue ->
+      if Set.mem visited x
+      then loop queue visited sorted
+      else
+        match next x with
+        | [] ->
+          let visited = Set.add visited x in
+          let sorted = x :: sorted in
+          loop queue visited sorted
+        | child :: children ->
+          
+
+
+        let children = next x in
+        let queue = List.rev_append children (x :: queue) in
+
+  in
+  let (_visited, sorted) = loop roots key_set [] in
+  List.rev sorted
 
 let fold_closure ~key_set ~roots ~direct_deps ~init ~f =
   let rec loop worklist key_set acc =
@@ -572,34 +596,58 @@ end = struct
 
 end
 
-let spec_to_nodes ~file_exists { Project_spec. libraries; binaries; } : Build_graph.node list =
-  let of_lib { Project_spec. dir; modules_in_dep_order; c_stub_basenames; direct_deps = { packages; libs; }; } =
+let spec_to_nodes ~file_exists ~get_deps { Project_spec. libraries; binaries; } : Build_graph.node list =
+  let of_lib { Project_spec. dir; modules; c_stub_basenames; direct_deps = { packages; libs; }; } =
     let file module_name ext =
       sprintf !"%{Lib_name}/%{Module_name}.%s" dir module_name ext
     in
-    let _, mli =
-      List.fold modules_in_dep_order ~init:(Module_name.Set.empty, []) ~f:(fun (module_deps, mlis) module_name ->
+    let module_deps_by_module =
+      List.map modules ~f:(fun module_name ->
+        let ml = file module_name "ml" in
+        module_name, get_deps dir ml)
+      |> Module_name.of_alist_multi
+    in
+    let mli =
+      List.filter_map modules ~f:(fun module_name ->
         let mli = file module_name "mli" in
         if not (file_exists mli)
-        then (Set.add module_deps module_name, mlis)
+        then None
         else
           (* CR datkin: Confirm that the compiler kind doesn't matter here. *)
-          let mli = Ocaml_compiler.compile Native packages libs dir module_deps module_name `mli in
-          let module_deps = Set.add module_deps module_name in
-          (module_deps, mli :: mlis))
+          Some (Ocaml_compiler.compile Native packages libs dir module_deps module_name `mli))
     in
     let ml =
       List.concat_map [Native; Js;] ~f:(fun kind ->
-        let _, mls =
-          List.fold
-            modules_in_dep_order
-            ~init:(Module_name.Set.empty, [])
-            ~f:(fun (module_deps, mls) module_name ->
-              let ml =
-                Ocaml_compiler.compile kind packages libs dir module_deps module_name `ml
-              in
-              let module_deps = Set.add module_deps module_name in
-              (module_deps, ml :: mls))
+        let mls =
+          List.map modules ~f:(fun module_name ->
+            let module_deps =
+              Map.find module_deps_by_module module_name
+              |> Option.value ~default:[]
+            in
+            Ocaml_compiler.compile kind packages libs dir module_deps module_name `ml)
+        in
+        let modules_in_dep_order =
+          fold_closure
+            ~key_set:Module_name.Set.empty
+            ~roots:(Set.to_list libs)
+            ~direct_deps:(fun lib ->
+              match Map.find deps_by_lib_name lib with
+              | Some { Project_spec. packages = _; libs; } -> Set.to_list libs
+              | None -> assert false)
+            ~init:{ Project_spec.
+                packages = Package_name.Set.empty;
+                libs = Lib_name.Set.empty;
+              }
+            ~f:(fun lib { Project_spec. packages; libs; } ->
+              match Map.find deps_by_lib_name lib with
+              (* We ignore [libs] here, b/c we're traversing them later (from
+               * [direct_deps]. *)
+              | Some { Project_spec. packages = p; libs = _; } ->
+                { Project_spec.
+                  packages = Set.union packages p;
+                  libs = Set.add libs lib;
+                }
+              | None -> assert false)
         in
         let pack = Ocaml_compiler.pack kind ~modules_in_dep_order dir in
         let archive = Ocaml_compiler.archive kind ~c_stubs:c_stub_basenames dir in
@@ -617,7 +665,8 @@ let spec_to_nodes ~file_exists { Project_spec. libraries; binaries; } : Build_gr
     in
     List.concat_no_order [ mli; ml; c; ]
   in
-  let deps_by_lib_name = List.map libraries ~f:(fun { Project_spec. dir; direct_deps; _ } ->
+  let deps_by_lib_name =
+    List.map libraries ~f:(fun { Project_spec. dir; direct_deps; _ } ->
       dir, direct_deps)
     |> Lib_name.Map.of_alist_exn
   in
