@@ -115,8 +115,7 @@ let topological_fold ~key_set ~roots ~direct_deps:next ~init ~f =
   in
   assert (Set.is_empty key_set);
   let queued = List.fold roots ~init:key_set ~f:Set.add in
-  let sorted = loop ~queued ~queue:roots ~visited:key_set ~sorted:[] in
-  List.rev sorted
+  loop ~queued ~queue:roots ~visited:key_set ~sorted:init
 
 let%expect_test _ =
   let direct_deps = function
@@ -132,11 +131,11 @@ let%expect_test _ =
       ~roots:["A"]
       ~direct_deps
       ~init:[]
-      ~f:List.cons)));
+      ~f:List.cons) |> List.rev));
   [%expect {| (Ok (D C B A)) |}];
   ;;
 
-let fold_closure ~key_set ~roots ~direct_deps ~init ~f =
+let _fold_closure ~key_set ~roots ~direct_deps ~init ~f =
   let rec loop worklist key_set acc =
     match worklist with
     | [] -> acc
@@ -206,7 +205,7 @@ module Build_graph = struct
 
   let prune t ~roots =
     let _, nodes =
-    fold_closure
+    topological_fold
       ~key_set:File_name.Set.empty
       ~roots
       ~direct_deps:(fun file ->
@@ -662,7 +661,7 @@ let spec_to_nodes ~file_exists ~get_deps { Project_spec. libraries; binaries; } 
             Ocaml_compiler.compile kind packages libs dir module_deps module_name `ml)
         in
         let modules_in_dep_order =
-          fold_closure
+          topological_fold
             ~key_set:Module_name.Set.empty
             ~roots:modules
             ~direct_deps:(fun module_name ->
@@ -695,7 +694,7 @@ let spec_to_nodes ~file_exists ~get_deps { Project_spec. libraries; binaries; } 
   in
   let of_bin { Project_spec. module_name; direct_deps = { packages; libs; }; output; } =
     let { packages = extra_pkgs; libs; } : Project_spec.direct_deps =
-      fold_closure
+      topological_fold
         ~key_set:Lib_name.Set.empty
         ~roots:(Set.to_list libs)
         ~direct_deps:(fun lib ->
@@ -819,6 +818,10 @@ let%expect_test _ =
   let get_deps lib_name ~basename =
     let dep_names =
       match Lib_name.to_string lib_name, basename with
+      | "odditty_kernel", "control_functions.ml" ->
+        [ "terminfo"; "dec_private_mode"; "character_set"; ]
+      | "odditty_kernel", "window.ml" ->
+        [ "control_functions" ]
       | _, _ -> []
     in
     List.map dep_names ~f:Module_name.of_string
