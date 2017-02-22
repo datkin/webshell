@@ -97,7 +97,7 @@ let topological_fold ~key_set ~roots ~direct_deps:next ~init ~f =
       | [] ->
         let visited = Set.add visited x in
         let queued = Set.remove queued x in
-        let sorted = f x :: sorted in
+        let sorted = f x sorted in
         loop ~queued ~queue ~visited ~sorted
       | unvisited_children ->
         let (queued, queue) =
@@ -116,6 +116,24 @@ let topological_fold ~key_set ~roots ~direct_deps:next ~init ~f =
   assert (Set.is_empty key_set);
   let sorted = loop ~queued:key_set ~queue:roots ~visited:key_set ~sorted:[] in
   List.rev sorted
+
+let%expect_test _ =
+  let direct_deps = function
+    | "A" -> ["B"; "C"]
+    | "B" -> ["C"; "D"]
+    | "C" -> ["D"]
+    | _ -> []
+  in
+  printf !"%{sexp:string list Or_error.t}"
+    (Or_error.try_with (fun () ->
+      (topological_fold
+      ~key_set:String.Set.empty
+      ~roots:["A"]
+      ~direct_deps
+      ~init:[]
+      ~f:List.cons)));
+  [%expect {| (Error "Assert_failure dbuild.ml:94:6") |}];
+  ;;
 
 let fold_closure ~key_set ~roots ~direct_deps ~init ~f =
   let rec loop worklist key_set acc =
@@ -845,59 +863,30 @@ let%expect_test _ =
       .dbuild/native/odditty_kernel/modules/window.cmx
 
     .dbuild/native/odditty_kernel/modules/window.cmx
-      .dbuild/native/odditty_kernel/modules/character_attributes.cmi
-      .dbuild/native/odditty_kernel/modules/character_set.cmi
-      .dbuild/native/odditty_kernel/modules/control_functions.cmi
-      .dbuild/native/odditty_kernel/modules/dec_private_mode.cmi
-      .dbuild/native/odditty_kernel/modules/terminfo.cmi
       odditty_kernel/window.ml
 
-    .dbuild/native/odditty_kernel/modules/terminfo.cmi
-      .dbuild/native/odditty_kernel/modules/character_attributes.cmi
-      .dbuild/native/odditty_kernel/modules/character_set.cmi
-      odditty_kernel/terminfo.mli
-
-    .dbuild/native/odditty_kernel/modules/dec_private_mode.cmi
-      .dbuild/native/odditty_kernel/modules/character_attributes.cmi
-      .dbuild/native/odditty_kernel/modules/character_set.cmi
-      .dbuild/native/odditty_kernel/modules/terminfo.cmi
-      odditty_kernel/dec_private_mode.mli
-
-    .dbuild/native/odditty_kernel/modules/control_functions.cmi
-      .dbuild/native/odditty_kernel/modules/character_attributes.cmi
-      .dbuild/native/odditty_kernel/modules/character_set.cmi
-      .dbuild/native/odditty_kernel/modules/dec_private_mode.cmi
-      .dbuild/native/odditty_kernel/modules/terminfo.cmi
-      odditty_kernel/control_functions.mli
-
     .dbuild/native/odditty_kernel/modules/window.cmi
-      .dbuild/native/odditty_kernel/modules/character_attributes.cmi
-      .dbuild/native/odditty_kernel/modules/character_set.cmi
-      .dbuild/native/odditty_kernel/modules/control_functions.cmi
-      .dbuild/native/odditty_kernel/modules/dec_private_mode.cmi
-      .dbuild/native/odditty_kernel/modules/terminfo.cmi
       odditty_kernel/window.mli
 
     .dbuild/native/odditty_kernel/modules/terminfo.cmx
-      .dbuild/native/odditty_kernel/modules/character_attributes.cmi
-      .dbuild/native/odditty_kernel/modules/character_set.cmi
       odditty_kernel/terminfo.ml
 
+    .dbuild/native/odditty_kernel/modules/terminfo.cmi
+      odditty_kernel/terminfo.mli
+
     .dbuild/native/odditty_kernel/modules/dec_private_mode.cmx
-      .dbuild/native/odditty_kernel/modules/character_attributes.cmi
-      .dbuild/native/odditty_kernel/modules/character_set.cmi
-      .dbuild/native/odditty_kernel/modules/terminfo.cmi
       odditty_kernel/dec_private_mode.ml
 
+    .dbuild/native/odditty_kernel/modules/dec_private_mode.cmi
+      odditty_kernel/dec_private_mode.mli
+
     .dbuild/native/odditty_kernel/modules/control_functions.cmx
-      .dbuild/native/odditty_kernel/modules/character_attributes.cmi
-      .dbuild/native/odditty_kernel/modules/character_set.cmi
-      .dbuild/native/odditty_kernel/modules/dec_private_mode.cmi
-      .dbuild/native/odditty_kernel/modules/terminfo.cmi
       odditty_kernel/control_functions.ml
 
+    .dbuild/native/odditty_kernel/modules/control_functions.cmi
+      odditty_kernel/control_functions.mli
+
     .dbuild/native/odditty_kernel/modules/character_set.cmx
-      .dbuild/native/odditty_kernel/modules/character_attributes.cmi
       odditty_kernel/character_set.ml
 
     .dbuild/native/odditty_kernel/modules/character_attributes.cmx
@@ -914,22 +903,20 @@ let%expect_test _ =
       .dbuild/native/odditty/modules/terminfo.cmx
 
     .dbuild/native/odditty/modules/terminfo.cmx
-      .dbuild/native/odditty/modules/pty.cmi
       .dbuild/native/odditty_kernel/pack/odditty_kernel.cmi
       odditty/terminfo.ml
 
-    .dbuild/native/odditty/modules/pty.cmi
-      .dbuild/native/odditty_kernel/pack/odditty_kernel.cmi
-      odditty/pty.mli
-
     .dbuild/native/odditty/modules/terminfo.cmi
-      .dbuild/native/odditty/modules/pty.cmi
       .dbuild/native/odditty_kernel/pack/odditty_kernel.cmi
       odditty/terminfo.mli
 
     .dbuild/native/odditty/modules/pty.cmx
       .dbuild/native/odditty_kernel/pack/odditty_kernel.cmi
       odditty/pty.ml
+
+    .dbuild/native/odditty/modules/pty.cmi
+      .dbuild/native/odditty_kernel/pack/odditty_kernel.cmi
+      odditty/pty.mli
 
     .dbuild/native/odditty/c/odditty.a
       .dbuild/native/odditty/c/pty_stubs.o
