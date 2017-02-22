@@ -83,28 +83,38 @@ module Cmd = struct
   } [@@deriving sexp]
 end
 
-let topological_fold ~key_set ~roots ~next ~init ~f =
-  let loop queue visited sorted =
+(* CR datkin: It's very likely this is completely wrong. Test it. *)
+let topological_fold ~key_set ~roots ~direct_deps:next ~init ~f =
+  let rec loop ~queued ~queue ~visited ~sorted =
     match queue with
-    | [] -> sorted
+    | [] ->
+      assert (Set.is_empty queued);
+      sorted
     | x :: queue ->
-      if Set.mem visited x
-      then loop queue visited sorted
-      else
-        match next x with
-        | [] ->
-          let visited = Set.add visited x in
-          let sorted = x :: sorted in
-          loop queue visited sorted
-        | child :: children ->
-          
-
-
-        let children = next x in
-        let queue = List.rev_append children (x :: queue) in
-
+      assert (Set.mem queued x);
+      assert (not (Set.mem visited x));
+      match next x |> List.filter ~f:(Set.mem visited) with
+      | [] ->
+        let visited = Set.add visited x in
+        let queued = Set.remove queued x in
+        let sorted = f x :: sorted in
+        loop ~queued ~queue ~visited ~sorted
+      | unvisited_children ->
+        let (queued, queue) =
+          List.fold
+            unvisited_children
+            ~init:(queued, x :: queue)
+            ~f:(fun (queued, queue) child ->
+              if Set.mem queued child
+              then assert false (* loop? *)
+              else if Set.mem visited child
+              then (queued, queue)
+              else (Set.add queued child, child :: queue))
+        in
+        loop ~queued ~queue ~visited ~sorted
   in
-  let (_visited, sorted) = loop roots key_set [] in
+  assert (Set.is_empty key_set);
+  let sorted = loop ~queued:key_set ~queue:roots ~visited:key_set ~sorted:[] in
   List.rev sorted
 
 let fold_closure ~key_set ~roots ~direct_deps ~init ~f =
@@ -603,9 +613,9 @@ let spec_to_nodes ~file_exists ~get_deps { Project_spec. libraries; binaries; } 
     in
     let module_deps_by_module =
       List.map modules ~f:(fun module_name ->
-        let ml = file module_name "ml" in
-        module_name, get_deps dir ml)
-      |> Module_name.of_alist_multi
+        let basename = file module_name "ml" in
+        module_name, get_deps dir ~basename)
+      |> Module_name.Map.of_alist_exn
     in
     let mli =
       List.filter_map modules ~f:(fun module_name ->
@@ -613,6 +623,11 @@ let spec_to_nodes ~file_exists ~get_deps { Project_spec. libraries; binaries; } 
         if not (file_exists mli)
         then None
         else
+          let module_deps =
+            Map.find module_deps_by_module module_name
+            |> Option.value ~default:[]
+            |> Module_name.Set.of_list
+          in
           (* CR datkin: Confirm that the compiler kind doesn't matter here. *)
           Some (Ocaml_compiler.compile Native packages libs dir module_deps module_name `mli))
     in
@@ -623,31 +638,20 @@ let spec_to_nodes ~file_exists ~get_deps { Project_spec. libraries; binaries; } 
             let module_deps =
               Map.find module_deps_by_module module_name
               |> Option.value ~default:[]
+              |> Module_name.Set.of_list
             in
             Ocaml_compiler.compile kind packages libs dir module_deps module_name `ml)
         in
         let modules_in_dep_order =
           fold_closure
             ~key_set:Module_name.Set.empty
-            ~roots:(Set.to_list libs)
-            ~direct_deps:(fun lib ->
-              match Map.find deps_by_lib_name lib with
-              | Some { Project_spec. packages = _; libs; } -> Set.to_list libs
+            ~roots:modules
+            ~direct_deps:(fun module_name ->
+              match Map.find module_deps_by_module module_name with
+              | Some modules -> modules
               | None -> assert false)
-            ~init:{ Project_spec.
-                packages = Package_name.Set.empty;
-                libs = Lib_name.Set.empty;
-              }
-            ~f:(fun lib { Project_spec. packages; libs; } ->
-              match Map.find deps_by_lib_name lib with
-              (* We ignore [libs] here, b/c we're traversing them later (from
-               * [direct_deps]. *)
-              | Some { Project_spec. packages = p; libs = _; } ->
-                { Project_spec.
-                  packages = Set.union packages p;
-                  libs = Set.add libs lib;
-                }
-              | None -> assert false)
+            ~init:[]
+            ~f:(fun module_name modules -> module_name :: modules)
         in
         let pack = Ocaml_compiler.pack kind ~modules_in_dep_order dir in
         let archive = Ocaml_compiler.archive kind ~c_stubs:c_stub_basenames dir in
@@ -712,7 +716,7 @@ let project_spec =
     (libraries (
       (
         (dir odditty_kernel)
-        (modules_in_dep_order (
+        (modules (
           character_attributes
           character_set
           terminfo
@@ -726,7 +730,7 @@ let project_spec =
       )
       (
         (dir odditty)
-        (modules_in_dep_order (
+        (modules (
           pty
           terminfo
         ))
@@ -738,7 +742,7 @@ let project_spec =
       )
       (
         (dir web)
-        (modules_in_dep_order (
+        (modules (
           main
         ))
         (direct_deps (
@@ -748,7 +752,7 @@ let project_spec =
       )
       (
         (dir server)
-        (modules_in_dep_order (
+        (modules (
           web_server
         ))
         (direct_deps (
@@ -793,7 +797,14 @@ let%expect_test _ =
     | "odditty_kernel/character_set.mli" -> false
     | _ -> true
   in
-    (spec_to_nodes ~file_exists project_spec
+  let get_deps lib_name ~basename =
+    let dep_names =
+      match Lib_name.to_string lib_name, basename with
+      | _, _ -> []
+    in
+    List.map dep_names ~f:Module_name.of_string
+  in
+    (spec_to_nodes ~file_exists ~get_deps project_spec
     |> Build_graph.of_nodes
     |> Build_graph.prune ~roots:[
       File_name.of_string (sprintf "%s/main.native" (build_dir Native `linked bin_lib));
@@ -946,8 +957,9 @@ let dot_cmd =
     | Ok () -> true
     | Error _ -> false
   in
+  let get_deps (_ : Lib_name.t) ~basename:_ = [] in
   printf "digraph deps {\n%!";
-    (spec_to_nodes ~file_exists project_spec
+    (spec_to_nodes ~file_exists ~get_deps project_spec
     |> Build_graph.of_nodes
     |> Build_graph.prune ~roots:[
       file_name
