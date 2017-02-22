@@ -93,7 +93,7 @@ let topological_fold ~key_set ~roots ~direct_deps:next ~init ~f =
     | x :: queue ->
       assert (Set.mem queued x);
       assert (not (Set.mem visited x));
-      match next x |> List.filter ~f:(Set.mem visited) with
+      match next x |> List.filter ~f:(fun x -> not (Set.mem visited x)) with
       | [] ->
         let visited = Set.add visited x in
         let queued = Set.remove queued x in
@@ -114,7 +114,8 @@ let topological_fold ~key_set ~roots ~direct_deps:next ~init ~f =
         loop ~queued ~queue ~visited ~sorted
   in
   assert (Set.is_empty key_set);
-  let sorted = loop ~queued:key_set ~queue:roots ~visited:key_set ~sorted:[] in
+  let queued = List.fold roots ~init:key_set ~f:Set.add in
+  let sorted = loop ~queued ~queue:roots ~visited:key_set ~sorted:[] in
   List.rev sorted
 
 let%expect_test _ =
@@ -132,7 +133,7 @@ let%expect_test _ =
       ~direct_deps
       ~init:[]
       ~f:List.cons)));
-  [%expect {| (Error "Assert_failure dbuild.ml:94:6") |}];
+  [%expect {| (Ok (D C B A)) |}];
   ;;
 
 let fold_closure ~key_set ~roots ~direct_deps ~init ~f =
