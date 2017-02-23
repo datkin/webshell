@@ -14,7 +14,6 @@
  * *)
 
 open Core.Std
-open Async.Std
 
 (* Package names refer to ocamlfind packages (defined outside of this project). *)
 module Package_name = String_id.Make (struct
@@ -83,39 +82,30 @@ module Cmd = struct
   } [@@deriving sexp]
 end
 
-(* CR datkin: It's very likely this is completely wrong. Test it. *)
+(* CR-soon datkin: This may actually be right, but it needs more tests. *)
 let topological_fold ~key_set ~roots ~direct_deps:next ~init ~f =
-  let rec loop ~queued ~queue ~visited ~sorted =
-    match queue with
-    | [] ->
-      assert (Set.is_empty queued);
-      sorted
-    | x :: queue ->
-      assert (Set.mem queued x);
-      assert (not (Set.mem visited x));
-      match next x |> List.filter ~f:(fun x -> not (Set.mem visited x)) with
-      | [] ->
-        let visited = Set.add visited x in
-        let queued = Set.remove queued x in
-        let sorted = f x sorted in
-        loop ~queued ~queue ~visited ~sorted
-      | unvisited_children ->
-        let (queued, queue) =
-          List.fold
-            unvisited_children
-            ~init:(queued, x :: queue)
-            ~f:(fun (queued, queue) child ->
-              if Set.mem queued child
-              then assert false (* loop? *)
-              else if Set.mem visited child
-              then (queued, queue)
-              else (Set.add queued child, child :: queue))
-        in
-        loop ~queued ~queue ~visited ~sorted
+  let rec visit ~descended ~visited node acc =
+    if Set.mem descended node
+    then assert false (* loop *) (* CR-soon datkin: Add [sexp_of_key] arg, and use for this error. *)
+    else if Set.mem visited node
+    then (visited, acc)
+    else
+    let unvisited_children =
+      next node |> List.filter ~f:(fun x -> not (Set.mem visited x))
+    in
+    let (visited, acc) =
+      let descended = Set.add descended node in
+      List.fold unvisited_children ~init:(visited, acc) ~f:(fun (visited, acc) node ->
+        visit ~descended ~visited node acc)
+    in
+    (Set.add visited node, f node acc)
   in
   assert (Set.is_empty key_set);
-  let queued = List.fold roots ~init:key_set ~f:Set.add in
-  loop ~queued ~queue:roots ~visited:key_set ~sorted:init
+  let (_visited, acc) =
+    List.fold roots ~init:(key_set, init) ~f:(fun (visited, acc) node ->
+      visit ~descended:key_set ~visited node acc)
+  in
+  acc
 
 let%expect_test _ =
   let direct_deps = function
@@ -844,13 +834,35 @@ let%expect_test _ =
       )
     );
   [%expect {|
-    .dbuild/native/bin/linked/main.native
-      .dbuild/native/bin/modules/main.cmx
-      .dbuild/native/odditty/archive/odditty.cmxa
-      .dbuild/native/odditty_kernel/archive/odditty_kernel.cmxa
+    .dbuild/native/odditty_kernel/modules/character_attributes.cmx
+      odditty_kernel/character_attributes.ml
 
-    .dbuild/native/odditty_kernel/archive/odditty_kernel.cmxa
-      .dbuild/native/odditty_kernel/pack/odditty_kernel.cmx
+    .dbuild/native/odditty_kernel/modules/character_set.cmx
+      odditty_kernel/character_set.ml
+
+    .dbuild/native/odditty_kernel/modules/control_functions.cmi
+      odditty_kernel/control_functions.mli
+
+    .dbuild/native/odditty_kernel/modules/control_functions.cmx
+      odditty_kernel/control_functions.ml
+
+    .dbuild/native/odditty_kernel/modules/dec_private_mode.cmi
+      odditty_kernel/dec_private_mode.mli
+
+    .dbuild/native/odditty_kernel/modules/dec_private_mode.cmx
+      odditty_kernel/dec_private_mode.ml
+
+    .dbuild/native/odditty_kernel/modules/terminfo.cmi
+      odditty_kernel/terminfo.mli
+
+    .dbuild/native/odditty_kernel/modules/terminfo.cmx
+      odditty_kernel/terminfo.ml
+
+    .dbuild/native/odditty_kernel/modules/window.cmi
+      odditty_kernel/window.mli
+
+    .dbuild/native/odditty_kernel/modules/window.cmx
+      odditty_kernel/window.ml
 
     .dbuild/native/odditty_kernel/pack/odditty_kernel.cmi, .dbuild/native/odditty_kernel/pack/odditty_kernel.cmx
       .dbuild/native/odditty_kernel/modules/character_attributes.cmi
@@ -866,39 +878,21 @@ let%expect_test _ =
       .dbuild/native/odditty_kernel/modules/window.cmi
       .dbuild/native/odditty_kernel/modules/window.cmx
 
-    .dbuild/native/odditty_kernel/modules/window.cmx
-      odditty_kernel/window.ml
+    .dbuild/native/odditty/modules/pty.cmi
+      .dbuild/native/odditty_kernel/pack/odditty_kernel.cmi
+      odditty/pty.mli
 
-    .dbuild/native/odditty_kernel/modules/window.cmi
-      odditty_kernel/window.mli
+    .dbuild/native/odditty/modules/pty.cmx
+      .dbuild/native/odditty_kernel/pack/odditty_kernel.cmi
+      odditty/pty.ml
 
-    .dbuild/native/odditty_kernel/modules/terminfo.cmx
-      odditty_kernel/terminfo.ml
+    .dbuild/native/odditty/modules/terminfo.cmi
+      .dbuild/native/odditty_kernel/pack/odditty_kernel.cmi
+      odditty/terminfo.mli
 
-    .dbuild/native/odditty_kernel/modules/terminfo.cmi
-      odditty_kernel/terminfo.mli
-
-    .dbuild/native/odditty_kernel/modules/dec_private_mode.cmx
-      odditty_kernel/dec_private_mode.ml
-
-    .dbuild/native/odditty_kernel/modules/dec_private_mode.cmi
-      odditty_kernel/dec_private_mode.mli
-
-    .dbuild/native/odditty_kernel/modules/control_functions.cmx
-      odditty_kernel/control_functions.ml
-
-    .dbuild/native/odditty_kernel/modules/control_functions.cmi
-      odditty_kernel/control_functions.mli
-
-    .dbuild/native/odditty_kernel/modules/character_set.cmx
-      odditty_kernel/character_set.ml
-
-    .dbuild/native/odditty_kernel/modules/character_attributes.cmx
-      odditty_kernel/character_attributes.ml
-
-    .dbuild/native/odditty/archive/odditty.cmxa
-      .dbuild/native/odditty/c/odditty.a
-      .dbuild/native/odditty/pack/odditty.cmx
+    .dbuild/native/odditty/modules/terminfo.cmx
+      .dbuild/native/odditty_kernel/pack/odditty_kernel.cmi
+      odditty/terminfo.ml
 
     .dbuild/native/odditty/pack/odditty.cmi, .dbuild/native/odditty/pack/odditty.cmx
       .dbuild/native/odditty/modules/pty.cmi
@@ -906,35 +900,33 @@ let%expect_test _ =
       .dbuild/native/odditty/modules/terminfo.cmi
       .dbuild/native/odditty/modules/terminfo.cmx
 
-    .dbuild/native/odditty/modules/terminfo.cmx
+    .dbuild/native/bin/modules/main.cmx
+      .dbuild/native/odditty/pack/odditty.cmi
       .dbuild/native/odditty_kernel/pack/odditty_kernel.cmi
-      odditty/terminfo.ml
-
-    .dbuild/native/odditty/modules/terminfo.cmi
-      .dbuild/native/odditty_kernel/pack/odditty_kernel.cmi
-      odditty/terminfo.mli
-
-    .dbuild/native/odditty/modules/pty.cmx
-      .dbuild/native/odditty_kernel/pack/odditty_kernel.cmi
-      odditty/pty.ml
-
-    .dbuild/native/odditty/modules/pty.cmi
-      .dbuild/native/odditty_kernel/pack/odditty_kernel.cmi
-      odditty/pty.mli
-
-    .dbuild/native/odditty/c/odditty.a
-      .dbuild/native/odditty/c/pty_stubs.o
+      bin/main.ml
 
     .dbuild/native/odditty/c/pty_stubs.o
       odditty/pty_stubs.c
 
-    .dbuild/native/bin/modules/main.cmx
-      .dbuild/native/odditty/pack/odditty.cmi
-      .dbuild/native/odditty_kernel/pack/odditty_kernel.cmi
-      bin/main.ml |}];
+    .dbuild/native/odditty/c/odditty.a
+      .dbuild/native/odditty/c/pty_stubs.o
+
+    .dbuild/native/odditty/archive/odditty.cmxa
+      .dbuild/native/odditty/c/odditty.a
+      .dbuild/native/odditty/pack/odditty.cmx
+
+    .dbuild/native/odditty_kernel/archive/odditty_kernel.cmxa
+      .dbuild/native/odditty_kernel/pack/odditty_kernel.cmx
+
+    .dbuild/native/bin/linked/main.native
+      .dbuild/native/bin/modules/main.cmx
+      .dbuild/native/odditty/archive/odditty.cmxa
+      .dbuild/native/odditty_kernel/archive/odditty_kernel.cmxa |}]
 ;;
 
 let file_arg = Command.Arg_type.create File_name.of_string
+
+open Async.Std
 
 let dot_cmd =
   let open Command.Let_syntax in
