@@ -15,6 +15,8 @@
 
 open Core.Std
 
+let () = Unix.create_process_backend := `spawn_vfork
+
 (* Package names refer to ocamlfind packages (defined outside of this project). *)
 module Package_name = String_id.Make (struct
   let module_name = "Package_name"
@@ -906,6 +908,37 @@ let%expect_test _ =
 ;;
 
 let file_arg = Command.Arg_type.create File_name.of_string
+
+let parse_deps lines : Module_name.t list =
+  match lines with
+  | [] -> assert false
+  | line :: _ ->
+    match String.split ~on:' ' line with
+    | _ :: ":" :: deps ->
+      List.map deps ~f:(fun filename ->
+        Filename.basename filename
+        |> String.rsplit2_exn ~on:'.'
+        |> fst
+        |> Module_name.of_string)
+    | _ -> assert false
+;;
+
+let%expect_test _ =
+  let ocamldep_output =
+    {|odditty_kernel/control_functions.cmo : odditty_kernel/terminfo.cmi odditty_kernel/dec_private_mode.cmo odditty_kernel/character_set.cmo odditty_kernel/control_functions.cmi
+odditty_kernel/control_functions.cmx : odditty_kernel/terminfo.cmx odditty_kernel/dec_private_mode.cmx odditty_kernel/character_set.cmx odditty_kernel/control_functions.cmi|}
+    |> String.split ~on:'\n'
+  in
+  printf !"%{sexp: Module_name.t list}" (parse_deps ocamldep_output);
+  [%expect "(terminfo dec_private_mode character_set control_functions)"];
+;;
+
+let get_deps dir ~basename =
+  (* CR-someday datkin: Add '-ppx'? *)
+  let cmd = sprintf !"ocamldep -one-line -I %{Lib_name} %{Lib_name}/%s.ml" dir dir basename in
+  let output = Unix.open_process_in cmd |> In_channel.input_lines in
+  parse_deps output
+;;
 
 open Async.Std
 
