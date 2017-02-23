@@ -123,25 +123,6 @@ let%expect_test _ =
       ~init:[]
       ~f:List.cons) |> List.rev));
   [%expect {| (Ok (D C B A)) |}];
-  ;;
-
-let _fold_closure ~key_set ~roots ~direct_deps ~init ~f =
-  let rec loop worklist key_set acc =
-    match worklist with
-    | [] -> acc
-    | node :: worklist ->
-      let key_set = Set.add key_set node in
-      let acc = f node acc in
-      let worklist =
-        List.fold ~init:worklist (direct_deps node) ~f:(fun worklist node ->
-          if Set.mem key_set node
-          then worklist
-          else node :: worklist)
-      in
-      loop worklist key_set acc
-  in
-  assert (Set.is_empty key_set);
-  loop roots key_set init
 ;;
 
 module Build_graph = struct
@@ -942,6 +923,9 @@ let dot_cmd =
   in
   let get_deps (_ : Lib_name.t) ~basename:_ = [] in
   printf "digraph deps {\n%!";
+  printf "  rankdir=LR;\n";
+  printf "  splines=line;\n"; (* also "polyline"? *)
+  printf "  edge[samehead=x sametail=y];\n";
     (spec_to_nodes ~file_exists ~get_deps project_spec
     |> Build_graph.of_nodes
     |> Build_graph.prune ~roots:[
