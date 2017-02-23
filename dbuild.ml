@@ -85,10 +85,10 @@ module Cmd = struct
 end
 
 (* CR-soon datkin: This may actually be right, but it needs more tests. *)
-let topological_fold ~key_set ~roots ~direct_deps:next ~init ~f =
+let topological_fold ~sexp_of_key ~key_set ~roots ~direct_deps:next ~init ~f =
   let rec visit ~descended ~visited node acc =
     if Set.mem descended node
-    then assert false (* loop *) (* CR-soon datkin: Add [sexp_of_key] arg, and use for this error. *)
+    then raise_s [%message "Cycle" (node : key) (Set.to_list descended : key list)]
     else if Set.mem visited node
     then (visited, acc)
     else
@@ -119,6 +119,7 @@ let%expect_test _ =
   printf !"%{sexp:string list Or_error.t}"
     (Or_error.try_with (fun () ->
       (topological_fold
+      ~sexp_of_key:[%sexp_of: string]
       ~key_set:String.Set.empty
       ~roots:["A"]
       ~direct_deps
@@ -179,6 +180,7 @@ module Build_graph = struct
   let prune t ~roots =
     let _, nodes =
     topological_fold
+      ~sexp_of_key:[%sexp_of: File_name.t]
       ~key_set:File_name.Set.empty
       ~roots
       ~direct_deps:(fun file ->
@@ -604,7 +606,7 @@ let spec_to_nodes ~file_exists ~get_deps { Project_spec. libraries; binaries; } 
     in
     let module_deps_by_module =
       List.map modules ~f:(fun module_name ->
-        let basename = file module_name "ml" in
+        let basename = sprintf !"%{Module_name}.ml" module_name in
         module_name, get_deps dir ~basename)
       |> Module_name.Map.of_alist_exn
     in
@@ -635,6 +637,7 @@ let spec_to_nodes ~file_exists ~get_deps { Project_spec. libraries; binaries; } 
         in
         let modules_in_dep_order =
           topological_fold
+            ~sexp_of_key:[%sexp_of: Module_name.t]
             ~key_set:Module_name.Set.empty
             ~roots:modules
             ~direct_deps:(fun module_name ->
@@ -668,6 +671,7 @@ let spec_to_nodes ~file_exists ~get_deps { Project_spec. libraries; binaries; } 
   let of_bin { Project_spec. module_name; direct_deps = { packages; libs; }; output; } =
     let { packages = extra_pkgs; libs; } : Project_spec.direct_deps =
       topological_fold
+        ~sexp_of_key:[%sexp_of: Lib_name.t]
         ~key_set:Lib_name.Set.empty
         ~roots:(Set.to_list libs)
         ~direct_deps:(fun lib ->
@@ -823,28 +827,36 @@ let%expect_test _ =
     .dbuild/native/odditty_kernel/modules/character_set.cmx
       odditty_kernel/character_set.ml
 
-    .dbuild/native/odditty_kernel/modules/control_functions.cmi
-      odditty_kernel/control_functions.mli
-
-    .dbuild/native/odditty_kernel/modules/control_functions.cmx
-      odditty_kernel/control_functions.ml
-
     .dbuild/native/odditty_kernel/modules/dec_private_mode.cmi
       odditty_kernel/dec_private_mode.mli
 
-    .dbuild/native/odditty_kernel/modules/dec_private_mode.cmx
-      odditty_kernel/dec_private_mode.ml
-
     .dbuild/native/odditty_kernel/modules/terminfo.cmi
       odditty_kernel/terminfo.mli
+
+    .dbuild/native/odditty_kernel/modules/control_functions.cmi
+      .dbuild/native/odditty_kernel/modules/character_set.cmi
+      .dbuild/native/odditty_kernel/modules/dec_private_mode.cmi
+      .dbuild/native/odditty_kernel/modules/terminfo.cmi
+      odditty_kernel/control_functions.mli
+
+    .dbuild/native/odditty_kernel/modules/control_functions.cmx
+      .dbuild/native/odditty_kernel/modules/character_set.cmi
+      .dbuild/native/odditty_kernel/modules/dec_private_mode.cmi
+      .dbuild/native/odditty_kernel/modules/terminfo.cmi
+      odditty_kernel/control_functions.ml
+
+    .dbuild/native/odditty_kernel/modules/dec_private_mode.cmx
+      odditty_kernel/dec_private_mode.ml
 
     .dbuild/native/odditty_kernel/modules/terminfo.cmx
       odditty_kernel/terminfo.ml
 
     .dbuild/native/odditty_kernel/modules/window.cmi
+      .dbuild/native/odditty_kernel/modules/control_functions.cmi
       odditty_kernel/window.mli
 
     .dbuild/native/odditty_kernel/modules/window.cmx
+      .dbuild/native/odditty_kernel/modules/control_functions.cmi
       odditty_kernel/window.ml
 
     .dbuild/native/odditty_kernel/pack/odditty_kernel.cmi, .dbuild/native/odditty_kernel/pack/odditty_kernel.cmx
@@ -913,13 +925,18 @@ let parse_deps lines : Module_name.t list =
   match lines with
   | [] -> assert false
   | line :: _ ->
+    let module_name_of_filename filename =
+      Filename.basename filename
+      |> String.rsplit2_exn ~on:'.'
+      |> fst
+      |> Module_name.of_string
+    in
     match String.split ~on:' ' line with
-    | _ :: ":" :: deps ->
-      List.map deps ~f:(fun filename ->
-        Filename.basename filename
-        |> String.rsplit2_exn ~on:'.'
-        |> fst
-        |> Module_name.of_string)
+    | target_file :: ":" :: deps ->
+      let target_module = module_name_of_filename target_file in
+      List.filter_map deps ~f:(fun filename ->
+        let module_name = module_name_of_filename filename in
+        Option.some_if (module_name <> target_module) module_name)
     | _ -> assert false
 ;;
 
@@ -930,13 +947,14 @@ odditty_kernel/control_functions.cmx : odditty_kernel/terminfo.cmx odditty_kerne
     |> String.split ~on:'\n'
   in
   printf !"%{sexp: Module_name.t list}" (parse_deps ocamldep_output);
-  [%expect "(terminfo dec_private_mode character_set control_functions)"];
+  [%expect "(terminfo dec_private_mode character_set)"];
 ;;
 
 let get_deps dir ~basename =
   (* CR-someday datkin: Add '-ppx'? *)
-  let cmd = sprintf !"ocamldep -one-line -I %{Lib_name} %{Lib_name}/%s.ml" dir dir basename in
+  let cmd = sprintf !"ocamldep -one-line -I %{Lib_name} %{Lib_name}/%s" dir dir basename in
   let output = Unix.open_process_in cmd |> In_channel.input_lines in
+  eprintf !"> %s\n< %{sexp#mach:string list}\n" cmd output;
   parse_deps output
 ;;
 
@@ -954,7 +972,6 @@ let dot_cmd =
     | Ok () -> true
     | Error _ -> false
   in
-  let get_deps (_ : Lib_name.t) ~basename:_ = [] in
   printf "digraph deps {\n%!";
   printf "  rankdir=LR;\n";
   printf "  splines=line;\n"; (* also "polyline"? *)
