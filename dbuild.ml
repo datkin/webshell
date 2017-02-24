@@ -349,8 +349,9 @@ end = struct
      * get more parallelism? *)
     let extra_inputs =
       Set.to_list libs
-      |> List.map ~f:(fun lib ->
-          sprintf !"%s/%{Lib_name}.%s" (build_dir kind `pack lib) lib (ext kind `mli))
+      |> List.concat_map ~f:(fun lib ->
+          List.map [`ml; `mli] ~f:(fun ext_kind ->
+          sprintf !"%s/%{Lib_name}.%s" (build_dir kind `pack lib) lib (ext kind ext_kind)))
     in
     let build_dir = build_dir kind `modules lib_name in
     let output =
@@ -362,6 +363,14 @@ end = struct
       | true -> []
       | false ->
         [ sprintf !"%s/%{Module_name}.%s" build_dir module_name (ext kind `mli) ]
+    in
+    let extra_inputs =
+      match which_file, has_mli with
+      | `ml, true ->
+        (* The cmi is required *)
+        (sprintf !"%s/%{Module_name}.%s" build_dir module_name (ext kind `mli))
+        :: extra_inputs
+      | _, _ -> []
     in
     let module_deps =
       (* The build dir needs to have the cmi's of the modules we depend on
@@ -423,7 +432,7 @@ end = struct
          (opam_switch (4.03.0))))
        (inputs
         (.dbuild/native/foo/modules/blub.cmi .dbuild/native/foo/modules/flub.cmi
-         .dbuild/native/x/pack/x.cmi .dbuild/native/y/pack/y.cmi foo/bar.ml))
+         foo/bar.ml))
        (outputs
         (.dbuild/native/foo/modules/bar.cmi .dbuild/native/foo/modules/bar.cmx))) |}];
   ;;
@@ -437,7 +446,9 @@ end = struct
   let pack kind ~modules_in_dep_order lib_name =
     let inputs =
       List.concat_map modules_in_dep_order ~f:(fun module_name ->
-        List.map [`ml; `mli] ~f:(fun file_kind ->
+        (* CR datkin: Including the mli seems to lead to errors. Is it right to
+         * leave 'em out? Maybe test by seeing if the interface is restricted. *)
+        List.map [`ml (*; `mli *)] ~f:(fun file_kind ->
           sprintf !"%s/%{Module_name}.%s" (build_dir kind `modules lib_name) module_name (ext kind file_kind)))
     in
     let output, output_cmi =
@@ -474,12 +485,9 @@ end = struct
         ((exe ocamlfind)
          (args
           (ocamlopt -pack .dbuild/native/foo/modules/x.cmx
-           .dbuild/native/foo/modules/x.cmi .dbuild/native/foo/modules/y.cmx
-           .dbuild/native/foo/modules/y.cmi -o .dbuild/native/foo/pack/foo.cmx))
+           .dbuild/native/foo/modules/y.cmx -o .dbuild/native/foo/pack/foo.cmx))
          (opam_switch (4.03.0))))
-       (inputs
-        (.dbuild/native/foo/modules/x.cmi .dbuild/native/foo/modules/x.cmx
-         .dbuild/native/foo/modules/y.cmi .dbuild/native/foo/modules/y.cmx))
+       (inputs (.dbuild/native/foo/modules/x.cmx .dbuild/native/foo/modules/y.cmx))
        (outputs (.dbuild/native/foo/pack/foo.cmi .dbuild/native/foo/pack/foo.cmx))) |}];
   ;;
 
@@ -852,6 +860,18 @@ let%expect_test _ =
    * exist as a pre-cond) we could error out.
    * *)
   [%expect {|
+    .dbuild/native/bin/modules/main.cmi, .dbuild/native/bin/modules/main.cmx
+      bin/main.ml
+
+    .dbuild/native/odditty/c/pty_stubs.o
+      odditty/pty_stubs.c
+
+    .dbuild/native/odditty/c/odditty.a
+      .dbuild/native/odditty/c/pty_stubs.o
+
+    .dbuild/native/odditty/modules/pty.cmi
+      odditty/pty.mli
+
     .dbuild/native/odditty_kernel/modules/character_attributes.cmi, .dbuild/native/odditty_kernel/modules/character_attributes.cmx
       odditty_kernel/character_attributes.ml
 
@@ -872,11 +892,13 @@ let%expect_test _ =
 
     .dbuild/native/odditty_kernel/modules/control_functions.cmx
       .dbuild/native/odditty_kernel/modules/character_set.cmi
+      .dbuild/native/odditty_kernel/modules/control_functions.cmi
       .dbuild/native/odditty_kernel/modules/dec_private_mode.cmi
       .dbuild/native/odditty_kernel/modules/terminfo.cmi
       odditty_kernel/control_functions.ml
 
     .dbuild/native/odditty_kernel/modules/terminfo.cmx
+      .dbuild/native/odditty_kernel/modules/terminfo.cmi
       odditty_kernel/terminfo.ml
 
     .dbuild/native/odditty_kernel/modules/window.cmi
@@ -885,54 +907,35 @@ let%expect_test _ =
 
     .dbuild/native/odditty_kernel/modules/window.cmx
       .dbuild/native/odditty_kernel/modules/control_functions.cmi
+      .dbuild/native/odditty_kernel/modules/window.cmi
       odditty_kernel/window.ml
 
     .dbuild/native/odditty_kernel/pack/odditty_kernel.cmi, .dbuild/native/odditty_kernel/pack/odditty_kernel.cmx
-      .dbuild/native/odditty_kernel/modules/character_attributes.cmi
       .dbuild/native/odditty_kernel/modules/character_attributes.cmx
-      .dbuild/native/odditty_kernel/modules/character_set.cmi
       .dbuild/native/odditty_kernel/modules/character_set.cmx
-      .dbuild/native/odditty_kernel/modules/control_functions.cmi
       .dbuild/native/odditty_kernel/modules/control_functions.cmx
-      .dbuild/native/odditty_kernel/modules/dec_private_mode.cmi
       .dbuild/native/odditty_kernel/modules/dec_private_mode.cmx
-      .dbuild/native/odditty_kernel/modules/terminfo.cmi
       .dbuild/native/odditty_kernel/modules/terminfo.cmx
-      .dbuild/native/odditty_kernel/modules/window.cmi
       .dbuild/native/odditty_kernel/modules/window.cmx
 
-    .dbuild/native/odditty/modules/pty.cmi
-      .dbuild/native/odditty_kernel/pack/odditty_kernel.cmi
-      odditty/pty.mli
-
     .dbuild/native/odditty/modules/pty.cmx
+      .dbuild/native/odditty/modules/pty.cmi
       .dbuild/native/odditty_kernel/pack/odditty_kernel.cmi
+      .dbuild/native/odditty_kernel/pack/odditty_kernel.cmx
       odditty/pty.ml
 
     .dbuild/native/odditty/modules/terminfo.cmi
-      .dbuild/native/odditty_kernel/pack/odditty_kernel.cmi
       odditty/terminfo.mli
 
     .dbuild/native/odditty/modules/terminfo.cmx
+      .dbuild/native/odditty/modules/terminfo.cmi
       .dbuild/native/odditty_kernel/pack/odditty_kernel.cmi
+      .dbuild/native/odditty_kernel/pack/odditty_kernel.cmx
       odditty/terminfo.ml
 
     .dbuild/native/odditty/pack/odditty.cmi, .dbuild/native/odditty/pack/odditty.cmx
-      .dbuild/native/odditty/modules/pty.cmi
       .dbuild/native/odditty/modules/pty.cmx
-      .dbuild/native/odditty/modules/terminfo.cmi
       .dbuild/native/odditty/modules/terminfo.cmx
-
-    .dbuild/native/bin/modules/main.cmi, .dbuild/native/bin/modules/main.cmx
-      .dbuild/native/odditty/pack/odditty.cmi
-      .dbuild/native/odditty_kernel/pack/odditty_kernel.cmi
-      bin/main.ml
-
-    .dbuild/native/odditty/c/pty_stubs.o
-      odditty/pty_stubs.c
-
-    .dbuild/native/odditty/c/odditty.a
-      .dbuild/native/odditty/c/pty_stubs.o
 
     .dbuild/native/odditty/archive/odditty.cmxa
       .dbuild/native/odditty/c/odditty.a
