@@ -970,7 +970,7 @@ let pruned_build_graph ~roots =
   |> Build_graph.prune ~roots
 
 let get_opam_env =
-  let cache : string array Opam_switch_name.Table.t =
+  let cache : (string * string) list Opam_switch_name.Table.t =
     Opam_switch_name.Table.create ()
   in
   fun opam_switch_name ->
@@ -985,8 +985,11 @@ let get_opam_env =
           |> String.rsplit2_exn ~on:';'
           |> fst
           |> String.rsplit2_exn ~on:';'
-          |> fst)
-      |> Array.of_list)
+          |> fst
+          |> String.lsplit2_exn ~on:'='
+          |> fun (key, value) ->
+              key, Scanf.sscanf value "%S" ident
+    ))
 
 open Async.Std
 
@@ -1035,7 +1038,7 @@ let build_cmd =
             let { Cmd. exe; args; opam_switch; } = cmd in
             let env =
               Option.map opam_switch ~f:(fun name ->
-                `Replace_raw (Array.to_list (get_opam_env name)))
+                `Replace (get_opam_env name))
             in
             Process.create
               ?env
