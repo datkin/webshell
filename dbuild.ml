@@ -305,7 +305,7 @@ module Ocaml_compiler : sig
     -> Lib_name.t
     -> Module_name.Set.t (* module dependencies in this lib *)
     -> Module_name.t
-    -> [ `ml | `mli ]
+    -> [ `ml of [ `has_mli | `no_mli ] | `mli ]
     -> Build_graph.node
 
   val pack : kind -> modules_in_dep_order:Module_name.t list -> Lib_name.t -> Build_graph.node
@@ -329,6 +329,12 @@ end = struct
     | _, `mli -> "cmi"
 
   let compile kind pkgs libs lib_name modules module_name which_file =
+    let which_file, has_mli =
+      match which_file with
+      | `mli -> `mli, true
+      | `ml has_mli ->
+        `ml, (match has_mli with | `has_mli -> true | `no_mli -> false)
+    in
     let maybe_js_ppx =
       match kind with
       | Native -> []
@@ -350,6 +356,12 @@ end = struct
     let output =
       let ext = ext kind which_file in
       sprintf !"%s/%{Module_name}.%s" build_dir module_name ext
+    in
+    let extra_outputs =
+      match has_mli with
+      | true -> []
+      | false ->
+        [ sprintf !"%s/%{Module_name}.%s" build_dir module_name (ext kind `mli) ]
     in
     let module_deps =
       (* The build dir needs to have the cmi's of the modules we depend on
@@ -391,7 +403,7 @@ end = struct
     { Build_graph.
       cmd;
       inputs = f (input :: extra_inputs @ module_deps);
-      outputs = f [ output ];
+      outputs = f (output :: extra_outputs);
     }
 
   let%expect_test _ =
@@ -399,7 +411,7 @@ end = struct
     let libs = List.map ["x"; "y"] ~f:Lib_name.of_string |> Lib_name.Set.of_list in
     let mods = List.map ["flub"; "blub"] ~f:Module_name.of_string |> Module_name.Set.of_list in
     printf !"%{sexp:Build_graph.node}"
-      (compile Native pkgs libs (Lib_name.of_string "foo") mods (Module_name.of_string "bar") `ml);
+      (compile Native pkgs libs (Lib_name.of_string "foo") mods (Module_name.of_string "bar") (`ml `no_mli));
     [%expect {|
       ((cmd
         ((exe ocamlfind)
@@ -412,7 +424,8 @@ end = struct
        (inputs
         (.dbuild/native/foo/modules/blub.cmi .dbuild/native/foo/modules/flub.cmi
          .dbuild/native/x/pack/x.cmi .dbuild/native/y/pack/y.cmi foo/bar.ml))
-       (outputs (.dbuild/native/foo/modules/bar.cmx))) |}];
+       (outputs
+        (.dbuild/native/foo/modules/bar.cmi .dbuild/native/foo/modules/bar.cmx))) |}];
   ;;
 
   (* CR datkin: Is it possible to pack the cmi independently? Presumably that would allow
@@ -635,7 +648,13 @@ let spec_to_nodes ~file_exists ~get_deps { Project_spec. libraries; binaries; } 
               |> Option.value ~default:[]
               |> Module_name.Set.of_list
             in
-            Ocaml_compiler.compile kind packages libs dir module_deps module_name `ml)
+            let has_mli =
+              let mli = file module_name "mli" in
+              match file_exists mli with
+              | true -> `has_mli
+              | false -> `no_mli
+            in
+            Ocaml_compiler.compile kind packages libs dir module_deps module_name (`ml has_mli))
         in
         let modules_in_dep_order =
           topological_fold
@@ -698,7 +717,9 @@ let spec_to_nodes ~file_exists ~get_deps { Project_spec. libraries; binaries; } 
     let packages = Set.union packages extra_pkgs in
     let kind = match output with `native -> Native | `js -> Js in
     [
-      Ocaml_compiler.compile kind packages libs bin_lib Module_name.Set.empty module_name `ml;
+      (* CR datkin: `no_mli is a guess *)
+      Ocaml_compiler.compile kind packages libs bin_lib Module_name.Set.empty
+        module_name (`ml `no_mli);
       Ocaml_compiler.link kind packages libs module_name;
     ]
   in
@@ -824,13 +845,21 @@ let%expect_test _ =
       )
     );
   (* CR datkin: It seems like a bug that the deps of [control_functions.cmi]
-   * aren't actually above [control_functions.cmi] in that list. *)
+   * aren't actually above [control_functions.cmi] in that list.
+   *
+   * datkin: Ahh, I get it. We didn't have build rules for these deps so we just
+   * assumed these files exists. If we sandboxed (or just checked that inputs
+   * exist as a pre-cond) we could error out.
+   * *)
   [%expect {|
-    .dbuild/native/odditty_kernel/modules/character_attributes.cmx
+    .dbuild/native/odditty_kernel/modules/character_attributes.cmi, .dbuild/native/odditty_kernel/modules/character_attributes.cmx
       odditty_kernel/character_attributes.ml
 
-    .dbuild/native/odditty_kernel/modules/character_set.cmx
+    .dbuild/native/odditty_kernel/modules/character_set.cmi, .dbuild/native/odditty_kernel/modules/character_set.cmx
       odditty_kernel/character_set.ml
+
+    .dbuild/native/odditty_kernel/modules/dec_private_mode.cmi, .dbuild/native/odditty_kernel/modules/dec_private_mode.cmx
+      odditty_kernel/dec_private_mode.ml
 
     .dbuild/native/odditty_kernel/modules/terminfo.cmi
       odditty_kernel/terminfo.mli
@@ -846,9 +875,6 @@ let%expect_test _ =
       .dbuild/native/odditty_kernel/modules/dec_private_mode.cmi
       .dbuild/native/odditty_kernel/modules/terminfo.cmi
       odditty_kernel/control_functions.ml
-
-    .dbuild/native/odditty_kernel/modules/dec_private_mode.cmx
-      odditty_kernel/dec_private_mode.ml
 
     .dbuild/native/odditty_kernel/modules/terminfo.cmx
       odditty_kernel/terminfo.ml
@@ -897,7 +923,7 @@ let%expect_test _ =
       .dbuild/native/odditty/modules/terminfo.cmi
       .dbuild/native/odditty/modules/terminfo.cmx
 
-    .dbuild/native/bin/modules/main.cmx
+    .dbuild/native/bin/modules/main.cmi, .dbuild/native/bin/modules/main.cmx
       .dbuild/native/odditty/pack/odditty.cmi
       .dbuild/native/odditty_kernel/pack/odditty_kernel.cmi
       bin/main.ml
