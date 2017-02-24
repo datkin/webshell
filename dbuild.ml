@@ -621,7 +621,9 @@ let spec_to_nodes ~file_exists ~get_deps { Project_spec. libraries; binaries; } 
             |> Option.value ~default:[]
             |> Module_name.Set.of_list
           in
-          (* CR datkin: Confirm that the compiler kind doesn't matter here. *)
+          (* CR datkin: Confirm that the compiler kind doesn't matter here.
+           * Oh this is wrong -- the compiler type determines the build
+           * directory here. *)
           Some (Ocaml_compiler.compile Native packages libs dir module_deps module_name `mli))
     in
     let ml =
@@ -712,12 +714,12 @@ let project_spec =
       (
         (dir odditty_kernel)
         (modules (
-          character_attributes
-          character_set
           terminfo
           dec_private_mode
           control_functions
           window
+          character_attributes
+          character_set
         ))
         (direct_deps (
           (packages (core_kernel async_kernel))
@@ -789,6 +791,7 @@ let project_spec =
 let%expect_test _ =
   let file_exists = function
     | "odditty_kernel/character_attributes.mli"
+    | "odditty_kernel/dec_private_mode.mli"
     | "odditty_kernel/character_set.mli" -> false
     | _ -> true
   in
@@ -820,15 +823,14 @@ let%expect_test _ =
         printf "\n";
       )
     );
+  (* CR datkin: It seems like a bug that the deps of [control_functions.cmi]
+   * aren't actually above [control_functions.cmi] in that list. *)
   [%expect {|
     .dbuild/native/odditty_kernel/modules/character_attributes.cmx
       odditty_kernel/character_attributes.ml
 
     .dbuild/native/odditty_kernel/modules/character_set.cmx
       odditty_kernel/character_set.ml
-
-    .dbuild/native/odditty_kernel/modules/dec_private_mode.cmi
-      odditty_kernel/dec_private_mode.mli
 
     .dbuild/native/odditty_kernel/modules/terminfo.cmi
       odditty_kernel/terminfo.mli
@@ -1048,7 +1050,7 @@ let build_cmd =
             >>=? fun process ->
             Process.collect_output_and_wait process
             >>= fun { stdout; stderr; exit_status; } ->
-            printf !"> (%{sexp:Unix.env option}) %s %{sexp:string list}\n"
+            printf !"> (%{sexp#mach:Unix.env option}) %s %{sexp#mach:string list}\n"
               env exe args;
             printf "  stdout:\n%s\n" stdout;
             printf "  stderr:\n%s\n" stderr;
