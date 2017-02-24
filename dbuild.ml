@@ -954,9 +954,39 @@ let get_deps dir ~basename =
   (* CR-someday datkin: Add '-ppx'? *)
   let cmd = sprintf !"ocamldep -one-line -I %{Lib_name} %{Lib_name}/%s" dir dir basename in
   let output = Unix.open_process_in cmd |> In_channel.input_lines in
-  eprintf !"> %s\n< %{sexp#mach:string list}\n" cmd output;
+  (* eprintf !"> %s\n< %{sexp#mach:string list}\n" cmd output; *)
   parse_deps output
 ;;
+
+let file_exists file =
+  match Core.Std.Unix.access file [`Exists] with
+  | Ok () -> true
+  | Error _ -> false
+;;
+
+let pruned_build_graph ~roots =
+  spec_to_nodes ~file_exists ~get_deps project_spec
+  |> Build_graph.of_nodes
+  |> Build_graph.prune ~roots
+
+let get_opam_env =
+  let cache : string array Opam_switch_name.Table.t =
+    Opam_switch_name.Table.create ()
+  in
+  fun opam_switch_name ->
+    Hashtbl.find_or_add cache opam_switch_name ~default:(fun () ->
+      let cmd =
+        sprintf !"opam config env --switch=\"%{Opam_switch_name}\"" opam_switch_name
+      in
+      Unix.open_process_in cmd
+      |> In_channel.input_lines
+      |> List.map ~f:(fun line ->
+          line
+          |> String.rsplit2_exn ~on:';'
+          |> fst
+          |> String.rsplit2_exn ~on:';'
+          |> fst)
+      |> Array.of_list)
 
 open Async.Std
 
@@ -965,35 +995,62 @@ let dot_cmd =
   Command.async'
     ~summary:"Output a dot file for the graph spec. You can compile with, e.g.  `dot -Tpng /tmp/x.dot  > /tmp/x.png`."
     [%map_open
-      let file_name = anon ("target" %: file_arg) in
+      let roots = anon (sequence ("target" %: file_arg)) in
       fun () ->
-  let file_exists file =
-    match Core.Std.Unix.access file [`Exists] with
-    | Ok () -> true
-    | Error _ -> false
-  in
-  printf "digraph deps {\n%!";
-  printf "  rankdir=LR;\n";
-  printf "  splines=line;\n"; (* also "polyline"? *)
-  printf "  edge[samehead=x sametail=y];\n";
-    (spec_to_nodes ~file_exists ~get_deps project_spec
-    |> Build_graph.of_nodes
-    |> Build_graph.prune ~roots:[
-      file_name
-      (*
-      File_name.of_string (sprintf "%s/main.native" (build_dir Native `linked bin_lib));
-      *)
+        printf "digraph deps {\n%!";
+        printf "  rankdir=LR;\n";
+        printf "  splines=line;\n"; (* also "polyline"? *)
+        printf "  edge[samehead=x sametail=y];\n";
+        (pruned_build_graph ~roots
+        |> fun x -> x.Build_graph.nodes
+        |> List.iter ~f:(fun node ->
+            Set.iter node.Build_graph.outputs ~f:(fun output ->
+              Set.iter node.Build_graph.inputs ~f:(fun input ->
+                printf !{|  "%{File_name}" -> "%{File_name}";|} input output;
+                printf "\n";
+             )))
+        );
+        printf "}\n";
+        Deferred.unit]
+
+let build_cmd =
+  let open Command.Let_syntax in
+  Command.async_or_error'
+    ~summary:"Build the specified targets"
+    [%map_open
+      let targets = anon (sequence ("target" %: file_arg)) in
+      fun () ->
+        pruned_build_graph ~roots:targets
+        |> fun x -> x.Build_graph.nodes
+        |> Deferred.List.fold ~init:(Ok ()) ~f:(fun result { Build_graph. outputs; inputs = _; cmd; } ->
+            Deferred.return result
+            >>=? fun () ->
+            (* CR datkin: Add sandboxing to verify input dependencies. *)
+            let dirs =
+              Set.to_list outputs
+              |> List.map ~f:(fun f -> Filename.dirname (File_name.to_string f))
+              |> List.dedup ~compare:String.compare
+            in
+            List.iter dirs ~f:Core.Unix.mkdir_p;
+            let { Cmd. exe; args; opam_switch; } = cmd in
+            let env =
+              Option.map opam_switch ~f:(fun name ->
+                `Replace_raw (Array.to_list (get_opam_env name)))
+            in
+            Process.create
+              ?env
+              ~prog:exe
+              ~args
+              ()
+            >>=? fun process ->
+            Process.collect_output_and_wait process
+            >>= fun { stdout; stderr; exit_status; } ->
+            printf !"> (%{sexp:Unix.env option}) %s %{sexp:string list}\n"
+              env exe args;
+            printf "  stdout:\n%s\n" stdout;
+            printf "  stderr:\n%s\n" stderr;
+            Deferred.return (Unix.Exit_or_signal.or_error exit_status))
     ]
-    |> fun x -> x.Build_graph.nodes
-    |> List.iter ~f:(fun node ->
-        Set.iter node.Build_graph.outputs ~f:(fun output ->
-          Set.iter node.Build_graph.inputs ~f:(fun input ->
-            printf !{|  "%{File_name}" -> "%{File_name}";|} input output;
-            printf "\n";
-       )))
-    );
-    printf "}\n";
-    Deferred.unit]
 
 let () =
   let is_test =
@@ -1009,6 +1066,7 @@ let () =
     Command.group
       ~summary:"Build commands" [
         "dot-graph", dot_cmd;
+        "build", build_cmd;
       ]
     |> Command.run
 ;;

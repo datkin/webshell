@@ -9,7 +9,8 @@ opam switch 4.03.0 && eval $(opam config env)
 #   - 40: Constructor / label name out of scope
 #   - 42: Disambiguated constructor
 #   - 44: `open` shadows an identifier
-warnings=+a-40-42-44
+#   - 48: implicit elimination of optional arg
+warnings=+a-40-42-44-48
 
 ocamlfind ocamlopt \
   -linkpkg \
