@@ -370,7 +370,7 @@ end = struct
         (* The cmi is required *)
         (sprintf !"%s/%{Module_name}.%s" build_dir module_name (ext kind `mli))
         :: extra_inputs
-      | _, _ -> []
+      | _, _ -> extra_inputs
     in
     let module_deps =
       (* The build dir needs to have the cmi's of the modules we depend on
@@ -432,7 +432,8 @@ end = struct
          (opam_switch (4.03.0))))
        (inputs
         (.dbuild/native/foo/modules/blub.cmi .dbuild/native/foo/modules/flub.cmi
-         foo/bar.ml))
+         .dbuild/native/x/pack/x.cmi .dbuild/native/x/pack/x.cmx
+         .dbuild/native/y/pack/y.cmi .dbuild/native/y/pack/y.cmx foo/bar.ml))
        (outputs
         (.dbuild/native/foo/modules/bar.cmi .dbuild/native/foo/modules/bar.cmx))) |}];
   ;;
@@ -860,18 +861,6 @@ let%expect_test _ =
    * exist as a pre-cond) we could error out.
    * *)
   [%expect {|
-    .dbuild/native/bin/modules/main.cmi, .dbuild/native/bin/modules/main.cmx
-      bin/main.ml
-
-    .dbuild/native/odditty/c/pty_stubs.o
-      odditty/pty_stubs.c
-
-    .dbuild/native/odditty/c/odditty.a
-      .dbuild/native/odditty/c/pty_stubs.o
-
-    .dbuild/native/odditty/modules/pty.cmi
-      odditty/pty.mli
-
     .dbuild/native/odditty_kernel/modules/character_attributes.cmi, .dbuild/native/odditty_kernel/modules/character_attributes.cmx
       odditty_kernel/character_attributes.ml
 
@@ -918,6 +907,11 @@ let%expect_test _ =
       .dbuild/native/odditty_kernel/modules/terminfo.cmx
       .dbuild/native/odditty_kernel/modules/window.cmx
 
+    .dbuild/native/odditty/modules/pty.cmi
+      .dbuild/native/odditty_kernel/pack/odditty_kernel.cmi
+      .dbuild/native/odditty_kernel/pack/odditty_kernel.cmx
+      odditty/pty.mli
+
     .dbuild/native/odditty/modules/pty.cmx
       .dbuild/native/odditty/modules/pty.cmi
       .dbuild/native/odditty_kernel/pack/odditty_kernel.cmi
@@ -925,6 +919,8 @@ let%expect_test _ =
       odditty/pty.ml
 
     .dbuild/native/odditty/modules/terminfo.cmi
+      .dbuild/native/odditty_kernel/pack/odditty_kernel.cmi
+      .dbuild/native/odditty_kernel/pack/odditty_kernel.cmx
       odditty/terminfo.mli
 
     .dbuild/native/odditty/modules/terminfo.cmx
@@ -936,6 +932,19 @@ let%expect_test _ =
     .dbuild/native/odditty/pack/odditty.cmi, .dbuild/native/odditty/pack/odditty.cmx
       .dbuild/native/odditty/modules/pty.cmx
       .dbuild/native/odditty/modules/terminfo.cmx
+
+    .dbuild/native/bin/modules/main.cmi, .dbuild/native/bin/modules/main.cmx
+      .dbuild/native/odditty/pack/odditty.cmi
+      .dbuild/native/odditty/pack/odditty.cmx
+      .dbuild/native/odditty_kernel/pack/odditty_kernel.cmi
+      .dbuild/native/odditty_kernel/pack/odditty_kernel.cmx
+      bin/main.ml
+
+    .dbuild/native/odditty/c/pty_stubs.o
+      odditty/pty_stubs.c
+
+    .dbuild/native/odditty/c/odditty.a
+      .dbuild/native/odditty/c/pty_stubs.o
 
     .dbuild/native/odditty/archive/odditty.cmxa
       .dbuild/native/odditty/c/odditty.a
