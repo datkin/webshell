@@ -238,11 +238,15 @@ end = struct
       { Cmd.
         (* Could be [None], but we need this for ocamlc. *)
         opam_switch = Some (opam_switch Native);
-        exe = "gcc";
+        exe = "bash";
         args = [
+          "-c";
+          (String.concat ~sep:" " [
+          "gcc";
           "-I"; "$(ocamlc -where)";
           "-c"; input;
           "-o"; output;
+          ])
         ];
       }
     in
@@ -257,7 +261,7 @@ end = struct
       List.map c_bases ~f:(fun c_base ->
         sprintf !"%s/%s.o" (build_dir Native `c lib_name) c_base)
     in
-    let output = sprintf !"%s/%{Lib_name}.a" (build_dir Native `c lib_name) lib_name in
+    let output = sprintf !"%s/lib%{Lib_name}.a" (build_dir Native `c lib_name) lib_name in
     let cmd =
       { Cmd.
         opam_switch = None;
@@ -279,18 +283,19 @@ end = struct
     printf !"%{sexp:Build_graph.node}\n%!" (archive (Lib_name.of_string "foo") ~c_bases:["bar"; "baz"]);
     [%expect {|
       ((cmd
-        ((exe gcc)
-         (args (-I "$(ocamlc -where)" -c foo/bar.c -o .dbuild/native/foo/c/bar.o))
+        ((exe bash)
+         (args
+          (-c "gcc -I $(ocamlc -where) -c foo/bar.c -o .dbuild/native/foo/c/bar.o"))
          (opam_switch (4.03.0))))
        (inputs (foo/bar.c)) (outputs (.dbuild/native/foo/c/bar.o)))
       ((cmd
         ((exe ar)
          (args
-          (cr .dbuild/native/foo/c/foo.a .dbuild/native/foo/c/bar.o
+          (cr .dbuild/native/foo/c/libfoo.a .dbuild/native/foo/c/bar.o
            .dbuild/native/foo/c/baz.o))
          (opam_switch ())))
        (inputs (.dbuild/native/foo/c/bar.o .dbuild/native/foo/c/baz.o))
-       (outputs (.dbuild/native/foo/c/foo.a))) |}];
+       (outputs (.dbuild/native/foo/c/libfoo.a))) |}];
   ;;
 end
 
@@ -313,7 +318,7 @@ module Ocaml_compiler : sig
   val archive : kind -> c_stubs:string list -> Lib_name.t -> Build_graph.node
 
   val link
-    : kind -> Package_name.Set.t -> Lib_name.Set.t -> Module_name.t -> Build_graph.node
+    : kind -> Package_name.Set.t -> libs_in_dep_order:Lib_name.t list -> Module_name.t -> Build_graph.node
 end = struct
 
   let ocamlc = function
@@ -376,9 +381,10 @@ end = struct
       (* The build dir needs to have the cmi's of the modules we depend on
        * compiled. *)
       Set.to_list modules
-      |> List.map ~f:(fun module_name ->
-        let ext = ext kind `mli in
-        sprintf !"%s/%{Module_name}.%s" build_dir module_name ext)
+      |> List.concat_map ~f:(fun module_name ->
+          List.map [ `ml; `mli] ~f:(fun dep_kind ->
+        let ext = ext kind dep_kind in
+        sprintf !"%s/%{Module_name}.%s" build_dir module_name ext))
     in
     let input =
       sprintf !"%{Lib_name}/%{Module_name}.%s" lib_name module_name (match which_file with | `ml -> "ml" | `mli -> "mli")
@@ -388,7 +394,8 @@ end = struct
        * other cmi (and not on cmo/cmx) files if we pass this flag. What are the
        * downsides? *)
       match which_file with
-      | `mli -> ["-opaque"]
+      (* CR datkin: Opaque doesn't matter given we depend on the impl now too. *)
+      | `mli -> [(*"-opaque"*)]
       | `ml -> []
     in
     let cmd =
@@ -440,7 +447,8 @@ end = struct
            .dbuild/native/foo/modules/bar.cmx))
          (opam_switch (4.03.0))))
        (inputs
-        (.dbuild/native/foo/modules/blub.cmi .dbuild/native/foo/modules/flub.cmi
+        (.dbuild/native/foo/modules/blub.cmi .dbuild/native/foo/modules/blub.cmx
+         .dbuild/native/foo/modules/flub.cmi .dbuild/native/foo/modules/flub.cmx
          .dbuild/native/x/pack/x.cmi .dbuild/native/x/pack/x.cmx
          .dbuild/native/y/pack/y.cmi .dbuild/native/y/pack/y.cmx foo/bar.ml))
        (outputs
@@ -506,7 +514,7 @@ end = struct
       if List.is_empty c_stubs
       then None
       else Some (
-        sprintf !"%s/%{Lib_name}.a" (build_dir kind `c lib_name) lib_name
+        sprintf !"%s/lib%{Lib_name}.a" (build_dir kind `c lib_name) lib_name
       )
     in
     let ml_input =
@@ -555,11 +563,11 @@ end = struct
           (ocamlopt -a -ccopt -L.dbuild/native/foo/c -cclib -lfoo
            .dbuild/native/foo/pack/foo.cmx -o .dbuild/native/foo/archive/foo.cmxa))
          (opam_switch (4.03.0))))
-       (inputs (.dbuild/native/foo/c/foo.a .dbuild/native/foo/pack/foo.cmx))
+       (inputs (.dbuild/native/foo/c/libfoo.a .dbuild/native/foo/pack/foo.cmx))
        (outputs (.dbuild/native/foo/archive/foo.cmxa))) |}];
   ;;
 
-  let link kind pkgs libs module_name =
+  let link kind pkgs ~libs_in_dep_order module_name =
     let output =
       let ext =
         match kind with
@@ -575,8 +583,7 @@ end = struct
     in
     let input_archives =
       (* CR datkin: Do we need to check for c archives too? *)
-      Set.to_list libs
-      |> List.map ~f:(fun lib ->
+      List.map libs_in_dep_order ~f:(fun lib ->
         sprintf !"%s/%{Lib_name}.%s"
           (build_dir kind `archive lib)
           lib
@@ -595,6 +602,7 @@ end = struct
         args = [
           ocamlc kind;
           "-linkpkg";
+          "-thread";
           "-package"; packages;
         ] @ input_archives
         @ [
@@ -611,14 +619,14 @@ end = struct
 
   let%expect_test _ =
     let pkgs = List.map ["a"; "b"] ~f:Package_name.of_string |> Package_name.Set.of_list in
-    let libs = List.map ["x"; "y"] ~f:Lib_name.of_string |> Lib_name.Set.of_list in
+    let libs_in_dep_order = List.map ["x"; "y"] ~f:Lib_name.of_string in
     let module_name = Module_name.of_string "main" in
-    printf !"%{sexp:Build_graph.node}" (link Native pkgs libs module_name);
+    printf !"%{sexp:Build_graph.node}" (link Native pkgs ~libs_in_dep_order module_name);
     [%expect {|
       ((cmd
         ((exe ocamlfind)
          (args
-          (ocamlopt -linkpkg -package a,b .dbuild/native/x/archive/x.cmxa
+          (ocamlopt -linkpkg -thread -package a,b .dbuild/native/x/archive/x.cmxa
            .dbuild/native/y/archive/y.cmxa .dbuild/native/bin/modules/main.cmx -o
            .dbuild/native/bin/linked/main.native))
          (opam_switch (4.03.0))))
@@ -711,7 +719,7 @@ let spec_to_nodes ~file_exists ~get_deps { Project_spec. libraries; binaries; } 
     |> Lib_name.Map.of_alist_exn
   in
   let of_bin { Project_spec. module_name; direct_deps = { packages; libs; }; output; } =
-    let { packages = extra_pkgs; libs; } : Project_spec.direct_deps =
+    let (extra_pkgs, libs_in_dep_order) =
       topological_fold
         ~sexp_of_key:[%sexp_of: Lib_name.t]
         ~key_set:Lib_name.Set.empty
@@ -720,28 +728,23 @@ let spec_to_nodes ~file_exists ~get_deps { Project_spec. libraries; binaries; } 
           match Map.find deps_by_lib_name lib with
           | Some { Project_spec. packages = _; libs; } -> Set.to_list libs
           | None -> assert false)
-        ~init:{ Project_spec.
-            packages = Package_name.Set.empty;
-            libs = Lib_name.Set.empty;
-          }
-        ~f:(fun lib { Project_spec. packages; libs; } ->
+        ~init:(Package_name.Set.empty, [])
+        ~f:(fun lib (packages, libs) ->
           match Map.find deps_by_lib_name lib with
           (* We ignore [libs] here, b/c we're traversing them later (from
            * [direct_deps]. *)
           | Some { Project_spec. packages = p; libs = _; } ->
-            { Project_spec.
-              packages = Set.union packages p;
-              libs = Set.add libs lib;
-            }
+            (Set.union packages p, lib :: libs)
           | None -> assert false)
     in
+    let libs_in_dep_order = List.rev libs_in_dep_order in
     let packages = Set.union packages extra_pkgs in
     let kind = match output with `native -> Native | `js -> Js in
     [
       (* CR datkin: `no_mli is a guess *)
       Ocaml_compiler.compile kind packages libs bin_lib Module_name.Set.empty
         module_name (`ml `no_mli);
-      Ocaml_compiler.link kind packages libs module_name;
+      Ocaml_compiler.link kind packages ~libs_in_dep_order module_name;
     ]
   in
   let libs = List.concat_map libraries ~f:of_lib in
@@ -814,7 +817,7 @@ let project_spec =
         (module_name main)
         (direct_deps (
           (packages (core async))
-          (libs (odditty_kernel odditty))
+          (libs (odditty_kernel odditty server))
         ))
         (output native)
       )
@@ -885,29 +888,37 @@ let%expect_test _ =
     .dbuild/native/odditty_kernel/modules/terminfo.cmi
       odditty_kernel/terminfo.mli
 
-    .dbuild/native/odditty_kernel/modules/control_functions.cmi
-      .dbuild/native/odditty_kernel/modules/character_set.cmi
-      .dbuild/native/odditty_kernel/modules/dec_private_mode.cmi
-      .dbuild/native/odditty_kernel/modules/terminfo.cmi
-      odditty_kernel/control_functions.mli
-
-    .dbuild/native/odditty_kernel/modules/control_functions.cmx
-      .dbuild/native/odditty_kernel/modules/character_set.cmi
-      .dbuild/native/odditty_kernel/modules/control_functions.cmi
-      .dbuild/native/odditty_kernel/modules/dec_private_mode.cmi
-      .dbuild/native/odditty_kernel/modules/terminfo.cmi
-      odditty_kernel/control_functions.ml
-
     .dbuild/native/odditty_kernel/modules/terminfo.cmx
       .dbuild/native/odditty_kernel/modules/terminfo.cmi
       odditty_kernel/terminfo.ml
 
+    .dbuild/native/odditty_kernel/modules/control_functions.cmi
+      .dbuild/native/odditty_kernel/modules/character_set.cmi
+      .dbuild/native/odditty_kernel/modules/character_set.cmx
+      .dbuild/native/odditty_kernel/modules/dec_private_mode.cmi
+      .dbuild/native/odditty_kernel/modules/dec_private_mode.cmx
+      .dbuild/native/odditty_kernel/modules/terminfo.cmi
+      .dbuild/native/odditty_kernel/modules/terminfo.cmx
+      odditty_kernel/control_functions.mli
+
+    .dbuild/native/odditty_kernel/modules/control_functions.cmx
+      .dbuild/native/odditty_kernel/modules/character_set.cmi
+      .dbuild/native/odditty_kernel/modules/character_set.cmx
+      .dbuild/native/odditty_kernel/modules/control_functions.cmi
+      .dbuild/native/odditty_kernel/modules/dec_private_mode.cmi
+      .dbuild/native/odditty_kernel/modules/dec_private_mode.cmx
+      .dbuild/native/odditty_kernel/modules/terminfo.cmi
+      .dbuild/native/odditty_kernel/modules/terminfo.cmx
+      odditty_kernel/control_functions.ml
+
     .dbuild/native/odditty_kernel/modules/window.cmi
       .dbuild/native/odditty_kernel/modules/control_functions.cmi
+      .dbuild/native/odditty_kernel/modules/control_functions.cmx
       odditty_kernel/window.mli
 
     .dbuild/native/odditty_kernel/modules/window.cmx
       .dbuild/native/odditty_kernel/modules/control_functions.cmi
+      .dbuild/native/odditty_kernel/modules/control_functions.cmx
       .dbuild/native/odditty_kernel/modules/window.cmi
       odditty_kernel/window.ml
 
@@ -945,30 +956,46 @@ let%expect_test _ =
       .dbuild/native/odditty/modules/pty.cmx
       .dbuild/native/odditty/modules/terminfo.cmx
 
+    .dbuild/native/server/modules/web_server.cmi
+      server/web_server.mli
+
+    .dbuild/native/server/modules/web_server.cmx
+      .dbuild/native/server/modules/web_server.cmi
+      server/web_server.ml
+
+    .dbuild/native/server/pack/server.cmi, .dbuild/native/server/pack/server.cmx
+      .dbuild/native/server/modules/web_server.cmx
+
     .dbuild/native/bin/modules/main.cmi, .dbuild/native/bin/modules/main.cmx
       .dbuild/native/odditty/pack/odditty.cmi
       .dbuild/native/odditty/pack/odditty.cmx
       .dbuild/native/odditty_kernel/pack/odditty_kernel.cmi
       .dbuild/native/odditty_kernel/pack/odditty_kernel.cmx
+      .dbuild/native/server/pack/server.cmi
+      .dbuild/native/server/pack/server.cmx
       bin/main.ml
 
     .dbuild/native/odditty/c/pty_stubs.o
       odditty/pty_stubs.c
 
-    .dbuild/native/odditty/c/odditty.a
+    .dbuild/native/odditty/c/libodditty.a
       .dbuild/native/odditty/c/pty_stubs.o
 
     .dbuild/native/odditty/archive/odditty.cmxa
-      .dbuild/native/odditty/c/odditty.a
+      .dbuild/native/odditty/c/libodditty.a
       .dbuild/native/odditty/pack/odditty.cmx
 
     .dbuild/native/odditty_kernel/archive/odditty_kernel.cmxa
       .dbuild/native/odditty_kernel/pack/odditty_kernel.cmx
 
+    .dbuild/native/server/archive/server.cmxa
+      .dbuild/native/server/pack/server.cmx
+
     .dbuild/native/bin/linked/main.native
       .dbuild/native/bin/modules/main.cmx
       .dbuild/native/odditty/archive/odditty.cmxa
-      .dbuild/native/odditty_kernel/archive/odditty_kernel.cmxa |}]
+      .dbuild/native/odditty_kernel/archive/odditty_kernel.cmxa
+      .dbuild/native/server/archive/server.cmxa |}]
 ;;
 
 let file_arg = Command.Arg_type.create File_name.of_string
