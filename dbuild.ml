@@ -998,6 +998,12 @@ let%expect_test _ =
       .dbuild/native/server/archive/server.cmxa |}]
 ;;
 
+let file_exists file =
+  match Core.Std.Unix.access file [`Exists] with
+  | Ok () -> true
+  | Error _ -> false
+;;
+
 module Cache : sig
   type t
 
@@ -1012,16 +1018,18 @@ end = struct
 
   let file = ".dbuild-cache"
 
-  let load () = Sexp.load_sexp_conv_exn file [%of_sexp: t]
+  let load () =
+    if file_exists file
+    then Sexp.load_sexp_conv_exn file [%of_sexp: t]
+    else File_name.Table.create ()
 
   let save t = Sexp.save_hum file ([%sexp_of: t] t)
 
   let snapshot t filename =
-    match
-      Option.try_with (fun () -> Digest.file (File_name.to_string filename))
-    with
-    | None -> `Missing
-    | Some new_digest ->
+    if not (file_exists (File_name.to_string filename))
+    then `Missing
+    else
+      let new_digest = Digest.file (File_name.to_string filename) in
       match Hashtbl.find t filename with
       | None -> `Changed
       | Some old_digest ->
@@ -1070,12 +1078,6 @@ let get_deps dir ~basename =
   let output = Unix.open_process_in cmd |> In_channel.input_lines in
   (* eprintf !"> %s\n< %{sexp#mach:string list}\n" cmd output; *)
   parse_deps output
-;;
-
-let file_exists file =
-  match Core.Std.Unix.access file [`Exists] with
-  | Ok () -> true
-  | Error _ -> false
 ;;
 
 let pruned_build_graph ~roots =
