@@ -199,9 +199,9 @@ module Build_graph = struct
           then (cmd_set, nodes)
           else
             let cmd_set = Set.add cmd_set cmd in
-            (cmd_set, nodes @ [node]))
+            (cmd_set, node :: nodes))
     in
-    of_nodes nodes
+    of_nodes (List.rev nodes)
 end
 
 type kind =
@@ -665,6 +665,8 @@ let spec_to_nodes ~file_exists ~get_deps { Project_spec. libraries; binaries; } 
             in
             Ocaml_compiler.compile kind packages libs dir module_deps module_name (`ml has_mli))
         in
+        (* CR datkin: Add a test that we get these modules in the right order.
+         * *)
         let modules_in_dep_order =
           topological_fold
             ~sexp_of_key:[%sexp_of: Module_name.t]
@@ -676,6 +678,7 @@ let spec_to_nodes ~file_exists ~get_deps { Project_spec. libraries; binaries; } 
               | None -> assert false)
             ~init:[]
             ~f:(fun module_name modules -> module_name :: modules)
+          |> List.rev
         in
         let pack = Ocaml_compiler.pack kind ~modules_in_dep_order dir in
         let archive = Ocaml_compiler.archive kind ~c_stubs:c_stub_basenames dir in
