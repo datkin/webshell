@@ -1008,29 +1008,12 @@ module Cache : sig
 
   val save : t -> unit
 end = struct
-  type t = string File_name.Table.t [@@deriving sexp]
+  type t = string File_name.Map.t [@@deriving sexp]
 
   let file = ".dbuild-cache"
 
-  let load () = Sexp.load_sexp_conv_exn file [%of_sexp: t]
-
-  let save t = Sexp.save_hum file ([%sexp_of: t] t)
-
-  let snapshot t filename =
-    match
-      Option.try_with (fun () -> Digest.file (File_name.to_string filename))
-    with
-    | None -> `Missing
-    | Some new_digest ->
-      match Hashtbl.find t filename with
-      | None -> `Changed
-      | Some old_digest ->
-        if String.(=) old_digest new_digest
-        then `Same
-        else (
-          Hashtbl.set t ~key:filename ~data:new_digest;
-          `Changed
-        )
+  let load () =
+    Sexp.load_sexp_conv_exn file [%of_sexp: t]
 end
 
 let file_arg = Command.Arg_type.create File_name.of_string
