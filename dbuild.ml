@@ -383,6 +383,14 @@ end = struct
     let input =
       sprintf !"%{Lib_name}/%{Module_name}.%s" lib_name module_name (match which_file with | `ml -> "ml" | `mli -> "mli")
     in
+    let extra_flags =
+      (* It seems like we can only get away with having ml's depend only on
+       * other cmi (and not on cmo/cmx) files if we pass this flag. What are the
+       * downsides? *)
+      match which_file with
+      | `mli -> ["-opaque"]
+      | `ml -> []
+    in
     let cmd =
     { Cmd.
       opam_switch = Some (opam_switch kind);
@@ -392,6 +400,7 @@ end = struct
         "-w"; "+a-40-42-44";
         "-g";
       ]
+      @ extra_flags
       @ maybe_js_ppx
       @ [
         "-ppx"; sprintf !"ppx-jane -as-ppx -inline-test-lib %{Lib_name}" lib_name;
