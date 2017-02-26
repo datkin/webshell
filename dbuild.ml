@@ -363,9 +363,12 @@ end = struct
         `ml, (match has_mli with | `has_mli -> true | `no_mli -> false)
     in
     let maybe_js_ppx =
-      match kind with
-      | Native -> []
-      | Js -> ["-ppx"; "$(opam config var lib)/js_of_ocaml/ppx_js"]
+      match context with
+      | `generated -> []
+      | `vanilla | `lib_code ->
+        match kind with
+        | Native -> []
+        | Js -> ["-ppx"; "$(opam config var lib)/js_of_ocaml/ppx_js"]
     in
     let extra_includes =
       Set.to_list libs
@@ -455,9 +458,15 @@ end = struct
     in
     let implicit_open =
       match context with
-      | `lib_code -> [ "-open"; Lib_name.to_string lib_name ]
+      | `lib_code -> [ "-open"; Lib_name.to_string lib_name |> String.capitalize ]
       | `generated -> []
       | `vanilla -> []
+    in
+    let ppx =
+      match context with
+      | `generated -> []
+      | `vanilla | `lib_code ->
+        [ "-ppx"; sprintf !"ppx-jane -as-ppx -inline-test-lib %{Lib_name}" lib_name; ]
     in
     let cmd =
     { Cmd.
@@ -471,15 +480,15 @@ end = struct
       @ opaque_interface
       @ implicit_open
       @ maybe_js_ppx
+      @ ppx
       @ [
-        "-ppx"; sprintf !"ppx-jane -as-ppx -inline-test-lib %{Lib_name}" lib_name;
         "-thread";
         "-package"; Set.to_list pkgs |> List.map ~f:Package_name.to_string |> String.concat ~sep:",";
       ]
       @ extra_includes
       @ [
         "-I"; build_dir;
-        "-no-alias-dep";
+        "-no-alias-deps";
         "-c"; input;
         "-o"; output;
       ];
@@ -504,11 +513,11 @@ end = struct
         (Cmd
          ((exe ocamlfind)
           (args
-           (ocamlopt -w +a-40-42-44 -g -open foo -ppx
+           (ocamlopt -w +a-40-42-44 -g -open Foo -ppx
             "ppx-jane -as-ppx -inline-test-lib foo" -thread -package a,b -I
             .dbuild/native/x/archive .dbuild/native/x/archive/x.cmxa -I
             .dbuild/native/y/archive .dbuild/native/y/archive/y.cmxa -I
-            .dbuild/native/foo/modules -no-alias-dep -c foo/bar.ml -o
+            .dbuild/native/foo/modules -no-alias-deps -c foo/bar.ml -o
             .dbuild/native/foo/modules/foo__bar.cmx))
           (opam_switch (4.03.0)))))
        (inputs
@@ -791,7 +800,14 @@ let spec_to_nodes ~file_exists ~get_deps { Project_spec. libraries; binaries; } 
           { Build_graph.
           action = Write_file {
             file;
-            contents = "";
+            contents =
+              List.map modules_in_dep_order ~f:(fun module_name ->
+                sprintf !"module %s = %s"
+                  (String.capitalize (Module_name.to_string module_name))
+                  (String.capitalize (Module_name.to_string (add_namespace dir module_name)))
+              )
+              |> String.concat ~sep:"\n"
+              ;
           };
           inputs = f [];
           outputs = File_name.Set.singleton file;

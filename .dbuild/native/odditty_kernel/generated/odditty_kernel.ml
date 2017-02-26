@@ -1,0 +1,6 @@
+module Terminfo = Odditty_kernel__terminfo
+module Dec_private_mode = Odditty_kernel__dec_private_mode
+module Character_set = Odditty_kernel__character_set
+module Control_functions = Odditty_kernel__control_functions
+module Window = Odditty_kernel__window
+module Character_attributes = Odditty_kernel__character_attributes
