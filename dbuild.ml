@@ -373,9 +373,11 @@ end = struct
     let extra_includes =
       Set.to_list libs
       |> List.concat_map ~f:(fun lib ->
-          let dir = build_dir kind `archive lib in
+          let dir = build_dir kind `modules lib in
           [ "-I"; dir;
+          (*
             sprintf !"%s/%{Lib_name}.%s" dir lib (ext kind `archive);
+            *)
           ])
     in
     (* CR datkin: If we instead look at the modules in the `modules dir, we might
@@ -515,8 +517,7 @@ end = struct
           (args
            (ocamlopt -w +a-40-42-44 -g -open Foo -ppx
             "ppx-jane -as-ppx -inline-test-lib foo" -thread -package a,b -I
-            .dbuild/native/x/archive .dbuild/native/x/archive/x.cmxa -I
-            .dbuild/native/y/archive .dbuild/native/y/archive/y.cmxa -I
+            .dbuild/native/x/modules -I .dbuild/native/y/modules -I
             .dbuild/native/foo/modules -no-alias-deps -c foo/bar.ml -o
             .dbuild/native/foo/modules/foo__bar.cmx))
           (opam_switch (4.03.0)))))
