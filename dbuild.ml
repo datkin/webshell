@@ -13,9 +13,7 @@
  *  - maybe install libs as findlib packages?
  * *)
 
-open Core.Std
-
-let () = Unix.create_process_backend := `spawn_vfork
+open Core_kernel.Std
 
 (* Package names refer to ocamlfind packages (defined outside of this project). *)
 module Package_name = String_id.Make (struct
@@ -148,7 +146,7 @@ module Build_graph = struct
     action : Action.t;
     inputs : File_name.Set.t;
     outputs : File_name.Set.t;
-  } [@@deriving sexp]
+  } [@@deriving sexp, fields]
 
   type per_file = {
     needs : node option;
@@ -158,7 +156,7 @@ module Build_graph = struct
   type t = {
     nodes : node list; (* topo sorted? *)
     by_file : per_file File_name.Map.t;
-  }
+  } [@@deriving fields]
 
   let of_nodes nodes =
     let by_file =
@@ -335,9 +333,7 @@ module Ocaml_compiler : sig
     -> [ `generated | `lib_code | `vanilla ]
     -> Build_graph.node
 
-  val pack : kind -> modules_in_dep_order:Module_name.t list -> Lib_name.t -> Build_graph.node
-
-  val archive : kind -> c_stubs:string list -> Lib_name.t -> Module_name.t list -> Build_graph.node
+  val archive : kind -> c_stubs:string list -> Lib_name.t -> modules_in_dep_order:Module_name.t list -> Build_graph.node
 
   val link
     : kind -> Package_name.Set.t -> libs_in_dep_order:Lib_name.t list -> Module_name.t -> Build_graph.node
@@ -449,15 +445,6 @@ end = struct
       | `vanilla ->
         sprintf !"%s/%{Module_name}.%s" src_dir module_name (match which_file with | `ml -> "ml" | `mli -> "mli")
     in
-    let opaque_interface =
-      (* It seems like we can only get away with having ml's depend only on
-       * other cmi (and not on cmo/cmx) files if we pass this flag. What are the
-       * downsides? *)
-      match which_file with
-      (* CR datkin: Opaque doesn't matter given we depend on the impl now too. *)
-      | `mli -> [(*"-opaque"*)]
-      | `ml -> []
-    in
     let implicit_open =
       match context with
       | `lib_code -> [ "-open"; Lib_name.to_string lib_name |> String.capitalize ]
@@ -479,7 +466,6 @@ end = struct
         "-w"; "+a-40-42-44";
         "-g";
       ]
-      @ opaque_interface
       @ implicit_open
       @ maybe_js_ppx
       @ ppx
@@ -529,64 +515,25 @@ end = struct
        (outputs
         (.dbuild/native/foo/modules/foo__bar.cmi
          .dbuild/native/foo/modules/foo__bar.cmx))) |}];
-  ;;
-
-  (* CR datkin: Is it possible to pack the cmi independently? Presumably that would allow
-   * you to avoid rebuilding upstream libraries when the implementation of a
-   * downstream library changes. Hopefully you can go off the md5sum of the cmi
-   * to decide if anything actually changed, but it's sad that you have to
-   * rebuild the packed cmi even if just an implementation changed. On the plus
-   * side, I suppose the pack operation is extremely cheap? *)
-  let pack kind ~modules_in_dep_order lib_name =
-    let inputs =
-      List.concat_map modules_in_dep_order ~f:(fun module_name ->
-        (* CR datkin: Including the mli seems to lead to errors. Is it right to
-         * leave 'em out? Maybe test by seeing if the interface is restricted. *)
-        List.map [`ml (*; `mli *)] ~f:(fun file_kind ->
-          sprintf !"%s/%{Module_name}.%s" (build_dir kind `modules lib_name) module_name (ext kind file_kind)))
-    in
-    let output, output_cmi =
-      let f ext_kind =
-        sprintf !"%s/%{Lib_name}.%s" (build_dir kind `pack lib_name) lib_name (ext kind ext_kind)
-      in
-      f `ml, f `mli
-    in
-    let cmd =
-    { Cmd.
-      opam_switch = Some (opam_switch kind);
-      exe = "ocamlfind";
-      args = [
-        ocamlc kind;
-        "-pack";
-      ] @
-      inputs
-      @ [
-        "-o"; output;
-      ];
-    }
-    in
-    { Build_graph.
-      action = Cmd cmd;
-      inputs = f inputs;
-      outputs = f [ output; output_cmi ];
-    }
-
-  let%expect_test _ =
-    let modules_in_dep_order = List.map ["x"; "y"] ~f:Module_name.of_string in
-    printf !"%{sexp:Build_graph.node}" (pack Native ~modules_in_dep_order (Lib_name.of_string "foo"));
+    printf !"%{sexp:Build_graph.node}"
+      (compile Native pkgs Lib_name.Set.empty (Lib_name.of_string "foo")
+        Module_name.Set.empty (Module_name.of_string "bar") (`ml `no_mli) `generated);
     [%expect {|
       ((action
         (Cmd
          ((exe ocamlfind)
           (args
-           (ocamlopt -pack .dbuild/native/foo/modules/x.cmx
-            .dbuild/native/foo/modules/y.cmx -o .dbuild/native/foo/pack/foo.cmx))
+           (ocamlopt -w +a-40-42-44 -g -thread -package a,b -I
+            .dbuild/native/foo/modules -no-alias-deps -c
+            .dbuild/native/foo/generated/bar.ml -o
+            .dbuild/native/foo/modules/bar.cmx))
           (opam_switch (4.03.0)))))
-       (inputs (.dbuild/native/foo/modules/x.cmx .dbuild/native/foo/modules/y.cmx))
-       (outputs (.dbuild/native/foo/pack/foo.cmi .dbuild/native/foo/pack/foo.cmx))) |}];
+       (inputs (.dbuild/native/foo/generated/bar.ml))
+       (outputs
+        (.dbuild/native/foo/modules/bar.cmi .dbuild/native/foo/modules/bar.cmx))) |}];
   ;;
 
-  let archive kind ~c_stubs lib_name module_names =
+  let archive kind ~c_stubs lib_name ~modules_in_dep_order =
     let c_input =
       if List.is_empty c_stubs
       then None
@@ -595,8 +542,7 @@ end = struct
       )
     in
     let ml_inputs =
-      (*Set.to_list*) module_names
-      |> List.map ~f:(fun module_name ->
+      List.map modules_in_dep_order ~f:(fun module_name ->
         sprintf !"%s/%{Module_name}.%s" (build_dir kind `modules lib_name) module_name (ext kind `ml))
     in
     let output =
@@ -639,10 +585,8 @@ end = struct
     }
 
   let%expect_test _ =
-    let modules =
-      List.map [ "a"; "b" ] ~f:Module_name.of_string (*|> Module_name.Set.of_list*)
-    in
-    printf !"%{sexp:Build_graph.node}" (archive Native ~c_stubs:["blah"] (Lib_name.of_string "foo") modules);
+    let modules_in_dep_order = List.map [ "a"; "b" ] ~f:Module_name.of_string in
+    printf !"%{sexp:Build_graph.node}" (archive Native ~c_stubs:["blah"] (Lib_name.of_string "foo") ~modules_in_dep_order);
     [%expect {|
       ((action
         (Cmd
@@ -825,15 +769,12 @@ let spec_to_nodes ~file_exists ~get_deps { Project_spec. libraries; binaries; } 
           (`ml `no_mli)
           `generated;
         in
-        (* CR datkin: Are the archive arguments in dep order? Yes they are! The
-         * ocaml doc page seems to omit that fact, though. *)
         let archive =
-          let modules =
-            (wrapper_module
+          let modules_in_dep_order =
+            wrapper_module
             :: (List.map modules_in_dep_order ~f:(add_namespace dir))
-            )
           in
-          Ocaml_compiler.archive kind ~c_stubs:c_stub_basenames dir modules
+          Ocaml_compiler.archive kind ~c_stubs:c_stub_basenames dir ~modules_in_dep_order
         in
         compiled_wrapper :: generated_wrapper :: archive :: mls)
     in
@@ -1186,8 +1127,6 @@ end = struct
         )
 end
 
-let file_arg = Command.Arg_type.create File_name.of_string
-
 let parse_deps lines : Module_name.t list =
   match lines with
   | [] -> assert false
@@ -1217,10 +1156,13 @@ odditty_kernel/control_functions.cmx : odditty_kernel/terminfo.cmx odditty_kerne
   [%expect "(terminfo dec_private_mode character_set)"];
 ;;
 
+open Core.Std
+open Async.Std
+
 let get_deps dir ~basename =
   (* CR-someday datkin: Add '-ppx'? *)
   let cmd = sprintf !"ocamldep -one-line -I %{Lib_name} %{Lib_name}/%s" dir dir basename in
-  let output = Unix.open_process_in cmd |> In_channel.input_lines in
+  let output = Core.Unix.open_process_in cmd |> In_channel.input_lines in
   (* eprintf !"> %s\n< %{sexp#mach:string list}\n" cmd output; *)
   parse_deps output
 ;;
@@ -1239,7 +1181,7 @@ let get_opam_env =
       let cmd =
         sprintf !"opam config env --switch=\"%{Opam_switch_name}\"" opam_switch_name
       in
-      Unix.open_process_in cmd
+      Core.Unix.open_process_in cmd
       |> In_channel.input_lines
       |> List.map ~f:(fun line ->
           line
@@ -1252,7 +1194,9 @@ let get_opam_env =
               key, Scanf.sscanf value "%S" ident
     ))
 
-open Async.Std
+let file_arg = Command.Arg_type.create File_name.of_string
+
+let () = Core.Unix.create_process_backend := `spawn_vfork
 
 let dot_cmd =
   let open Command.Let_syntax in
@@ -1275,6 +1219,17 @@ let dot_cmd =
              )))
         );
         printf "}\n";
+        Deferred.unit]
+
+let dump_cmd =
+  let open Command.Let_syntax in
+  Command.async'
+    ~summary:"Dump sexp represention of the build graph."
+    [%map_open
+      let roots = anon (sequence ("target" %: file_arg)) in
+      fun () ->
+        printf !"%{sexp#hum:Build_graph.node list}"
+          (Build_graph.nodes (pruned_build_graph ~roots));
         Deferred.unit]
 
 let build_cmd =
