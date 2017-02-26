@@ -81,7 +81,7 @@ module Cmd = struct
     args : string list;
     (* Switch opam environment to eval before running the command. *)
     opam_switch : Opam_switch_name.t option;
-  } [@@deriving sexp]
+  } [@@deriving sexp, hash, compare]
 end
 
 (* CR-soon datkin: This may actually be right, but it needs more tests. *)
@@ -128,9 +128,24 @@ let%expect_test _ =
   [%expect {| (Ok (D C B A)) |}];
 ;;
 
+module Action = struct
+  module T = struct
+  type t =
+    | Cmd of Cmd.t
+    | Write_file of {
+      file : File_name.t;
+      contents : string;
+    }
+  [@@deriving sexp, hash, compare]
+  end
+
+  include T
+  include Comparable.Make (T)
+end
+
 module Build_graph = struct
   type node = {
-    cmd : Cmd.t;
+    action : Action.t;
     inputs : File_name.Set.t;
     outputs : File_name.Set.t;
   } [@@deriving sexp]
@@ -147,7 +162,7 @@ module Build_graph = struct
 
   let of_nodes nodes =
     let by_file =
-      List.concat_map nodes ~f:(fun ({ cmd = _; inputs; outputs; } as node) ->
+      List.concat_map nodes ~f:(fun ({ action = _; inputs; outputs; } as node) ->
         let needs =
           Set.to_list outputs |> List.map ~f:(fun output -> output, `needs node)
         in
@@ -188,18 +203,17 @@ module Build_graph = struct
         | Some { needs = None; _ } -> []
         | Some { needs = Some node; _ } -> File_name.Set.to_list node.inputs
         | None -> raise_s [%message "Unknown" (file : File_name.t)])
-      ~init:(String.Set.empty, [])
-      ~f:(fun file (cmd_set, nodes) ->
+      ~init:(Action.Set.empty, [])
+      ~f:(fun file (action_set, nodes) ->
         match Map.find t.by_file file with
         | None -> raise_s [%message "Unknown" (file : File_name.t)]
-        | Some { needs = None; _ } -> (cmd_set, nodes)
+        | Some { needs = None; _ } -> (action_set, nodes)
         | Some { needs = Some node; _} ->
-          let cmd = sprintf "%s %s" node.cmd.exe (String.concat ~sep:" " node.cmd.args) in
-          if Set.mem cmd_set cmd
-          then (cmd_set, nodes)
+          if Set.mem action_set node.action
+          then (action_set, nodes)
           else
-            let cmd_set = Set.add cmd_set cmd in
-            (cmd_set, node :: nodes))
+            let action_set = Set.add action_set node.action in
+            (action_set, node :: nodes))
     in
     of_nodes (List.rev nodes)
 end
@@ -251,7 +265,7 @@ end = struct
       }
     in
     { Build_graph.
-      cmd;
+      action = Cmd cmd;
       inputs = f [ input ];
       outputs = f [ output ];
     }
@@ -273,7 +287,7 @@ end = struct
       }
     in
     { Build_graph.
-      cmd;
+      action = Cmd cmd;
       inputs = f inputs;
       outputs = f [ output ];
     }
@@ -282,18 +296,21 @@ end = struct
     printf !"%{sexp:Build_graph.node}\n%!" (compile (Lib_name.of_string "foo") ~c_base:"bar");
     printf !"%{sexp:Build_graph.node}\n%!" (archive (Lib_name.of_string "foo") ~c_bases:["bar"; "baz"]);
     [%expect {|
-      ((cmd
-        ((exe bash)
-         (args
-          (-c "gcc -I $(ocamlc -where) -c foo/bar.c -o .dbuild/native/foo/c/bar.o"))
-         (opam_switch (4.03.0))))
+      ((action
+        (Cmd
+         ((exe bash)
+          (args
+           (-c
+            "gcc -I $(ocamlc -where) -c foo/bar.c -o .dbuild/native/foo/c/bar.o"))
+          (opam_switch (4.03.0)))))
        (inputs (foo/bar.c)) (outputs (.dbuild/native/foo/c/bar.o)))
-      ((cmd
-        ((exe ar)
-         (args
-          (cr .dbuild/native/foo/c/libfoo.a .dbuild/native/foo/c/bar.o
-           .dbuild/native/foo/c/baz.o))
-         (opam_switch ())))
+      ((action
+        (Cmd
+         ((exe ar)
+          (args
+           (cr .dbuild/native/foo/c/libfoo.a .dbuild/native/foo/c/bar.o
+            .dbuild/native/foo/c/baz.o))
+          (opam_switch ()))))
        (inputs (.dbuild/native/foo/c/bar.o .dbuild/native/foo/c/baz.o))
        (outputs (.dbuild/native/foo/c/libfoo.a))) |}];
   ;;
@@ -426,7 +443,7 @@ end = struct
     (* CR datkin: In some cases this outputs the cmi too, I think. Check. E.g.,
      * if there's no mli, and maybe even if there is? *)
     { Build_graph.
-      cmd;
+      action = Cmd cmd;
       inputs = f (input :: extra_inputs @ module_deps);
       outputs = f (output :: extra_outputs);
     }
@@ -438,14 +455,15 @@ end = struct
     printf !"%{sexp:Build_graph.node}"
       (compile Native pkgs libs (Lib_name.of_string "foo") mods (Module_name.of_string "bar") (`ml `no_mli));
     [%expect {|
-      ((cmd
-        ((exe ocamlfind)
-         (args
-          (ocamlopt -w +a-40-42-44 -g -ppx "ppx-jane -as-ppx -inline-test-lib foo"
-           -thread -package a,b -I .dbuild/native/x/pack -I .dbuild/native/y/pack
-           -I .dbuild/native/foo/modules -for-pack Foo -c foo/bar.ml -o
-           .dbuild/native/foo/modules/bar.cmx))
-         (opam_switch (4.03.0))))
+      ((action
+        (Cmd
+         ((exe ocamlfind)
+          (args
+           (ocamlopt -w +a-40-42-44 -g -ppx "ppx-jane -as-ppx -inline-test-lib foo"
+            -thread -package a,b -I .dbuild/native/x/pack -I .dbuild/native/y/pack
+            -I .dbuild/native/foo/modules -for-pack Foo -c foo/bar.ml -o
+            .dbuild/native/foo/modules/bar.cmx))
+          (opam_switch (4.03.0)))))
        (inputs
         (.dbuild/native/foo/modules/blub.cmi .dbuild/native/foo/modules/blub.cmx
          .dbuild/native/foo/modules/flub.cmi .dbuild/native/foo/modules/flub.cmx
@@ -490,7 +508,7 @@ end = struct
     }
     in
     { Build_graph.
-      cmd;
+      action = Cmd cmd;
       inputs = f inputs;
       outputs = f [ output; output_cmi ];
     }
@@ -499,12 +517,13 @@ end = struct
     let modules_in_dep_order = List.map ["x"; "y"] ~f:Module_name.of_string in
     printf !"%{sexp:Build_graph.node}" (pack Native ~modules_in_dep_order (Lib_name.of_string "foo"));
     [%expect {|
-      ((cmd
-        ((exe ocamlfind)
-         (args
-          (ocamlopt -pack .dbuild/native/foo/modules/x.cmx
-           .dbuild/native/foo/modules/y.cmx -o .dbuild/native/foo/pack/foo.cmx))
-         (opam_switch (4.03.0))))
+      ((action
+        (Cmd
+         ((exe ocamlfind)
+          (args
+           (ocamlopt -pack .dbuild/native/foo/modules/x.cmx
+            .dbuild/native/foo/modules/y.cmx -o .dbuild/native/foo/pack/foo.cmx))
+          (opam_switch (4.03.0)))))
        (inputs (.dbuild/native/foo/modules/x.cmx .dbuild/native/foo/modules/y.cmx))
        (outputs (.dbuild/native/foo/pack/foo.cmi .dbuild/native/foo/pack/foo.cmx))) |}];
   ;;
@@ -547,7 +566,7 @@ end = struct
       }
     in
     { Build_graph.
-      cmd;
+      action = Cmd cmd;
       (* I don't think this actually does anything with the c archive... so it's
        * not actually a dependency? *)
       inputs = f (List.filter_opt [ Some ml_input; c_input ]);
@@ -557,12 +576,13 @@ end = struct
   let%expect_test _ =
     printf !"%{sexp:Build_graph.node}" (archive Native ~c_stubs:["blah"] (Lib_name.of_string "foo"));
     [%expect {|
-      ((cmd
-        ((exe ocamlfind)
-         (args
-          (ocamlopt -a -ccopt -L.dbuild/native/foo/c -cclib -lfoo
-           .dbuild/native/foo/pack/foo.cmx -o .dbuild/native/foo/archive/foo.cmxa))
-         (opam_switch (4.03.0))))
+      ((action
+        (Cmd
+         ((exe ocamlfind)
+          (args
+           (ocamlopt -a -ccopt -L.dbuild/native/foo/c -cclib -lfoo
+            .dbuild/native/foo/pack/foo.cmx -o .dbuild/native/foo/archive/foo.cmxa))
+          (opam_switch (4.03.0)))))
        (inputs (.dbuild/native/foo/c/libfoo.a .dbuild/native/foo/pack/foo.cmx))
        (outputs (.dbuild/native/foo/archive/foo.cmxa))) |}];
   ;;
@@ -612,7 +632,7 @@ end = struct
       }
     in
     { Build_graph.
-      cmd;
+      action = Cmd cmd;
       inputs = f (input_module :: input_archives);
       outputs = f [ output ];
     }
@@ -623,13 +643,14 @@ end = struct
     let module_name = Module_name.of_string "main" in
     printf !"%{sexp:Build_graph.node}" (link Native pkgs ~libs_in_dep_order module_name);
     [%expect {|
-      ((cmd
-        ((exe ocamlfind)
-         (args
-          (ocamlopt -linkpkg -thread -package a,b .dbuild/native/x/archive/x.cmxa
-           .dbuild/native/y/archive/y.cmxa .dbuild/native/bin/modules/main.cmx -o
-           .dbuild/native/bin/linked/main.native))
-         (opam_switch (4.03.0))))
+      ((action
+        (Cmd
+         ((exe ocamlfind)
+          (args
+           (ocamlopt -linkpkg -thread -package a,b .dbuild/native/x/archive/x.cmxa
+            .dbuild/native/y/archive/y.cmxa .dbuild/native/bin/modules/main.cmx -o
+            .dbuild/native/bin/linked/main.native))
+          (opam_switch (4.03.0)))))
        (inputs
         (.dbuild/native/bin/modules/main.cmx .dbuild/native/x/archive/x.cmxa
          .dbuild/native/y/archive/y.cmxa))
@@ -1141,7 +1162,7 @@ let build_cmd =
       fun () ->
         pruned_build_graph ~roots:targets
         |> fun x -> x.Build_graph.nodes
-        |> Deferred.List.fold ~init:(Ok ()) ~f:(fun result { Build_graph. outputs; inputs = _; cmd; } ->
+        |> Deferred.List.fold ~init:(Ok ()) ~f:(fun result { Build_graph.  outputs; inputs = _; action; } ->
             Deferred.return result
             >>=? fun () ->
             (* CR datkin: Add sandboxing to verify input dependencies. *)
@@ -1151,24 +1172,33 @@ let build_cmd =
               |> List.dedup ~compare:String.compare
             in
             List.iter dirs ~f:Core.Unix.mkdir_p;
-            let { Cmd. exe; args; opam_switch; } = cmd in
-            let env =
-              Option.map opam_switch ~f:(fun name ->
-                `Replace (get_opam_env name))
-            in
-            Process.create
-              ?env
-              ~prog:exe
-              ~args
-              ()
-            >>=? fun process ->
-            Process.collect_output_and_wait process
-            >>= fun { stdout; stderr; exit_status; } ->
-            printf !"> (%{sexp#mach:Unix.env option}) %s %{sexp#mach:string list}\n"
-              env exe args;
-            printf "  stdout:\n%s\n" stdout;
-            printf "  stderr:\n%s\n" stderr;
-            Deferred.return (Unix.Exit_or_signal.or_error exit_status))
+            begin
+              match action with
+              | Write_file { file; contents; } ->
+                Writer.with_file (File_name.to_string file) ~f:(fun writer ->
+                  Writer.write writer contents;
+                  Deferred.unit)
+                >>= fun () ->
+                Deferred.return (Ok ())
+              | Cmd { Cmd. exe; args; opam_switch; } ->
+                let env =
+                  Option.map opam_switch ~f:(fun name ->
+                    `Replace (get_opam_env name))
+                in
+                Process.create
+                  ?env
+                  ~prog:exe
+                  ~args
+                  ()
+                >>=? fun process ->
+                Process.collect_output_and_wait process
+                >>= fun { stdout; stderr; exit_status; } ->
+                printf !"> (%{sexp#mach:Unix.env option}) %s %{sexp#mach:string list}\n"
+                  env exe args;
+                printf "  stdout:\n%s\n" stdout;
+                printf "  stderr:\n%s\n" stderr;
+                Deferred.return (Unix.Exit_or_signal.or_error exit_status)
+            end)
     ]
 
 let () =
