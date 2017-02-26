@@ -151,10 +151,12 @@ module Build_graph = struct
   type per_file = {
     needs : node option;
     provides : node list;
-  }
+  } [@@deriving fields]
 
   type t = {
-    nodes : node list; (* topo sorted? *)
+    (* CR-soon datkin: in the [pruned] case this is topologically sorted.
+     * Should probably make that an invariant. *)
+    nodes : node list;
     by_file : per_file File_name.Map.t;
   } [@@deriving fields]
 
@@ -910,7 +912,7 @@ let project_spec =
   )
   |})
 
-let%expect_test _ =
+let%expect_test "dependency summary" =
   let file_exists = function
     | "odditty_kernel/character_attributes.mli"
     | "odditty_kernel/dec_private_mode.mli"
@@ -928,13 +930,14 @@ let%expect_test _ =
     in
     List.map dep_names ~f:Module_name.of_string
   in
-    (spec_to_nodes ~file_exists ~get_deps project_spec
+  let bg =
+    spec_to_nodes ~file_exists ~get_deps project_spec
     |> Build_graph.of_nodes
     |> Build_graph.prune ~roots:[
       File_name.of_string (sprintf "%s/main.native" (build_dir Native `linked bin_lib));
     ]
-    |> fun x -> x.Build_graph.nodes
-    |> List.iter ~f:(fun node ->
+  in
+  List.iter (Build_graph.nodes bg) ~f:(fun node ->
         printf "%s\n"
           (node.Build_graph.outputs
           |> Set.to_list
@@ -943,8 +946,7 @@ let%expect_test _ =
         Set.iter node.Build_graph.inputs ~f:(fun file_name ->
           printf "  %s\n" (File_name.to_string file_name));
         printf "\n";
-      )
-    );
+  );
   (* CR datkin: It seems like a bug that the deps of [control_functions.cmi]
    * aren't actually above [control_functions.cmi] in that list.
    *
@@ -1081,7 +1083,28 @@ let%expect_test _ =
       .dbuild/native/bin/modules/main.cmx
       .dbuild/native/odditty/archive/odditty.cmxa
       .dbuild/native/odditty_kernel/archive/odditty_kernel.cmxa
-      .dbuild/native/server/archive/server.cmxa |}]
+      .dbuild/native/server/archive/server.cmxa |}];
+  let node =
+    Map.find_exn
+      (Build_graph.by_file bg)
+      (File_name.of_string ".dbuild/native/odditty_kernel/generated/odditty_kernel.ml")
+      |> Build_graph.needs
+      |> Option.value_exn
+  in
+  printf !"%{sexp:Build_graph.node}\n" node;
+  [%expect {|
+    ((action
+      (Write_file
+       (file .dbuild/native/odditty_kernel/generated/odditty_kernel.ml)
+       (contents
+         "module Terminfo = Odditty_kernel__terminfo\
+        \nmodule Dec_private_mode = Odditty_kernel__dec_private_mode\
+        \nmodule Character_set = Odditty_kernel__character_set\
+        \nmodule Control_functions = Odditty_kernel__control_functions\
+        \nmodule Window = Odditty_kernel__window\
+        \nmodule Character_attributes = Odditty_kernel__character_attributes")))
+     (inputs ())
+     (outputs (.dbuild/native/odditty_kernel/generated/odditty_kernel.ml))) |}];
 ;;
 
 let file_exists file =
@@ -1228,7 +1251,7 @@ let dump_cmd =
     [%map_open
       let roots = anon (sequence ("target" %: file_arg)) in
       fun () ->
-        printf !"%{sexp#hum:Build_graph.node list}"
+        printf !"%{sexp#hum:Build_graph.node list}\n"
           (Build_graph.nodes (pruned_build_graph ~roots));
         Deferred.unit]
 
@@ -1295,6 +1318,7 @@ let () =
       ~summary:"Build commands" [
         "dot-graph", dot_cmd;
         "build", build_cmd;
+        "dump", dump_cmd;
       ]
     |> Command.run
 ;;
