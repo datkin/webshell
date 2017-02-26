@@ -337,7 +337,7 @@ module Ocaml_compiler : sig
 
   val pack : kind -> modules_in_dep_order:Module_name.t list -> Lib_name.t -> Build_graph.node
 
-  val archive : kind -> c_stubs:string list -> Lib_name.t -> Module_name.Set.t -> Build_graph.node
+  val archive : kind -> c_stubs:string list -> Lib_name.t -> Module_name.t list -> Build_graph.node
 
   val link
     : kind -> Package_name.Set.t -> libs_in_dep_order:Lib_name.t list -> Module_name.t -> Build_graph.node
@@ -595,7 +595,7 @@ end = struct
       )
     in
     let ml_inputs =
-      Set.to_list module_names
+      (*Set.to_list*) module_names
       |> List.map ~f:(fun module_name ->
         sprintf !"%s/%{Module_name}.%s" (build_dir kind `modules lib_name) module_name (ext kind `ml))
     in
@@ -640,7 +640,7 @@ end = struct
 
   let%expect_test _ =
     let modules =
-      List.map [ "a"; "b" ] ~f:Module_name.of_string |> Module_name.Set.of_list
+      List.map [ "a"; "b" ] ~f:Module_name.of_string (*|> Module_name.Set.of_list*)
     in
     printf !"%{sexp:Build_graph.node}" (archive Native ~c_stubs:["blah"] (Lib_name.of_string "foo") modules);
     [%expect {|
@@ -825,13 +825,13 @@ let spec_to_nodes ~file_exists ~get_deps { Project_spec. libraries; binaries; } 
           (`ml `no_mli)
           `generated;
         in
-        (* CR datkin: Are the archive arguments in dep order? *)
+        (* CR datkin: Are the archive arguments in dep order? Yes they are! The
+         * ocaml doc page seems to omit that fact, though. *)
         let archive =
           let modules =
             (wrapper_module
             :: (List.map modules_in_dep_order ~f:(add_namespace dir))
             )
-            |> Module_name.Set.of_list
           in
           Ocaml_compiler.archive kind ~c_stubs:c_stub_basenames dir modules
         in
