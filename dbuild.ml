@@ -17,8 +17,8 @@ open Core_kernel.Std
 
 (* Package names refer to ocamlfind packages (defined outside of this project). *)
 module Package_name = String_id.Make (struct
-  let module_name = "Package_name"
-end) ()
+    let module_name = "Package_name"
+  end) ()
 
 (* CR datkin: May change the build rules to produce ocamlfind packages for
  * libraries. *)
@@ -26,22 +26,22 @@ end) ()
  * project. *)
 (* lowercase name *)
 module Lib_name = String_id.Make (struct
-  let module_name = "Lib_name"
-end) ()
+    let module_name = "Lib_name"
+  end) ()
 
 (* lowercase name *)
 module Module_name = String_id.Make (struct
-  let module_name = "Module_name"
-end) ()
+    let module_name = "Module_name"
+  end) ()
 
 (* _Not_ Filename, the Core module *)
 module File_name = String_id.Make (struct
-  let module_name = "File"
-end) ()
+    let module_name = "File"
+  end) ()
 
 module Opam_switch_name = String_id.Make (struct
-  let module_name = "Opam_switch_name"
-end) ()
+    let module_name = "Opam_switch_name"
+  end) ()
 
 module Project_spec = struct
   type direct_deps = {
@@ -90,15 +90,15 @@ let topological_fold ~sexp_of_key ~key_set ~roots ~direct_deps:next ~init ~f =
     else if Set.mem visited node
     then (visited, acc)
     else
-    let unvisited_children =
-      next node |> List.filter ~f:(fun x -> not (Set.mem visited x))
-    in
-    let (visited, acc) =
-      let descended = Set.add descended node in
-      List.fold unvisited_children ~init:(visited, acc) ~f:(fun (visited, acc) node ->
-        visit ~descended ~visited node acc)
-    in
-    (Set.add visited node, f node acc)
+      let unvisited_children =
+        next node |> List.filter ~f:(fun x -> not (Set.mem visited x))
+      in
+      let (visited, acc) =
+        let descended = Set.add descended node in
+        List.fold unvisited_children ~init:(visited, acc) ~f:(fun (visited, acc) node ->
+          visit ~descended ~visited node acc)
+      in
+      (Set.add visited node, f node acc)
   in
   assert (Set.is_empty key_set);
   let (_visited, acc) =
@@ -116,25 +116,25 @@ let%expect_test _ =
   in
   printf !"%{sexp:string list Or_error.t}"
     (Or_error.try_with (fun () ->
-      (topological_fold
-      ~sexp_of_key:[%sexp_of: string]
-      ~key_set:String.Set.empty
-      ~roots:["A"]
-      ~direct_deps
-      ~init:[]
-      ~f:List.cons) |> List.rev));
+       (topological_fold
+          ~sexp_of_key:[%sexp_of: string]
+          ~key_set:String.Set.empty
+          ~roots:["A"]
+          ~direct_deps
+          ~init:[]
+          ~f:List.cons) |> List.rev));
   [%expect {| (Ok (D C B A)) |}];
 ;;
 
 module Action = struct
   module T = struct
-  type t =
-    | Cmd of Cmd.t
-    | Write_file of {
-      file : File_name.t;
-      contents : string;
-    }
-  [@@deriving sexp, hash, compare]
+    type t =
+      | Cmd of Cmd.t
+      | Write_file of {
+          file : File_name.t;
+          contents : string;
+        }
+    [@@deriving sexp, hash, compare]
   end
 
   include T
@@ -173,47 +173,47 @@ module Build_graph = struct
       )
       |> File_name.Map.of_alist_multi
       |> Map.mapi ~f:(fun ~key:file ~data:nodes ->
-          let needs, provides =
-            List.partition_map nodes ~f:(function
-              | `needs node -> `Fst node
-              | `provides node -> `Snd node)
-          in
-          let needs =
-            match needs with
-            | [] -> None
-            | [ x ] -> Some x
-            | nodes ->
-              raise_s [%message "More than one command builds file"
+        let needs, provides =
+          List.partition_map nodes ~f:(function
+            | `needs node -> `Fst node
+            | `provides node -> `Snd node)
+        in
+        let needs =
+          match needs with
+          | [] -> None
+          | [ x ] -> Some x
+          | nodes ->
+            raise_s [%message "More than one command builds file"
                 (file : File_name.t)
                 (nodes : node list)
-              ]
-          in
-          { needs; provides; })
+            ]
+        in
+        { needs; provides; })
     in
     { nodes; by_file; }
 
   let prune t ~roots =
     let _, nodes =
-    topological_fold
-      ~sexp_of_key:[%sexp_of: File_name.t]
-      ~key_set:File_name.Set.empty
-      ~roots
-      ~direct_deps:(fun file ->
-        match Map.find t.by_file file with
-        | Some { needs = None; _ } -> []
-        | Some { needs = Some node; _ } -> File_name.Set.to_list node.inputs
-        | None -> raise_s [%message "Unknown" (file : File_name.t)])
-      ~init:(Action.Set.empty, [])
-      ~f:(fun file (action_set, nodes) ->
-        match Map.find t.by_file file with
-        | None -> raise_s [%message "Unknown" (file : File_name.t)]
-        | Some { needs = None; _ } -> (action_set, nodes)
-        | Some { needs = Some node; _} ->
-          if Set.mem action_set node.action
-          then (action_set, nodes)
-          else
-            let action_set = Set.add action_set node.action in
-            (action_set, node :: nodes))
+      topological_fold
+        ~sexp_of_key:[%sexp_of: File_name.t]
+        ~key_set:File_name.Set.empty
+        ~roots
+        ~direct_deps:(fun file ->
+          match Map.find t.by_file file with
+          | Some { needs = None; _ } -> []
+          | Some { needs = Some node; _ } -> File_name.Set.to_list node.inputs
+          | None -> raise_s [%message "Unknown" (file : File_name.t)])
+        ~init:(Action.Set.empty, [])
+        ~f:(fun file (action_set, nodes) ->
+          match Map.find t.by_file file with
+          | None -> raise_s [%message "Unknown" (file : File_name.t)]
+          | Some { needs = None; _ } -> (action_set, nodes)
+          | Some { needs = Some node; _} ->
+            if Set.mem action_set node.action
+            then (action_set, nodes)
+            else
+              let action_set = Set.add action_set node.action in
+              (action_set, node :: nodes))
     in
     of_nodes (List.rev nodes)
 end
@@ -257,11 +257,11 @@ end = struct
         args = [
           "-c";
           (String.concat ~sep:" " [
-          "gcc";
-          "-I"; "$(ocamlc -where)";
-          "-c"; input;
-          "-o"; output;
-          ])
+             "gcc";
+             "-I"; "$(ocamlc -where)";
+             "-c"; input;
+             "-o"; output;
+           ])
         ];
       }
     in
@@ -371,19 +371,19 @@ end = struct
     let extra_includes =
       Set.to_list libs
       |> List.concat_map ~f:(fun lib ->
-          let dir = build_dir kind `modules lib in
-          [ "-I"; dir;
+        let dir = build_dir kind `modules lib in
+        [ "-I"; dir;
           (*
             sprintf !"%s/%{Lib_name}.%s" dir lib (ext kind `archive);
             *)
-          ])
+        ])
     in
     (* CR datkin: If we instead look at the modules in the `modules dir, we might
      * get more parallelism? *)
     let extra_inputs =
       Set.to_list libs
       |> List.map ~f:(fun lib ->
-          sprintf !"%s/%{Lib_name}.%s" (build_dir kind `archive lib) lib (ext kind `archive))
+        sprintf !"%s/%{Lib_name}.%s" (build_dir kind `archive lib) lib (ext kind `archive))
     in
     let src_dir =
       match context with
@@ -460,29 +460,29 @@ end = struct
         [ "-ppx"; sprintf !"ppx-jane -as-ppx -inline-test-lib %{Lib_name}" lib_name; ]
     in
     let cmd =
-    { Cmd.
-      opam_switch = Some (opam_switch kind);
-      exe = "ocamlfind";
-      args = [
-        ocamlc kind;
-        "-w"; "+a-40-42-44";
-        "-g";
-      ]
-      @ implicit_open
-      @ maybe_js_ppx
-      @ ppx
-      @ [
-        "-thread";
-        "-package"; Set.to_list pkgs |> List.map ~f:Package_name.to_string |> String.concat ~sep:",";
-      ]
-      @ extra_includes
-      @ [
-        "-I"; build_dir;
-        "-no-alias-deps";
-        "-c"; input;
-        "-o"; output;
-      ];
-    }
+      { Cmd.
+        opam_switch = Some (opam_switch kind);
+        exe = "ocamlfind";
+        args = [
+          ocamlc kind;
+          "-w"; "+a-40-42-44";
+          "-g";
+        ]
+          @ implicit_open
+          @ maybe_js_ppx
+          @ ppx
+          @ [
+            "-thread";
+            "-package"; Set.to_list pkgs |> List.map ~f:Package_name.to_string |> String.concat ~sep:",";
+          ]
+          @ extra_includes
+          @ [
+            "-I"; build_dir;
+            "-no-alias-deps";
+            "-c"; input;
+            "-o"; output;
+          ];
+      }
     in
     (* CR datkin: In some cases this outputs the cmi too, I think. Check. E.g.,
      * if there's no mli, and maybe even if there is? *)
@@ -519,7 +519,7 @@ end = struct
          .dbuild/native/foo/modules/foo__bar.cmx))) |}];
     printf !"%{sexp:Build_graph.node}"
       (compile Native pkgs Lib_name.Set.empty (Lib_name.of_string "foo")
-        Module_name.Set.empty (Module_name.of_string "bar") (`ml `no_mli) `generated);
+         Module_name.Set.empty (Module_name.of_string "bar") (`ml `no_mli) `generated);
     [%expect {|
       ((action
         (Cmd
@@ -554,9 +554,9 @@ end = struct
       match c_stubs with
       | [] -> []
       | _ :: _ -> [
-        "-ccopt"; sprintf !"-L%s" (build_dir kind `c lib_name);
-        "-cclib"; sprintf !"-l%{Lib_name}" lib_name;
-      ]
+          "-ccopt"; sprintf !"-L%s" (build_dir kind `c lib_name);
+          "-cclib"; sprintf !"-l%{Lib_name}" lib_name;
+        ]
     in
     let cmd =
       { Cmd.
@@ -566,11 +566,11 @@ end = struct
           ocamlc kind;
           "-a";
         ]
-        @ c_opts
-        @ ml_inputs
-        @ [
-          "-o"; output;
-        ];
+          @ c_opts
+          @ ml_inputs
+          @ [
+            "-o"; output;
+          ];
       }
     in
     let inputs =
@@ -642,10 +642,10 @@ end = struct
           "-thread";
           "-package"; packages;
         ] @ input_archives
-        @ [
-          input_module;
-          "-o"; output;
-        ];
+          @ [
+            input_module;
+            "-o"; output;
+          ];
       }
     in
     { Build_graph.
@@ -680,7 +680,7 @@ let spec_to_nodes ~file_exists ~get_deps { Project_spec. libraries; binaries; } 
   let of_lib { Project_spec. dir; modules; c_stub_basenames; direct_deps = { packages; libs; }; } =
     (* Instead of using module packing, we use the aliasing technique described
      * here: https://caml.inria.fr/pub/docs/manual-ocaml/extn.html#sec235
-     *)
+    *)
     let file module_name ext =
       sprintf !"%{Lib_name}/%{Module_name}.%s" dir module_name ext
     in
@@ -745,31 +745,31 @@ let spec_to_nodes ~file_exists ~get_deps { Project_spec. libraries; binaries; } 
           in
           (* CR-someday datkin: This generates the ml file twice. *)
           { Build_graph.
-          action = Write_file {
-            file;
-            contents =
-              List.map modules_in_dep_order ~f:(fun module_name ->
-                sprintf !"module %s = %s"
-                  (String.capitalize (Module_name.to_string module_name))
-                  (String.capitalize (Module_name.to_string (add_namespace dir module_name)))
-              )
-              |> String.concat ~sep:"\n"
+            action = Write_file {
+              file;
+              contents =
+                List.map modules_in_dep_order ~f:(fun module_name ->
+                  sprintf !"module %s = %s"
+                    (String.capitalize (Module_name.to_string module_name))
+                    (String.capitalize (Module_name.to_string (add_namespace dir module_name)))
+                )
+                |> String.concat ~sep:"\n"
               ;
-          };
-          inputs = f [];
-          outputs = File_name.Set.singleton file;
+            };
+            inputs = f [];
+            outputs = File_name.Set.singleton file;
           };
         in
         let compiled_wrapper =
           Ocaml_compiler.compile
-          kind
-          Package_name.Set.empty
-          Lib_name.Set.empty
-          dir
-          Module_name.Set.empty
-          wrapper_module
-          (`ml `no_mli)
-          `generated;
+            kind
+            Package_name.Set.empty
+            Lib_name.Set.empty
+            dir
+            Module_name.Set.empty
+            wrapper_module
+            (`ml `no_mli)
+            `generated;
         in
         let archive =
           let modules_in_dep_order =
@@ -938,14 +938,14 @@ let%expect_test "dependency summary" =
     ]
   in
   List.iter (Build_graph.nodes bg) ~f:(fun node ->
-        printf "%s\n"
-          (node.Build_graph.outputs
-          |> Set.to_list
-          |> List.map ~f:File_name.to_string
-          |> String.concat ~sep:", ");
-        Set.iter node.Build_graph.inputs ~f:(fun file_name ->
-          printf "  %s\n" (File_name.to_string file_name));
-        printf "\n";
+    printf "%s\n"
+      (node.Build_graph.outputs
+       |> Set.to_list
+       |> List.map ~f:File_name.to_string
+       |> String.concat ~sep:", ");
+    Set.iter node.Build_graph.inputs ~f:(fun file_name ->
+      printf "  %s\n" (File_name.to_string file_name));
+    printf "\n";
   );
   (* CR datkin: It seems like a bug that the deps of [control_functions.cmi]
    * aren't actually above [control_functions.cmi] in that list.
@@ -1088,8 +1088,8 @@ let%expect_test "dependency summary" =
     Map.find_exn
       (Build_graph.by_file bg)
       (File_name.of_string ".dbuild/native/odditty_kernel/generated/odditty_kernel.ml")
-      |> Build_graph.needs
-      |> Option.value_exn
+    |> Build_graph.needs
+    |> Option.value_exn
   in
   printf !"%{sexp:Build_graph.node}\n" node;
   [%expect {|
@@ -1172,7 +1172,7 @@ let parse_deps lines : Module_name.t list =
 let%expect_test _ =
   let ocamldep_output =
     {|odditty_kernel/control_functions.cmo : odditty_kernel/terminfo.cmi odditty_kernel/dec_private_mode.cmo odditty_kernel/character_set.cmo odditty_kernel/control_functions.cmi
-odditty_kernel/control_functions.cmx : odditty_kernel/terminfo.cmx odditty_kernel/dec_private_mode.cmx odditty_kernel/character_set.cmx odditty_kernel/control_functions.cmi|}
+      odditty_kernel/control_functions.cmx : odditty_kernel/terminfo.cmx odditty_kernel/dec_private_mode.cmx odditty_kernel/character_set.cmx odditty_kernel/control_functions.cmi|}
     |> String.split ~on:'\n'
   in
   printf !"%{sexp: Module_name.t list}" (parse_deps ocamldep_output);
@@ -1207,15 +1207,15 @@ let get_opam_env =
       Core.Unix.open_process_in cmd
       |> In_channel.input_lines
       |> List.map ~f:(fun line ->
-          line
-          |> String.rsplit2_exn ~on:';'
-          |> fst
-          |> String.rsplit2_exn ~on:';'
-          |> fst
-          |> String.lsplit2_exn ~on:'='
-          |> fun (key, value) ->
-              key, Scanf.sscanf value "%S" ident
-    ))
+        line
+        |> String.rsplit2_exn ~on:';'
+        |> fst
+        |> String.rsplit2_exn ~on:';'
+        |> fst
+        |> String.lsplit2_exn ~on:'='
+        |> fun (key, value) ->
+        key, Scanf.sscanf value "%S" ident
+      ))
 
 let file_arg = Command.Arg_type.create File_name.of_string
 
@@ -1233,12 +1233,12 @@ let dot_cmd =
         printf "  splines=line;\n"; (* also "polyline"? *)
         printf "  edge[samehead=x sametail=y];\n";
         (pruned_build_graph ~roots
-        |> fun x -> x.Build_graph.nodes
-        |> List.iter ~f:(fun node ->
-            Set.iter node.Build_graph.outputs ~f:(fun output ->
-              Set.iter node.Build_graph.inputs ~f:(fun input ->
-                printf !{|  "%{File_name}" -> "%{File_name}";|} input output;
-                printf "\n";
+         |> Build_graph.nodes
+         |> List.iter ~f:(fun node ->
+           Set.iter node.Build_graph.outputs ~f:(fun output ->
+             Set.iter node.Build_graph.inputs ~f:(fun input ->
+               printf !{|  "%{File_name}" -> "%{File_name}";|} input output;
+               printf "\n";
              )))
         );
         printf "}\n";
@@ -1263,44 +1263,44 @@ let build_cmd =
       let targets = anon (sequence ("target" %: file_arg)) in
       fun () ->
         pruned_build_graph ~roots:targets
-        |> fun x -> x.Build_graph.nodes
+        |> Build_graph.nodes
         |> Deferred.List.fold ~init:(Ok ()) ~f:(fun result { Build_graph.  outputs; inputs = _; action; } ->
-            Deferred.return result
-            >>=? fun () ->
-            (* CR datkin: Add sandboxing to verify input dependencies. *)
-            let dirs =
-              Set.to_list outputs
-              |> List.map ~f:(fun f -> Filename.dirname (File_name.to_string f))
-              |> List.dedup ~compare:String.compare
-            in
-            List.iter dirs ~f:Core.Unix.mkdir_p;
-            begin
-              match action with
-              | Write_file { file; contents; } ->
-                Writer.with_file (File_name.to_string file) ~f:(fun writer ->
-                  Writer.write writer contents;
-                  Deferred.unit)
-                >>= fun () ->
-                Deferred.return (Ok ())
-              | Cmd { Cmd. exe; args; opam_switch; } ->
-                let env =
-                  Option.map opam_switch ~f:(fun name ->
-                    `Replace (get_opam_env name))
-                in
-                Process.create
-                  ?env
-                  ~prog:exe
-                  ~args
-                  ()
-                >>=? fun process ->
-                Process.collect_output_and_wait process
-                >>= fun { stdout; stderr; exit_status; } ->
-                printf !"> (%{sexp#mach:Unix.env option}) %s %{sexp#mach:string list}\n"
-                  env exe args;
-                printf "  stdout:\n%s\n" stdout;
-                printf "  stderr:\n%s\n" stderr;
-                Deferred.return (Unix.Exit_or_signal.or_error exit_status)
-            end)
+          Deferred.return result
+          >>=? fun () ->
+          (* CR datkin: Add sandboxing to verify input dependencies. *)
+          let dirs =
+            Set.to_list outputs
+            |> List.map ~f:(fun f -> Filename.dirname (File_name.to_string f))
+            |> List.dedup ~compare:String.compare
+          in
+          List.iter dirs ~f:Core.Unix.mkdir_p;
+          begin
+            match action with
+            | Write_file { file; contents; } ->
+              Writer.with_file (File_name.to_string file) ~f:(fun writer ->
+                Writer.write writer contents;
+                Deferred.unit)
+              >>= fun () ->
+              Deferred.return (Ok ())
+            | Cmd { Cmd. exe; args; opam_switch; } ->
+              let env =
+                Option.map opam_switch ~f:(fun name ->
+                  `Replace (get_opam_env name))
+              in
+              Process.create
+                ?env
+                ~prog:exe
+                ~args
+                ()
+              >>=? fun process ->
+              Process.collect_output_and_wait process
+              >>= fun { stdout; stderr; exit_status; } ->
+              printf !"> (%{sexp#mach:Unix.env option}) %s %{sexp#mach:string list}\n"
+                env exe args;
+              printf "  stdout:\n%s\n" stdout;
+              printf "  stderr:\n%s\n" stderr;
+              Deferred.return (Unix.Exit_or_signal.or_error exit_status)
+          end)
     ]
 
 let () =
@@ -1316,9 +1316,9 @@ let () =
     let open Command.Let_syntax in
     Command.group
       ~summary:"Build commands" [
-        "dot-graph", dot_cmd;
-        "build", build_cmd;
-        "dump", dump_cmd;
-      ]
+      "dot-graph", dot_cmd;
+      "build", build_cmd;
+      "dump", dump_cmd;
+    ]
     |> Command.run
 ;;
