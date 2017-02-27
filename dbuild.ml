@@ -1264,7 +1264,7 @@ let mkdirs files =
   List.iter dirs ~f:Core.Unix.mkdir_p;
 ;;
 
-let run_node { Build_graph. action; inputs; outputs; } =
+let run_node { Build_graph. action; inputs = _; outputs; } =
   mkdirs outputs;
   begin
     match action with
@@ -1287,32 +1287,39 @@ let run_node { Build_graph. action; inputs; outputs; } =
       >>=? fun process ->
       Process.collect_output_and_wait process
       >>= fun { stdout; stderr; exit_status; } ->
-      printf !"> (%{sexp#mach:Unix.env option}) %s %{sexp#mach:string list}\n"
+      Core.Std.printf !"> (%{sexp#mach:Unix.env option}) %s %{sexp#mach:string list}\n%!"
         env exe args;
-      printf "  stdout:\n%s\n" stdout;
-      printf "  stderr:\n%s\n" stderr;
+      Core.Std.printf "  stdout:\n%s\n%!" stdout;
+      Core.Std.printf "  stderr:\n%s\n%!" stderr;
       Deferred.return (Unix.Exit_or_signal.or_error exit_status)
   end
 
 let run_in_sandbox ({ Build_graph. action = _; inputs; outputs; } as node) =
   (* CR datkin: It would be good to assert that the sandbox is empty. *)
   let sandbox = ".dbuild-sandbox" in
-  Core.Unix.mkdir_p sandbox;
+  (* CR datkin: We should actually do this in terms of the project root... *)
   let cwd = Core.Unix.getcwd () in
+  Core.Unix.mkdir_p (cwd ^/ sandbox);
+  Core.Std.printf "cwd: %s\n%!" cwd;
+  (* Prep the output dirs so they're there before the renames.  *)
+  mkdirs outputs;
   Monitor.protect (fun () ->
-    Core.Unix.chdir sandbox;
+    Core.Unix.chdir (cwd ^/ sandbox);
     Monitor.protect (fun () ->
+      mkdirs inputs;
       Set.iter inputs ~f:(fun file ->
-        Core.Unix.system
-          (sprintf !"cp %s/%{File_name} %{File_name}" cwd file file)
+        let cmd = sprintf !"cp %s/%{File_name} %{File_name}" cwd file file in
+        Core.Std.printf "command: %s\n%!" cmd;
+        Core.Unix.system cmd
         |> Core.Unix.Exit_or_signal.or_error
         |> Or_error.ok_exn
       );
       run_node node
       >>=? fun () ->
       Set.iter outputs ~f:(fun file ->
+        (* Note: These paths need to be absolute. *)
         Core.Unix.rename
-          ~src:(File_name.to_string file)
+          ~src:(sprintf !"%s/%s/%{File_name}" cwd sandbox file)
           ~dst:(sprintf !"%s/%{File_name}" cwd file));
       return (Ok ())
     )

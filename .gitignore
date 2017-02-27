@@ -10,3 +10,4 @@ a.out
 **/*.corrected
 *.cm*
 dbuild
+.dbuild/*
