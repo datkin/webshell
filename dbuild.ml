@@ -1255,6 +1255,76 @@ let dump_cmd =
           (Build_graph.nodes (pruned_build_graph ~roots));
         Deferred.unit]
 
+let mkdirs files =
+  let dirs =
+    Set.to_list files
+    |> List.map ~f:(fun f -> Filename.dirname (File_name.to_string f))
+    |> List.dedup ~compare:String.compare
+  in
+  List.iter dirs ~f:Core.Unix.mkdir_p;
+;;
+
+let run_node { Build_graph. action; inputs; outputs; } =
+  mkdirs outputs;
+  begin
+    match action with
+    | Write_file { file; contents; } ->
+      Writer.with_file (File_name.to_string file) ~f:(fun writer ->
+        Writer.write writer contents;
+        Deferred.unit)
+      >>= fun () ->
+      Deferred.return (Ok ())
+    | Cmd { Cmd. exe; args; opam_switch; } ->
+      let env =
+        Option.map opam_switch ~f:(fun name ->
+          `Replace (get_opam_env name))
+      in
+      Process.create
+        ?env
+        ~prog:exe
+        ~args
+        ()
+      >>=? fun process ->
+      Process.collect_output_and_wait process
+      >>= fun { stdout; stderr; exit_status; } ->
+      printf !"> (%{sexp#mach:Unix.env option}) %s %{sexp#mach:string list}\n"
+        env exe args;
+      printf "  stdout:\n%s\n" stdout;
+      printf "  stderr:\n%s\n" stderr;
+      Deferred.return (Unix.Exit_or_signal.or_error exit_status)
+  end
+
+let run_in_sandbox ({ Build_graph. action = _; inputs; outputs; } as node) =
+  (* CR datkin: It would be good to assert that the sandbox is empty. *)
+  let sandbox = ".dbuild-sandbox" in
+  Core.Unix.mkdir_p sandbox;
+  let cwd = Core.Unix.getcwd () in
+  Monitor.protect (fun () ->
+    Core.Unix.chdir sandbox;
+    Monitor.protect (fun () ->
+      Set.iter inputs ~f:(fun file ->
+        Core.Unix.system
+          (sprintf !"cp %s/%{File_name} %{File_name}" cwd file file)
+        |> Core.Unix.Exit_or_signal.or_error
+        |> Or_error.ok_exn
+      );
+      run_node node
+      >>=? fun () ->
+      Set.iter outputs ~f:(fun file ->
+        Core.Unix.rename
+          ~src:(File_name.to_string file)
+          ~dst:(sprintf !"%s/%{File_name}" cwd file));
+      return (Ok ())
+    )
+      ~finally:(fun () ->
+        Set.iter (Set.union inputs outputs) ~f:(fun file ->
+          if file_exists (File_name.to_string file)
+          then Core.Unix.unlink (File_name.to_string file)
+          else ());
+        Deferred.unit))
+  ~finally:(fun () -> Core.Unix.chdir cwd; Deferred.unit)
+;;
+
 let build_cmd =
   let open Command.Let_syntax in
   Command.async_or_error'
@@ -1264,43 +1334,10 @@ let build_cmd =
       fun () ->
         pruned_build_graph ~roots:targets
         |> Build_graph.nodes
-        |> Deferred.List.fold ~init:(Ok ()) ~f:(fun result { Build_graph.  outputs; inputs = _; action; } ->
+        |> Deferred.List.fold ~init:(Ok ()) ~f:(fun result node ->
           Deferred.return result
           >>=? fun () ->
-          (* CR datkin: Add sandboxing to verify input dependencies. *)
-          let dirs =
-            Set.to_list outputs
-            |> List.map ~f:(fun f -> Filename.dirname (File_name.to_string f))
-            |> List.dedup ~compare:String.compare
-          in
-          List.iter dirs ~f:Core.Unix.mkdir_p;
-          begin
-            match action with
-            | Write_file { file; contents; } ->
-              Writer.with_file (File_name.to_string file) ~f:(fun writer ->
-                Writer.write writer contents;
-                Deferred.unit)
-              >>= fun () ->
-              Deferred.return (Ok ())
-            | Cmd { Cmd. exe; args; opam_switch; } ->
-              let env =
-                Option.map opam_switch ~f:(fun name ->
-                  `Replace (get_opam_env name))
-              in
-              Process.create
-                ?env
-                ~prog:exe
-                ~args
-                ()
-              >>=? fun process ->
-              Process.collect_output_and_wait process
-              >>= fun { stdout; stderr; exit_status; } ->
-              printf !"> (%{sexp#mach:Unix.env option}) %s %{sexp#mach:string list}\n"
-                env exe args;
-              printf "  stdout:\n%s\n" stdout;
-              printf "  stderr:\n%s\n" stderr;
-              Deferred.return (Unix.Exit_or_signal.or_error exit_status)
-          end)
+          run_in_sandbox node)
     ]
 
 let () =
