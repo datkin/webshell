@@ -711,9 +711,24 @@ let spec_to_nodes ~file_exists ~get_deps { Project_spec. libraries; binaries; } 
         let mls =
           List.map modules ~f:(fun module_name ->
             let module_deps =
+              (* These are the module dependencies named explicitly in the file.
+               * However, we could, e.g. reference constructors implicitly (i.e.
+               * w/o mentioning the module named) from other modules in the
+               * dependency closure, so we'll grab the closure. *)
               Map.find module_deps_by_module module_name
               |> Option.value ~default:[]
-              |> Module_name.Set.of_list
+            in
+            let module_deps =
+              topological_fold
+                ~sexp_of_key:[%sexp_of: Module_name.t]
+                ~key_set:Module_name.Set.empty
+                ~roots:module_deps
+                ~direct_deps:(fun module_name ->
+                  match Map.find module_deps_by_module module_name with
+                  | Some modules -> modules
+                  | None -> assert false)
+                ~init:Module_name.Set.empty
+                ~f:(fun module_name modules -> Set.add modules module_name)
             in
             let has_mli =
               let mli = file module_name "mli" in
@@ -1014,7 +1029,10 @@ let%expect_test "dependency summary" =
 
     .dbuild/native/odditty_kernel/modules/odditty_kernel__window.cmx
       .dbuild/native/odditty_kernel/modules/odditty_kernel.cmi
+      .dbuild/native/odditty_kernel/modules/odditty_kernel__character_set.cmi
       .dbuild/native/odditty_kernel/modules/odditty_kernel__control_functions.cmi
+      .dbuild/native/odditty_kernel/modules/odditty_kernel__dec_private_mode.cmi
+      .dbuild/native/odditty_kernel/modules/odditty_kernel__terminfo.cmi
       .dbuild/native/odditty_kernel/modules/odditty_kernel__window.cmi
       odditty_kernel/window.ml
 
