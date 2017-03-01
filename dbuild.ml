@@ -361,6 +361,11 @@ end = struct
       | `ml has_mli ->
         `ml, (match has_mli with | `has_mli -> true | `no_mli -> false)
     in
+    let kind_flag =
+      match which_file with
+      | `ml -> "-impl"
+      | `mli -> "-intf"
+    in
     let maybe_js_ppx =
       match context with
       | `generated -> []
@@ -422,6 +427,8 @@ end = struct
       | `ml, true ->
         (* The cmi is required *)
         (sprintf !"%s/%s%{Module_name}.%s" build_dir namespace module_name (ext kind `mli))
+        (* And we need to include the mli in the sandbox. *)
+        :: (sprintf !"%{Lib_name}/%{Module_name}.mli" lib_name module_name)
         :: extra_inputs
       | _, _ -> extra_inputs
     in
@@ -503,7 +510,7 @@ end = struct
           @ [
             "-I"; build_dir;
             "-no-alias-deps";
-            "-c"; input;
+            "-c"; kind_flag; input;
             "-o"; output;
           ];
       }
@@ -573,6 +580,10 @@ end = struct
       List.map modules_in_dep_order ~f:(fun module_name ->
         sprintf !"%s/%{Module_name}.%s" (build_dir kind `modules lib_name) module_name (ext kind `ml))
     in
+    let obj_inputs =
+      List.map modules_in_dep_order ~f:(fun module_name ->
+        sprintf !"%s/%{Module_name}.o" (build_dir kind `modules lib_name) module_name)
+    in
     let output =
       sprintf !"%s/%{Lib_name}.%s" (build_dir kind `archive lib_name) lib_name (ext kind `archive)
     in
@@ -599,10 +610,11 @@ end = struct
           ];
       }
     in
+    let inputs = ml_inputs @ obj_inputs in
     let inputs =
       match c_input with
-      | None -> ml_inputs
-      | Some x -> x :: ml_inputs
+      | None -> inputs
+      | Some x -> x :: inputs
     in
     { Build_graph.
       action = Cmd cmd;
