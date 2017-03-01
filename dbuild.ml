@@ -139,6 +139,14 @@ module Action = struct
 
   include T
   include Comparable.Make (T)
+
+  let dump ?env t =
+    match t with
+    | Cmd { opam_switch; exe; args; } ->
+      Core.Std.printf !"> (%{sexp:Opam_switch_name.t option} %{sexp#mach:(string * string) list option}) %s %{sexp#mach:string list}\n%!"
+        opam_switch env exe args;
+    | Write_file { file; contents = _; } ->
+      Core.Std.printf !"> Write %{File_name}\n%!" file
 end
 
 module Build_graph = struct
@@ -327,7 +335,7 @@ module Ocaml_compiler : sig
   val compile
     :  kind
     -> Package_name.Set.t (* package dependencies *)
-    -> Lib_name.Set.t (* library dependencies *)
+    -> Module_name.Set.t Lib_name.Map.t (* library dependencies *)
     -> Lib_name.t
     -> Module_name.Set.t (* module dependencies in this lib *)
     -> Module_name.t
@@ -374,22 +382,16 @@ end = struct
         | Native -> []
         | Js -> ["-ppx"; "$(opam config var lib)/js_of_ocaml/ppx_js"]
     in
-    let extra_includes =
-      Set.to_list libs
-      |> List.concat_map ~f:(fun lib ->
+    let extra_includes, extra_inputs =
+      Map.to_alist libs
+      |> List.map ~f:(fun (lib, lib_modules) ->
         let dir = build_dir kind `modules lib in
-        [ "-I"; dir;
-          (*
-            sprintf !"%s/%{Lib_name}.%s" dir lib (ext kind `archive);
-            *)
-        ])
-    in
-    (* CR datkin: If we instead look at the modules in the `modules dir, we might
-     * get more parallelism? *)
-    let extra_inputs =
-      Set.to_list libs
-      |> List.map ~f:(fun lib ->
-        sprintf !"%s/%{Lib_name}.%s" (build_dir kind `archive lib) lib (ext kind `archive))
+        [ "-I"; dir ],
+        List.map (Set.to_list lib_modules) ~f:(fun module_name ->
+          sprintf !"%s/%{Module_name}.cmi" (build_dir kind `modules lib) module_name)
+        )
+      |> List.unzip
+      |> (fun (a, b) -> List.concat a, List.concat b)
     in
     let src_dir =
       match context with
@@ -525,7 +527,14 @@ end = struct
 
   let%expect_test _ =
     let pkgs = List.map ["a"; "b"] ~f:Package_name.of_string |> Package_name.Set.of_list in
-    let libs = List.map ["x"; "y"] ~f:Lib_name.of_string |> Lib_name.Set.of_list in
+    let libs =
+      List.map [
+        "x", ["x"; "x__a"];
+        "y", ["y"; "y__b"];
+    ] ~f:(fun (lib, mods) ->
+      Lib_name.of_string lib, List.map mods ~f:Module_name.of_string |> Module_name.Set.of_list)
+      |> Lib_name.Map.of_alist_exn
+    in
     let mods = List.map ["flub"; "blub"] ~f:Module_name.of_string |> Module_name.Set.of_list in
     printf !"%{sexp:Build_graph.node}"
       (compile Native pkgs libs (Lib_name.of_string "foo") mods (Module_name.of_string "bar") (`ml `no_mli) `lib_code);
@@ -543,14 +552,15 @@ end = struct
        (inputs
         (.dbuild/native/foo/modules/foo.cmi
          .dbuild/native/foo/modules/foo__blub.cmi
-         .dbuild/native/foo/modules/foo__flub.cmi .dbuild/native/x/archive/x.cmxa
-         .dbuild/native/y/archive/y.cmxa foo/bar.ml))
+         .dbuild/native/foo/modules/foo__flub.cmi .dbuild/native/x/modules/x.cmi
+         .dbuild/native/x/modules/x__a.cmi .dbuild/native/y/modules/y.cmi
+         .dbuild/native/y/modules/y__b.cmi foo/bar.ml))
        (outputs
         (.dbuild/native/foo/modules/foo__bar.cmi
          .dbuild/native/foo/modules/foo__bar.cmx
          .dbuild/native/foo/modules/foo__bar.o))) |}];
     printf !"%{sexp:Build_graph.node}"
-      (compile Native pkgs Lib_name.Set.empty (Lib_name.of_string "foo")
+      (compile Native pkgs Lib_name.Map.empty (Lib_name.of_string "foo")
          Module_name.Set.empty (Module_name.of_string "bar") (`ml `no_mli) `generated);
     [%expect {|
       ((action
@@ -716,6 +726,17 @@ end = struct
 end
 
 let spec_to_nodes ~file_exists ~get_deps { Project_spec. libraries; binaries; } : Build_graph.node list =
+  let modules_by_lib =
+    List.map libraries ~f:(fun { Project_spec. dir; modules; _ } ->
+      let modules =
+        Module_name.of_string (Lib_name.to_string dir)
+        :: List.map modules ~f:(fun module_name ->
+          Module_name.of_string (sprintf !"%{Lib_name}__%{Module_name}" dir module_name))
+      in
+      dir, Module_name.Set.of_list modules
+    )
+    |> Lib_name.Map.of_alist_exn
+  in
   let of_lib { Project_spec. dir; modules; c_stub_basenames; direct_deps = { packages; libs; }; } =
     (* Instead of using module packing, we use the aliasing technique described
      * here: https://caml.inria.fr/pub/docs/manual-ocaml/extn.html#sec235
@@ -728,6 +749,10 @@ let spec_to_nodes ~file_exists ~get_deps { Project_spec. libraries; binaries; } 
         let basename = sprintf !"%{Module_name}.ml" module_name in
         module_name, get_deps dir ~basename)
       |> Module_name.Map.of_alist_exn
+    in
+    let libs =
+      (* CR datkin: Need to also take the topo closure of libs. *)
+      Lib_name.Set.to_map libs ~f:(Map.find_exn modules_by_lib)
     in
     let mli =
       List.filter_map modules ~f:(fun module_name ->
@@ -818,7 +843,7 @@ let spec_to_nodes ~file_exists ~get_deps { Project_spec. libraries; binaries; } 
           Ocaml_compiler.compile
             kind
             Package_name.Set.empty
-            Lib_name.Set.empty
+            Lib_name.Map.empty
             dir
             Module_name.Set.empty
             wrapper_module
@@ -869,6 +894,10 @@ let spec_to_nodes ~file_exists ~get_deps { Project_spec. libraries; binaries; } 
           | Some { Project_spec. packages = p; libs = _; } ->
             (Set.union packages p, lib :: libs)
           | None -> assert false)
+    in
+    let libs =
+      (* CR datkin: Need to also take the topo closure of libs. *)
+      Lib_name.Set.to_map libs ~f:(Map.find_exn modules_by_lib)
     in
     let libs_in_dep_order = List.rev libs_in_dep_order in
     let packages = Set.union packages extra_pkgs in
@@ -1009,12 +1038,6 @@ let%expect_test "dependency summary" =
    * exist as a pre-cond) we could error out.
    * *)
   [%expect {|
-    .dbuild/native/odditty/c/pty_stubs.o
-      odditty/pty_stubs.c
-
-    .dbuild/native/odditty/c/libodditty.a
-      .dbuild/native/odditty/c/pty_stubs.o
-
     .dbuild/native/odditty/generated/odditty.ml
 
     .dbuild/native/odditty/modules/odditty.cmi, .dbuild/native/odditty/modules/odditty.cmx, .dbuild/native/odditty/modules/odditty.o
@@ -1048,6 +1071,98 @@ let%expect_test "dependency summary" =
       .dbuild/native/odditty_kernel/modules/odditty_kernel__terminfo.cmi
       odditty_kernel/control_functions.mli
 
+    .dbuild/native/odditty_kernel/modules/odditty_kernel__window.cmi
+      .dbuild/native/odditty_kernel/modules/odditty_kernel.cmi
+      .dbuild/native/odditty_kernel/modules/odditty_kernel__control_functions.cmi
+      odditty_kernel/window.mli
+
+    .dbuild/native/odditty/modules/odditty__pty.cmi
+      .dbuild/native/odditty/modules/odditty.cmi
+      .dbuild/native/odditty_kernel/modules/odditty_kernel.cmi
+      .dbuild/native/odditty_kernel/modules/odditty_kernel__character_attributes.cmi
+      .dbuild/native/odditty_kernel/modules/odditty_kernel__character_set.cmi
+      .dbuild/native/odditty_kernel/modules/odditty_kernel__control_functions.cmi
+      .dbuild/native/odditty_kernel/modules/odditty_kernel__dec_private_mode.cmi
+      .dbuild/native/odditty_kernel/modules/odditty_kernel__terminfo.cmi
+      .dbuild/native/odditty_kernel/modules/odditty_kernel__window.cmi
+      odditty/pty.mli
+
+    .dbuild/native/odditty/modules/odditty__terminfo.cmi
+      .dbuild/native/odditty/modules/odditty.cmi
+      .dbuild/native/odditty_kernel/modules/odditty_kernel.cmi
+      .dbuild/native/odditty_kernel/modules/odditty_kernel__character_attributes.cmi
+      .dbuild/native/odditty_kernel/modules/odditty_kernel__character_set.cmi
+      .dbuild/native/odditty_kernel/modules/odditty_kernel__control_functions.cmi
+      .dbuild/native/odditty_kernel/modules/odditty_kernel__dec_private_mode.cmi
+      .dbuild/native/odditty_kernel/modules/odditty_kernel__terminfo.cmi
+      .dbuild/native/odditty_kernel/modules/odditty_kernel__window.cmi
+      odditty/terminfo.mli
+
+    .dbuild/native/server/generated/server.ml
+
+    .dbuild/native/server/modules/server.cmi, .dbuild/native/server/modules/server.cmx, .dbuild/native/server/modules/server.o
+      .dbuild/native/server/generated/server.ml
+
+    .dbuild/native/server/modules/server__web_server.cmi
+      .dbuild/native/server/modules/server.cmi
+      server/web_server.mli
+
+    .dbuild/native/bin/modules/main.cmi, .dbuild/native/bin/modules/main.cmx, .dbuild/native/bin/modules/main.o
+      .dbuild/native/odditty/modules/odditty.cmi
+      .dbuild/native/odditty/modules/odditty__pty.cmi
+      .dbuild/native/odditty/modules/odditty__terminfo.cmi
+      .dbuild/native/odditty_kernel/modules/odditty_kernel.cmi
+      .dbuild/native/odditty_kernel/modules/odditty_kernel__character_attributes.cmi
+      .dbuild/native/odditty_kernel/modules/odditty_kernel__character_set.cmi
+      .dbuild/native/odditty_kernel/modules/odditty_kernel__control_functions.cmi
+      .dbuild/native/odditty_kernel/modules/odditty_kernel__dec_private_mode.cmi
+      .dbuild/native/odditty_kernel/modules/odditty_kernel__terminfo.cmi
+      .dbuild/native/odditty_kernel/modules/odditty_kernel__window.cmi
+      .dbuild/native/server/modules/server.cmi
+      .dbuild/native/server/modules/server__web_server.cmi
+      bin/main.ml
+
+    .dbuild/native/odditty/c/pty_stubs.o
+      odditty/pty_stubs.c
+
+    .dbuild/native/odditty/c/libodditty.a
+      .dbuild/native/odditty/c/pty_stubs.o
+
+    .dbuild/native/odditty/modules/odditty__pty.cmx, .dbuild/native/odditty/modules/odditty__pty.o
+      .dbuild/native/odditty/modules/odditty.cmi
+      .dbuild/native/odditty/modules/odditty__pty.cmi
+      .dbuild/native/odditty_kernel/modules/odditty_kernel.cmi
+      .dbuild/native/odditty_kernel/modules/odditty_kernel__character_attributes.cmi
+      .dbuild/native/odditty_kernel/modules/odditty_kernel__character_set.cmi
+      .dbuild/native/odditty_kernel/modules/odditty_kernel__control_functions.cmi
+      .dbuild/native/odditty_kernel/modules/odditty_kernel__dec_private_mode.cmi
+      .dbuild/native/odditty_kernel/modules/odditty_kernel__terminfo.cmi
+      .dbuild/native/odditty_kernel/modules/odditty_kernel__window.cmi
+      odditty/pty.ml
+      odditty/pty.mli
+
+    .dbuild/native/odditty/modules/odditty__terminfo.cmx, .dbuild/native/odditty/modules/odditty__terminfo.o
+      .dbuild/native/odditty/modules/odditty.cmi
+      .dbuild/native/odditty/modules/odditty__terminfo.cmi
+      .dbuild/native/odditty_kernel/modules/odditty_kernel.cmi
+      .dbuild/native/odditty_kernel/modules/odditty_kernel__character_attributes.cmi
+      .dbuild/native/odditty_kernel/modules/odditty_kernel__character_set.cmi
+      .dbuild/native/odditty_kernel/modules/odditty_kernel__control_functions.cmi
+      .dbuild/native/odditty_kernel/modules/odditty_kernel__dec_private_mode.cmi
+      .dbuild/native/odditty_kernel/modules/odditty_kernel__terminfo.cmi
+      .dbuild/native/odditty_kernel/modules/odditty_kernel__window.cmi
+      odditty/terminfo.ml
+      odditty/terminfo.mli
+
+    .dbuild/native/odditty/archive/odditty.cmxa
+      .dbuild/native/odditty/c/libodditty.a
+      .dbuild/native/odditty/modules/odditty.cmx
+      .dbuild/native/odditty/modules/odditty.o
+      .dbuild/native/odditty/modules/odditty__pty.cmx
+      .dbuild/native/odditty/modules/odditty__pty.o
+      .dbuild/native/odditty/modules/odditty__terminfo.cmx
+      .dbuild/native/odditty/modules/odditty__terminfo.o
+
     .dbuild/native/odditty_kernel/modules/odditty_kernel__control_functions.cmx, .dbuild/native/odditty_kernel/modules/odditty_kernel__control_functions.o
       .dbuild/native/odditty_kernel/modules/odditty_kernel.cmi
       .dbuild/native/odditty_kernel/modules/odditty_kernel__character_set.cmi
@@ -1062,11 +1177,6 @@ let%expect_test "dependency summary" =
       .dbuild/native/odditty_kernel/modules/odditty_kernel__terminfo.cmi
       odditty_kernel/terminfo.ml
       odditty_kernel/terminfo.mli
-
-    .dbuild/native/odditty_kernel/modules/odditty_kernel__window.cmi
-      .dbuild/native/odditty_kernel/modules/odditty_kernel.cmi
-      .dbuild/native/odditty_kernel/modules/odditty_kernel__control_functions.cmi
-      odditty_kernel/window.mli
 
     .dbuild/native/odditty_kernel/modules/odditty_kernel__window.cmx, .dbuild/native/odditty_kernel/modules/odditty_kernel__window.o
       .dbuild/native/odditty_kernel/modules/odditty_kernel.cmi
@@ -1094,48 +1204,6 @@ let%expect_test "dependency summary" =
       .dbuild/native/odditty_kernel/modules/odditty_kernel__window.cmx
       .dbuild/native/odditty_kernel/modules/odditty_kernel__window.o
 
-    .dbuild/native/odditty/modules/odditty__pty.cmi
-      .dbuild/native/odditty/modules/odditty.cmi
-      .dbuild/native/odditty_kernel/archive/odditty_kernel.cmxa
-      odditty/pty.mli
-
-    .dbuild/native/odditty/modules/odditty__pty.cmx, .dbuild/native/odditty/modules/odditty__pty.o
-      .dbuild/native/odditty/modules/odditty.cmi
-      .dbuild/native/odditty/modules/odditty__pty.cmi
-      .dbuild/native/odditty_kernel/archive/odditty_kernel.cmxa
-      odditty/pty.ml
-      odditty/pty.mli
-
-    .dbuild/native/odditty/modules/odditty__terminfo.cmi
-      .dbuild/native/odditty/modules/odditty.cmi
-      .dbuild/native/odditty_kernel/archive/odditty_kernel.cmxa
-      odditty/terminfo.mli
-
-    .dbuild/native/odditty/modules/odditty__terminfo.cmx, .dbuild/native/odditty/modules/odditty__terminfo.o
-      .dbuild/native/odditty/modules/odditty.cmi
-      .dbuild/native/odditty/modules/odditty__terminfo.cmi
-      .dbuild/native/odditty_kernel/archive/odditty_kernel.cmxa
-      odditty/terminfo.ml
-      odditty/terminfo.mli
-
-    .dbuild/native/odditty/archive/odditty.cmxa
-      .dbuild/native/odditty/c/libodditty.a
-      .dbuild/native/odditty/modules/odditty.cmx
-      .dbuild/native/odditty/modules/odditty.o
-      .dbuild/native/odditty/modules/odditty__pty.cmx
-      .dbuild/native/odditty/modules/odditty__pty.o
-      .dbuild/native/odditty/modules/odditty__terminfo.cmx
-      .dbuild/native/odditty/modules/odditty__terminfo.o
-
-    .dbuild/native/server/generated/server.ml
-
-    .dbuild/native/server/modules/server.cmi, .dbuild/native/server/modules/server.cmx, .dbuild/native/server/modules/server.o
-      .dbuild/native/server/generated/server.ml
-
-    .dbuild/native/server/modules/server__web_server.cmi
-      .dbuild/native/server/modules/server.cmi
-      server/web_server.mli
-
     .dbuild/native/server/modules/server__web_server.cmx, .dbuild/native/server/modules/server__web_server.o
       .dbuild/native/server/modules/server.cmi
       .dbuild/native/server/modules/server__web_server.cmi
@@ -1147,12 +1215,6 @@ let%expect_test "dependency summary" =
       .dbuild/native/server/modules/server.o
       .dbuild/native/server/modules/server__web_server.cmx
       .dbuild/native/server/modules/server__web_server.o
-
-    .dbuild/native/bin/modules/main.cmi, .dbuild/native/bin/modules/main.cmx, .dbuild/native/bin/modules/main.o
-      .dbuild/native/odditty/archive/odditty.cmxa
-      .dbuild/native/odditty_kernel/archive/odditty_kernel.cmxa
-      .dbuild/native/server/archive/server.cmxa
-      bin/main.ml
 
     .dbuild/native/bin/linked/main.native
       .dbuild/native/bin/modules/main.cmx
@@ -1345,26 +1407,23 @@ let run_node { Build_graph. action; inputs = _; outputs; } =
   begin
     match action with
     | Write_file { file; contents; } ->
+      Action.dump action;
       Writer.with_file (File_name.to_string file) ~f:(fun writer ->
         Writer.write writer contents;
         Deferred.unit)
       >>= fun () ->
       Deferred.return (Ok ())
     | Cmd { Cmd. exe; args; opam_switch; } ->
-      let env =
-        Option.map opam_switch ~f:(fun name ->
-          `Replace (get_opam_env name))
-      in
+      let env = Option.map opam_switch ~f:get_opam_env in
+      Action.dump ?env action;
       Process.create
-        ?env
+        ?env:(Option.map env ~f:(fun env -> `Replace env))
         ~prog:exe
         ~args
         ()
       >>=? fun process ->
       Process.collect_output_and_wait process
       >>= fun { stdout; stderr; exit_status; } ->
-      Core.Std.printf !"> (%{sexp#mach:Unix.env option}) %s %{sexp#mach:string list}\n%!"
-        env exe args;
       Core.Std.printf "  stdout:\n%s\n%!" stdout;
       Core.Std.printf "  stderr:\n%s\n%!" stderr;
       Deferred.return (Unix.Exit_or_signal.or_error exit_status)
@@ -1434,6 +1493,10 @@ let build_cmd =
             stop_before_build
             && not (Set.is_empty (Set.inter node.outputs target_set))
           in
+          begin
+            if stop_now
+            then Action.dump node.action;
+          end;
           if use_sandbox
           then (
             prep_sandbox node

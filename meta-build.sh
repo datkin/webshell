@@ -22,7 +22,7 @@ ocamlfind ocamlopt \
   -package ppx_inline_test.runner.lib \
   -package ppx_expect.evaluator \
   -ppx 'ppx-jane -as-ppx -inline-test-lib dbuild' \
-  dbuild.ml \
+  dbuild.mli dbuild.ml \
   -o dbuild
 
 (TEST= ./dbuild inline-test-runner dbuild -verbose)
