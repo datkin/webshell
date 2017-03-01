@@ -537,7 +537,7 @@ end = struct
            (ocamlopt -w +a-4-40-42-44-48-58 -g -open Foo -ppx
             "ppx-jane -as-ppx -inline-test-lib foo" -thread -package a,b -I
             .dbuild/native/x/modules -I .dbuild/native/y/modules -I
-            .dbuild/native/foo/modules -no-alias-deps -c foo/bar.ml -o
+            .dbuild/native/foo/modules -no-alias-deps -c -impl foo/bar.ml -o
             .dbuild/native/foo/modules/foo__bar.cmx))
           (opam_switch (4.03.0)))))
        (inputs
@@ -558,7 +558,7 @@ end = struct
          ((exe ocamlfind)
           (args
            (ocamlopt -w +a-49-4-40-42-44-48-58 -g -thread -package a,b -I
-            .dbuild/native/foo/modules -no-alias-deps -c
+            .dbuild/native/foo/modules -no-alias-deps -c -impl
             .dbuild/native/foo/generated/bar.ml -o
             .dbuild/native/foo/modules/bar.cmx))
           (opam_switch (4.03.0)))))
@@ -638,7 +638,8 @@ end = struct
           (opam_switch (4.03.0)))))
        (inputs
         (.dbuild/native/foo/c/libfoo.a .dbuild/native/foo/modules/a.cmx
-         .dbuild/native/foo/modules/b.cmx))
+         .dbuild/native/foo/modules/a.o .dbuild/native/foo/modules/b.cmx
+         .dbuild/native/foo/modules/b.o))
        (outputs (.dbuild/native/foo/archive/foo.cmxa))) |}];
   ;;
 
@@ -1054,11 +1055,13 @@ let%expect_test "dependency summary" =
       .dbuild/native/odditty_kernel/modules/odditty_kernel__dec_private_mode.cmi
       .dbuild/native/odditty_kernel/modules/odditty_kernel__terminfo.cmi
       odditty_kernel/control_functions.ml
+      odditty_kernel/control_functions.mli
 
     .dbuild/native/odditty_kernel/modules/odditty_kernel__terminfo.cmx, .dbuild/native/odditty_kernel/modules/odditty_kernel__terminfo.o
       .dbuild/native/odditty_kernel/modules/odditty_kernel.cmi
       .dbuild/native/odditty_kernel/modules/odditty_kernel__terminfo.cmi
       odditty_kernel/terminfo.ml
+      odditty_kernel/terminfo.mli
 
     .dbuild/native/odditty_kernel/modules/odditty_kernel__window.cmi
       .dbuild/native/odditty_kernel/modules/odditty_kernel.cmi
@@ -1073,15 +1076,23 @@ let%expect_test "dependency summary" =
       .dbuild/native/odditty_kernel/modules/odditty_kernel__terminfo.cmi
       .dbuild/native/odditty_kernel/modules/odditty_kernel__window.cmi
       odditty_kernel/window.ml
+      odditty_kernel/window.mli
 
     .dbuild/native/odditty_kernel/archive/odditty_kernel.cmxa
       .dbuild/native/odditty_kernel/modules/odditty_kernel.cmx
+      .dbuild/native/odditty_kernel/modules/odditty_kernel.o
       .dbuild/native/odditty_kernel/modules/odditty_kernel__character_attributes.cmx
+      .dbuild/native/odditty_kernel/modules/odditty_kernel__character_attributes.o
       .dbuild/native/odditty_kernel/modules/odditty_kernel__character_set.cmx
+      .dbuild/native/odditty_kernel/modules/odditty_kernel__character_set.o
       .dbuild/native/odditty_kernel/modules/odditty_kernel__control_functions.cmx
+      .dbuild/native/odditty_kernel/modules/odditty_kernel__control_functions.o
       .dbuild/native/odditty_kernel/modules/odditty_kernel__dec_private_mode.cmx
+      .dbuild/native/odditty_kernel/modules/odditty_kernel__dec_private_mode.o
       .dbuild/native/odditty_kernel/modules/odditty_kernel__terminfo.cmx
+      .dbuild/native/odditty_kernel/modules/odditty_kernel__terminfo.o
       .dbuild/native/odditty_kernel/modules/odditty_kernel__window.cmx
+      .dbuild/native/odditty_kernel/modules/odditty_kernel__window.o
 
     .dbuild/native/odditty/modules/odditty__pty.cmi
       .dbuild/native/odditty/modules/odditty.cmi
@@ -1093,6 +1104,7 @@ let%expect_test "dependency summary" =
       .dbuild/native/odditty/modules/odditty__pty.cmi
       .dbuild/native/odditty_kernel/archive/odditty_kernel.cmxa
       odditty/pty.ml
+      odditty/pty.mli
 
     .dbuild/native/odditty/modules/odditty__terminfo.cmi
       .dbuild/native/odditty/modules/odditty.cmi
@@ -1104,12 +1116,16 @@ let%expect_test "dependency summary" =
       .dbuild/native/odditty/modules/odditty__terminfo.cmi
       .dbuild/native/odditty_kernel/archive/odditty_kernel.cmxa
       odditty/terminfo.ml
+      odditty/terminfo.mli
 
     .dbuild/native/odditty/archive/odditty.cmxa
       .dbuild/native/odditty/c/libodditty.a
       .dbuild/native/odditty/modules/odditty.cmx
+      .dbuild/native/odditty/modules/odditty.o
       .dbuild/native/odditty/modules/odditty__pty.cmx
+      .dbuild/native/odditty/modules/odditty__pty.o
       .dbuild/native/odditty/modules/odditty__terminfo.cmx
+      .dbuild/native/odditty/modules/odditty__terminfo.o
 
     .dbuild/native/server/generated/server.ml
 
@@ -1124,10 +1140,13 @@ let%expect_test "dependency summary" =
       .dbuild/native/server/modules/server.cmi
       .dbuild/native/server/modules/server__web_server.cmi
       server/web_server.ml
+      server/web_server.mli
 
     .dbuild/native/server/archive/server.cmxa
       .dbuild/native/server/modules/server.cmx
+      .dbuild/native/server/modules/server.o
       .dbuild/native/server/modules/server__web_server.cmx
+      .dbuild/native/server/modules/server__web_server.o
 
     .dbuild/native/bin/modules/main.cmi, .dbuild/native/bin/modules/main.cmx, .dbuild/native/bin/modules/main.o
       .dbuild/native/odditty/archive/odditty.cmxa
@@ -1351,59 +1370,48 @@ let run_node { Build_graph. action; inputs = _; outputs; } =
       Deferred.return (Unix.Exit_or_signal.or_error exit_status)
   end
 
-let run_in_sandbox ({ Build_graph. action = _; inputs; outputs; } as node) =
+(* Copies files to sandbox, returns the sandbox dir. *)
+let prep_sandbox ({ Build_graph. action = _; inputs; outputs; } as node) : string Deferred.t =
   (* CR datkin: It would be good to assert that the sandbox is empty. *)
+  (* CR datkin: When we do parallel builds, we need separate sandboxes. *)
   let sandbox = ".dbuild-sandbox" in
+  Core.Unix.mkdir_p sandbox;
+  let sandbox_inputs =
+    File_name.Set.map inputs ~f:(fun file ->
+      sprintf !"%s/%{File_name}" sandbox file |> File_name.of_string)
+  in
+  mkdirs sandbox_inputs;
+  Set.iter inputs ~f:(fun file ->
+    let cmd = sprintf !"cp %{File_name} %s/%{File_name}" file sandbox file in
+    Core.Unix.system cmd
+    |> Core.Unix.Exit_or_signal.or_error
+    |> Or_error.ok_exn
+  );
+  return sandbox
+
+let run_in_sandbox ~sandbox ({ Build_graph. action = _; inputs; outputs; } as node) =
   (* CR datkin: We should actually do this in terms of the project root... *)
   let cwd = Core.Unix.getcwd () in
-  Core.Unix.mkdir_p (cwd ^/ sandbox);
   (* Prep the output dirs so they're there before the renames.  *)
   mkdirs outputs;
   Monitor.protect (fun () ->
     Core.Unix.chdir (cwd ^/ sandbox);
     Monitor.protect (fun () ->
-      mkdirs inputs;
-      Set.iter inputs ~f:(fun file ->
-        let cmd = sprintf !"cp %s/%{File_name} %{File_name}" cwd file file in
-        Core.Unix.system cmd
-        |> Core.Unix.Exit_or_signal.or_error
-        |> Or_error.ok_exn
-      );
-      Set.iter outputs ~f:(fun file ->
-        begin
-        if File_name.to_string file =
-             ".dbuild/native/odditty_kernel/modules/odditty_kernel__terminfo.cmi"
-        || File_name.to_string file =
-             ".dbuild/native/odditty_kernel/modules/odditty_kernel__terminfo.cmx"
-        then
-          let output = Core.Unix.open_process_in (sprintf "ocamlobjinfo %s/%s/.dbuild/native/odditty_kernel/modules/odditty_kernel__terminfo.cmi" cwd sandbox ) |> In_channel.input_lines in
-          Core.Std.printf !"BEFORE %{sexp:string list} XXX\n%!" output;
-        end);
       run_node node
       >>=? fun () ->
       Set.iter outputs ~f:(fun file ->
-        begin
-        if File_name.to_string file =
-             ".dbuild/native/odditty_kernel/modules/odditty_kernel__terminfo.cmi"
-        || File_name.to_string file =
-             ".dbuild/native/odditty_kernel/modules/odditty_kernel__terminfo.cmx"
-        then
-          let output = Core.Unix.open_process_in (sprintf "ocamlobjinfo %s/%s/.dbuild/native/odditty_kernel/modules/odditty_kernel__terminfo.cmi" cwd sandbox ) |> In_channel.input_lines in
-          Core.Std.printf !"AFTER %{sexp:string list} XXX\n%!" output;
-        end;
-        (* Note: These paths need to be absolute. *)
+        (* Note: These paths need to be absolute? *)
         Core.Unix.rename
           ~src:(sprintf !"%s/%s/%{File_name}" cwd sandbox file)
           ~dst:(sprintf !"%s/%{File_name}" cwd file));
-      return (Ok ())
-    )
+      return (Ok ()))
       ~finally:(fun () ->
         Set.iter (Set.union inputs outputs) ~f:(fun file ->
           if file_exists (File_name.to_string file)
           then Core.Unix.unlink (File_name.to_string file)
           else ());
         Deferred.unit))
-  ~finally:(fun () -> Core.Unix.chdir cwd; Deferred.unit)
+    ~finally:(fun () -> Core.Unix.chdir cwd; Deferred.unit)
 ;;
 
 let build_cmd =
@@ -1411,14 +1419,35 @@ let build_cmd =
   Command.async_or_error'
     ~summary:"Build the specified targets"
     [%map_open
-      let targets = anon (sequence ("target" %: file_arg)) in
+      let use_sandbox = flag "sandbox" no_arg ~doc:" Build in sandbox"
+      and stop_before_build = flag "stop" no_arg ~doc:" Stop right before the target"
+      and targets = anon (sequence ("target" %: file_arg))
+      in
       fun () ->
+        let target_set = File_name.Set.of_list targets in
         pruned_build_graph ~roots:targets
         |> Build_graph.nodes
         |> Deferred.List.fold ~init:(Ok ()) ~f:(fun result node ->
           Deferred.return result
           >>=? fun () ->
-          (*run_node*) run_in_sandbox node)
+          let stop_now =
+            stop_before_build
+            && not (Set.is_empty (Set.inter node.outputs target_set))
+          in
+          if use_sandbox
+          then (
+            prep_sandbox node
+            >>= fun sandbox ->
+            if stop_now
+            then Deferred.return (Or_error.errorf "Stopped, sandbox in %s" sandbox)
+            else run_in_sandbox ~sandbox node
+          )
+          else (
+            if stop_now
+            then Deferred.return (Or_error.error_string "stopped")
+            else run_node node
+          )
+        )
     ]
 
 let () =
