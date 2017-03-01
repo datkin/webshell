@@ -346,7 +346,11 @@ module Ocaml_compiler : sig
   val archive : kind -> c_stubs:string list -> Lib_name.t -> modules_in_dep_order:Module_name.t list -> Build_graph.node
 
   val link
-    : kind -> Package_name.Set.t -> libs_in_dep_order:Lib_name.t list -> Module_name.t -> Build_graph.node
+    :  kind
+    -> Package_name.Set.t
+    -> libs_in_dep_order:(Lib_name.t * [ `archive | `no_archive ]) list
+    -> Module_name.t
+    -> Build_graph.node
 end = struct
 
   let ocamlc = function
@@ -669,11 +673,21 @@ end = struct
     in
     let input_archives =
       (* CR datkin: Do we need to check for c archives too? *)
-      List.map libs_in_dep_order ~f:(fun lib ->
+      List.map libs_in_dep_order ~f:(fun (lib, _) ->
         sprintf !"%s/%{Lib_name}.%s"
           (build_dir kind `archive lib)
           lib
           (ext kind `archive))
+    in
+    let input_c_archives =
+      List.filter_map libs_in_dep_order ~f:(fun (lib, has_archive) ->
+        match has_archive with
+        | `no_archive -> None
+        | `archive ->
+          sprintf !"%s/lib%{Lib_name}.a"
+            (build_dir kind `c lib)
+            lib
+          |> Some)
     in
     let input_module =
       sprintf !"%s/%{Module_name}.%s"
@@ -704,13 +718,16 @@ end = struct
     in
     { Build_graph.
       action = Cmd cmd;
-      inputs = f (input_module :: input_object :: input_archives);
+      inputs = f (input_module :: input_object :: input_archives @ input_c_archives);
       outputs = f [ output ];
     }
 
   let%expect_test _ =
     let pkgs = List.map ["a"; "b"] ~f:Package_name.of_string |> Package_name.Set.of_list in
-    let libs_in_dep_order = List.map ["x"; "y"] ~f:Lib_name.of_string in
+    let libs_in_dep_order =
+      ["x", `archive; "y", `no_archive]
+      |> List.map ~f:(fun (lib, x) -> Lib_name.of_string lib, x)
+    in
     let module_name = Module_name.of_string "main" in
     printf !"%{sexp:Build_graph.node}" (link Native pkgs ~libs_in_dep_order module_name);
     [%expect {|
@@ -724,13 +741,25 @@ end = struct
           (opam_switch (4.03.0)))))
        (inputs
         (.dbuild/native/bin/modules/main.cmx .dbuild/native/bin/modules/main.o
-         .dbuild/native/x/archive/x.cmxa .dbuild/native/y/archive/y.cmxa))
+         .dbuild/native/x/archive/x.cmxa .dbuild/native/x/c/libx.a
+         .dbuild/native/y/archive/y.cmxa))
        (outputs (.dbuild/native/bin/linked/main.native))) |}];
   ;;
 
 end
 
 let spec_to_nodes ~file_exists ~get_deps { Project_spec. libraries; binaries; } : Build_graph.node list =
+  let archive_by_lib =
+    List.map libraries ~f:(fun { Project_spec. dir; c_stub_basenames; _ } ->
+      let has_archive =
+        if List.is_empty c_stub_basenames
+        then `no_archive
+        else `archive
+      in
+      dir, has_archive
+    )
+    |> Lib_name.Map.of_alist_exn
+  in
   let modules_by_lib =
     List.map libraries ~f:(fun { Project_spec. dir; modules; _ } ->
       let modules =
@@ -904,7 +933,10 @@ let spec_to_nodes ~file_exists ~get_deps { Project_spec. libraries; binaries; } 
       (* CR datkin: Need to also take the topo closure of libs. *)
       Lib_name.Set.to_map libs ~f:(Map.find_exn modules_by_lib)
     in
-    let libs_in_dep_order = List.rev libs_in_dep_order in
+    let libs_in_dep_order =
+      List.rev libs_in_dep_order
+      |> List.map ~f:(fun lib -> lib, Map.find_exn archive_by_lib lib)
+    in
     let packages = Set.union packages extra_pkgs in
     let kind = match output with `native -> Native | `js -> Js in
     [
@@ -1225,6 +1257,7 @@ let%expect_test "dependency summary" =
       .dbuild/native/bin/modules/main.cmx
       .dbuild/native/bin/modules/main.o
       .dbuild/native/odditty/archive/odditty.cmxa
+      .dbuild/native/odditty/c/libodditty.a
       .dbuild/native/odditty_kernel/archive/odditty_kernel.cmxa
       .dbuild/native/server/archive/server.cmxa |}];
   let node =
@@ -1447,6 +1480,11 @@ let prep_sandbox ({ Build_graph. action = _; inputs; outputs; } as node) : strin
   in
   mkdirs sandbox_inputs;
   Set.iter inputs ~f:(fun file ->
+    begin
+    if not (file_exists (File_name.to_string file))
+    then failwithf !"Can't build %{sexp:File_name.Set.t}, required file %{File_name} is missing"
+           outputs file ()
+    end;
     let cmd = sprintf !"cp %{File_name} %s/%{File_name}" file sandbox file in
     Core.Unix.system cmd
     |> Core.Unix.Exit_or_signal.or_error
