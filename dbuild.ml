@@ -352,6 +352,7 @@ end = struct
     | Native, `archive -> "cmxa"
     | Js, `archive -> "cma"
     | _, `mli -> "cmi"
+    | _, `obj -> "o"
 
   let compile kind pkgs libs lib_name modules module_name which_file context =
     let which_file, has_mli =
@@ -433,9 +434,10 @@ end = struct
       (* The build dir needs to have the cmi's of the modules we depend on
        * compiled. *)
       Set.to_list modules
-      |> List.map ~f:(fun module_name ->
-        let ext = ext kind `mli in
-        sprintf !"%s/%s%{Module_name}.%s" build_dir namespace module_name ext)
+      |> List.concat_map ~f:(fun module_name ->
+          List.map [`mli;(* `ml; `obj*)] ~f:(fun file_ext ->
+        let ext = ext kind file_ext in
+        sprintf !"%s/%s%{Module_name}.%s" build_dir namespace module_name ext))
     in
     let module_deps =
       match context with
@@ -1355,9 +1357,28 @@ let run_in_sandbox ({ Build_graph. action = _; inputs; outputs; } as node) =
         |> Core.Unix.Exit_or_signal.or_error
         |> Or_error.ok_exn
       );
+      Set.iter outputs ~f:(fun file ->
+        begin
+        if File_name.to_string file =
+             ".dbuild/native/odditty_kernel/modules/odditty_kernel__terminfo.cmi"
+        || File_name.to_string file =
+             ".dbuild/native/odditty_kernel/modules/odditty_kernel__terminfo.cmx"
+        then
+          let output = Core.Unix.open_process_in (sprintf "ocamlobjinfo %s/%s/.dbuild/native/odditty_kernel/modules/odditty_kernel__terminfo.cmi" cwd sandbox ) |> In_channel.input_lines in
+          Core.Std.printf !"BEFORE %{sexp:string list} XXX\n%!" output;
+        end);
       run_node node
       >>=? fun () ->
       Set.iter outputs ~f:(fun file ->
+        begin
+        if File_name.to_string file =
+             ".dbuild/native/odditty_kernel/modules/odditty_kernel__terminfo.cmi"
+        || File_name.to_string file =
+             ".dbuild/native/odditty_kernel/modules/odditty_kernel__terminfo.cmx"
+        then
+          let output = Core.Unix.open_process_in (sprintf "ocamlobjinfo %s/%s/.dbuild/native/odditty_kernel/modules/odditty_kernel__terminfo.cmi" cwd sandbox ) |> In_channel.input_lines in
+          Core.Std.printf !"AFTER %{sexp:string list} XXX\n%!" output;
+        end;
         (* Note: These paths need to be absolute. *)
         Core.Unix.rename
           ~src:(sprintf !"%s/%s/%{File_name}" cwd sandbox file)

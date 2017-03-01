@@ -1,0 +1,6 @@
+Bad terminfo interface checksum: 9467090013bb9ee65012b6546ffdff9f
+"After" terminfo cmi checksum: 6d160f988998dbb980185c97e919bd9f
+
+before/after terminfo cmx crc:
+-|CRC of implementation: 46efed17779547ea8fa1ce9edc8fe3df
++|CRC of implementation: 9522877ddd2029db898967ad6f1d4bf6
