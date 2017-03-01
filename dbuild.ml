@@ -681,6 +681,11 @@ end = struct
         module_name
         (ext kind `ml)
     in
+    let input_object =
+      sprintf !"%s/%{Module_name}.o"
+        (build_dir kind `modules bin_lib)
+        module_name
+    in
     let cmd =
       { Cmd.
         opam_switch = Some (opam_switch kind);
@@ -699,7 +704,7 @@ end = struct
     in
     { Build_graph.
       action = Cmd cmd;
-      inputs = f (input_module :: input_archives);
+      inputs = f (input_module :: input_object :: input_archives);
       outputs = f [ output ];
     }
 
@@ -718,8 +723,8 @@ end = struct
             .dbuild/native/bin/linked/main.native))
           (opam_switch (4.03.0)))))
        (inputs
-        (.dbuild/native/bin/modules/main.cmx .dbuild/native/x/archive/x.cmxa
-         .dbuild/native/y/archive/y.cmxa))
+        (.dbuild/native/bin/modules/main.cmx .dbuild/native/bin/modules/main.o
+         .dbuild/native/x/archive/x.cmxa .dbuild/native/y/archive/y.cmxa))
        (outputs (.dbuild/native/bin/linked/main.native))) |}];
   ;;
 
@@ -1218,6 +1223,7 @@ let%expect_test "dependency summary" =
 
     .dbuild/native/bin/linked/main.native
       .dbuild/native/bin/modules/main.cmx
+      .dbuild/native/bin/modules/main.o
       .dbuild/native/odditty/archive/odditty.cmxa
       .dbuild/native/odditty_kernel/archive/odditty_kernel.cmxa
       .dbuild/native/server/archive/server.cmxa |}];
