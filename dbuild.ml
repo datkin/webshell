@@ -20,7 +20,7 @@ module Package_name = String_id.Make (struct
     let module_name = "Package_name"
   end) ()
 
-(* CR datkin: May change the build rules to produce ocamlfind packages for
+(* CR-someday datkin: May change the build rules to produce ocamlfind packages for
  * libraries. *)
 (* Lib name refers to a packed library of ocaml modules defined within a dbuild
  * project. *)
@@ -384,7 +384,7 @@ end = struct
       | `vanilla | `lib_code ->
         match kind with
         | Native -> []
-        | Js -> ["-ppx"; "$(opam config var lib)/js_of_ocaml/ppx_js"]
+        | Js -> ["-ppx"; "$(opam config var lib --root ~/.opam)/js_of_ocaml/ppx_js"]
     in
     let extra_includes, extra_inputs =
       Map.to_alist libs
@@ -595,14 +595,20 @@ end = struct
         sprintf !"%s/%{Module_name}.%s" (build_dir kind `modules lib_name) module_name (ext kind `ml))
     in
     let obj_inputs =
-      List.map modules_in_dep_order ~f:(fun module_name ->
-        sprintf !"%s/%{Module_name}.o" (build_dir kind `modules lib_name) module_name)
+      match kind with
+      | Js -> []
+      | Native ->
+        List.map modules_in_dep_order ~f:(fun module_name ->
+          sprintf !"%s/%{Module_name}.o" (build_dir kind `modules lib_name) module_name)
     in
     let output =
       sprintf !"%s/%{Lib_name}.%s" (build_dir kind `archive lib_name) lib_name (ext kind `archive)
     in
     let a_output =
-      sprintf !"%s/%{Lib_name}.a" (build_dir kind `archive lib_name) lib_name
+      match kind with
+      | Js -> []
+      | Native ->
+        [ sprintf !"%s/%{Lib_name}.a" (build_dir kind `archive lib_name) lib_name ]
     in
     let c_opts =
       match c_stubs with
@@ -638,7 +644,7 @@ end = struct
       (* I don't think this actually does anything with the c archive... so it's
        * not actually a dependency? *)
       inputs = f inputs;
-      outputs = f [ output; a_output; ];
+      outputs = f (output :: a_output);
     }
 
   let%expect_test _ =
@@ -692,22 +698,24 @@ end = struct
             lib
           |> Some)
     in
-    let input_a_archives =
-      List.map libs_in_dep_order ~f:(fun (lib, _) ->
-        sprintf !"%s/%{Lib_name}.a"
-          (build_dir kind `archive lib)
-          lib)
+    let extra_inputs =
+      match kind with
+      | Js -> []
+      | Native ->
+        List.concat_map libs_in_dep_order ~f:(fun (lib, _) -> [
+          sprintf !"%s/%{Lib_name}.a"
+            (build_dir kind `archive lib)
+            lib;
+          sprintf !"%s/%{Module_name}.o"
+            (build_dir kind `modules bin_lib)
+            module_name;
+        ])
     in
     let input_module =
       sprintf !"%s/%{Module_name}.%s"
         (build_dir kind `modules bin_lib)
         module_name
         (ext kind `ml)
-    in
-    let input_object =
-      sprintf !"%s/%{Module_name}.o"
-        (build_dir kind `modules bin_lib)
-        module_name
     in
     let cmd =
       { Cmd.
@@ -727,7 +735,7 @@ end = struct
     in
     { Build_graph.
       action = Cmd cmd;
-      inputs = f (input_module :: input_object :: input_archives @ input_c_archives @ input_a_archives);
+      inputs = f (input_module :: input_archives @ input_c_archives @ extra_inputs);
       outputs = f [ output ];
     }
 
@@ -997,7 +1005,8 @@ let project_spec =
           main
         ))
         (direct_deps (
-          (packages (js_of_ocaml js_of_ocaml.async async_js virtual_dom))
+          ;; js_of_ocaml.async
+          (packages (js_of_ocaml async_js virtual_dom))
           (libs ())
         ))
       )
@@ -1065,6 +1074,7 @@ let%expect_test "dependency summary" =
     |> Build_graph.of_nodes
     |> Build_graph.prune ~roots:[
       File_name.of_string (sprintf "%s/main.native" (build_dir Native `linked bin_lib));
+      File_name.of_string (sprintf "%s/web_main.byte" (build_dir Js `linked bin_lib));
     ]
   in
   List.iter (Build_graph.nodes bg) ~f:(fun node ->
@@ -1272,7 +1282,31 @@ let%expect_test "dependency summary" =
       .dbuild/native/odditty_kernel/archive/odditty_kernel.a
       .dbuild/native/odditty_kernel/archive/odditty_kernel.cmxa
       .dbuild/native/server/archive/server.a
-      .dbuild/native/server/archive/server.cmxa |}];
+      .dbuild/native/server/archive/server.cmxa
+
+    .dbuild/js/web/generated/web.ml
+
+    .dbuild/js/web/modules/web.cmi, .dbuild/js/web/modules/web.cmo
+      .dbuild/js/web/generated/web.ml
+
+    .dbuild/js/bin/modules/web_main.cmi, .dbuild/js/bin/modules/web_main.cmo
+      .dbuild/js/web/modules/web.cmi
+      .dbuild/js/web/modules/web__main.cmi
+      bin/web_main.ml
+
+    .dbuild/js/web/modules/web__main.cmo
+      .dbuild/js/web/modules/web.cmi
+      .dbuild/js/web/modules/web__main.cmi
+      web/main.ml
+      web/main.mli
+
+    .dbuild/js/web/archive/web.cma
+      .dbuild/js/web/modules/web.cmo
+      .dbuild/js/web/modules/web__main.cmo
+
+    .dbuild/js/bin/linked/web_main.byte
+      .dbuild/js/bin/modules/web_main.cmo
+      .dbuild/js/web/archive/web.cma |}];
   let node =
     Map.find_exn
       (Build_graph.by_file bg)
