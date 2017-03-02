@@ -1468,12 +1468,22 @@ let run_node { Build_graph. action; inputs = _; outputs; } =
       Deferred.return (Unix.Exit_or_signal.or_error exit_status)
   end
 
+let assert_empty ~sandbox =
+  let cmd = sprintf "find %s -type f" sandbox in
+  match Core.Unix.open_process_in cmd |> In_channel.input_lines with
+  | [] -> ()
+  | files ->
+    raise_s [%message "Sandbox not empty"
+      (sandbox : string)
+      (files : string list)
+    ]
+
 (* Copies files to sandbox, returns the sandbox dir. *)
 let prep_sandbox { Build_graph. action = _; inputs; outputs; } : string Deferred.t =
-  (* CR datkin: It would be good to assert that the sandbox is empty. *)
   (* CR datkin: When we do parallel builds, we need separate sandboxes. *)
   let sandbox = ".dbuild-sandbox" in
   Core.Unix.mkdir_p sandbox;
+  assert_empty ~sandbox;
   let sandbox_inputs =
     File_name.Set.map inputs ~f:(fun file ->
       sprintf !"%s/%{File_name}" sandbox file |> File_name.of_string)
@@ -1513,6 +1523,7 @@ let run_in_sandbox ~sandbox ({ Build_graph. action = _; inputs; outputs; } as no
           if file_exists (File_name.to_string file)
           then Core.Unix.unlink (File_name.to_string file)
           else ());
+        assert_empty ~sandbox:".";
         Deferred.unit))
     ~finally:(fun () -> Core.Unix.chdir cwd; Deferred.unit)
 ;;
