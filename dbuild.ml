@@ -423,7 +423,6 @@ end = struct
     let extra_outputs =
       match which_file, kind with
       | `ml, Native ->
-        (* CR datkin: Ckeck this is native-only *)
         (sprintf !"%s/%s%{Module_name}.o" build_dir namespace module_name)
         :: extra_outputs
       | _, _ -> extra_outputs
@@ -521,8 +520,6 @@ end = struct
           ];
       }
     in
-    (* CR datkin: In some cases this outputs the cmi too, I think. Check. E.g.,
-     * if there's no mli, and maybe even if there is? *)
     { Build_graph.
       action = Cmd cmd;
       inputs = f (input :: extra_inputs @ module_deps);
@@ -803,7 +800,7 @@ let spec_to_nodes ~file_exists ~get_deps { Project_spec. libraries; binaries; } 
       |> Module_name.Map.of_alist_exn
     in
     let libs =
-      (* CR datkin: Need to also take the topo closure of libs. *)
+      (* CR-soon datkin: Need to also take the topo closure of libs. *)
       Lib_name.Set.to_map libs ~f:(Map.find_exn modules_by_lib)
     in
     let mli =
@@ -817,9 +814,8 @@ let spec_to_nodes ~file_exists ~get_deps { Project_spec. libraries; binaries; } 
             |> Option.value ~default:[]
             |> Module_name.Set.of_list
           in
-          (* CR datkin: Confirm that the compiler kind doesn't matter here.
-           * Oh this is wrong -- the compiler type determines the build
-           * directory here. *)
+          (* CR-someday datkin: Can we share the compiled cmi between 4.03.0 and
+           * 4.03.0+for-js (32 bit)? *)
           Some (Ocaml_compiler.compile Native packages libs dir module_deps module_name `mli `lib_code))
     in
     let ml =
@@ -854,8 +850,8 @@ let spec_to_nodes ~file_exists ~get_deps { Project_spec. libraries; binaries; } 
             in
             Ocaml_compiler.compile kind packages libs dir module_deps module_name (`ml has_mli) `lib_code)
         in
-        (* CR datkin: Add a test that we get these modules in the right order.
-         * *)
+        (* CR-soon datkin: Add a test that we get these modules in the right
+         * order. *)
         let modules_in_dep_order =
           topological_fold
             ~sexp_of_key:[%sexp_of: Module_name.t]
@@ -958,7 +954,7 @@ let spec_to_nodes ~file_exists ~get_deps { Project_spec. libraries; binaries; } 
     let packages = Set.union packages extra_pkgs in
     let kind = match output with `native -> Native | `js -> Js in
     [
-      (* CR datkin: `no_mli is a guess *)
+      (* CR-soon datkin: `no_mli is a guess *)
       Ocaml_compiler.compile kind packages libs bin_lib Module_name.Set.empty
         module_name (`ml `no_mli) `vanilla;
       Ocaml_compiler.link kind packages ~libs_in_dep_order module_name;
@@ -1087,13 +1083,6 @@ let%expect_test "dependency summary" =
       printf "  %s\n" (File_name.to_string file_name));
     printf "\n";
   );
-  (* CR datkin: It seems like a bug that the deps of [control_functions.cmi]
-   * aren't actually above [control_functions.cmi] in that list.
-   *
-   * datkin: Ahh, I get it. We didn't have build rules for these deps so we just
-   * assumed these files exists. If we sandboxed (or just checked that inputs
-   * exist as a pre-cond) we could error out.
-   * *)
   [%expect {|
     .dbuild/native/odditty/generated/odditty.ml
 
@@ -1407,7 +1396,7 @@ open Async.Std
 
 let get_deps dir ~basename =
   (* CR-someday datkin: Add '-ppx'? *)
-  (* CR datkin: This isn't necessarily running in the right opam env. *)
+  (* CR-soon datkin: This isn't necessarily running in the right opam env. *)
   let cmd = sprintf !"ocamldep -one-line -I %{Lib_name} %{Lib_name}/%s" dir dir basename in
   let output = Core.Unix.open_process_in cmd |> In_channel.input_lines in
   (* eprintf !"> %s\n< %{sexp#mach:string list}\n" cmd output; *)
