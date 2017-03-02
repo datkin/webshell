@@ -1469,7 +1469,7 @@ let run_node { Build_graph. action; inputs = _; outputs; } =
   end
 
 (* Copies files to sandbox, returns the sandbox dir. *)
-let prep_sandbox ({ Build_graph. action = _; inputs; outputs; } as node) : string Deferred.t =
+let prep_sandbox { Build_graph. action = _; inputs; outputs; } : string Deferred.t =
   (* CR datkin: It would be good to assert that the sandbox is empty. *)
   (* CR datkin: When we do parallel builds, we need separate sandboxes. *)
   let sandbox = ".dbuild-sandbox" in
@@ -1567,7 +1567,6 @@ let () =
     let open Ppx_inline_test_lib in
     Runtime.exit ()
   else
-    let open Command.Let_syntax in
     Command.group
       ~summary:"Build commands" [
       "dot-graph", dot_cmd;
