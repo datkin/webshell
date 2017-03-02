@@ -1515,28 +1515,31 @@ let assert_empty ~sandbox =
     ]
 
 (* Copies files to sandbox, returns the sandbox dir. *)
-let prep_sandbox { Build_graph. action = _; inputs; outputs; } : string Deferred.t =
+let prep_sandbox =
+  let n = ref 0 in
+  fun { Build_graph. action = _; inputs; outputs; } : string Deferred.t ->
   (* CR datkin: When we do parallel builds, we need separate sandboxes. *)
-  let sandbox = ".dbuild-sandbox" in
-  Core.Unix.mkdir_p sandbox;
-  assert_empty ~sandbox;
-  let sandbox_inputs =
-    File_name.Set.map inputs ~f:(fun file ->
-      sprintf !"%s/%{File_name}" sandbox file |> File_name.of_string)
-  in
-  mkdirs sandbox_inputs;
-  Set.iter inputs ~f:(fun file ->
-    begin
-    if not (file_exists (File_name.to_string file))
-    then failwithf !"Can't build %{sexp:File_name.Set.t}, required file %{File_name} is missing"
-           outputs file ()
-    end;
-    let cmd = sprintf !"cp %{File_name} %s/%{File_name}" file sandbox file in
-    Core.Unix.system cmd
-    |> Core.Unix.Exit_or_signal.or_error
-    |> Or_error.ok_exn
-  );
-  return sandbox
+    let sandbox = sprintf ".dbuild-sandbox/%d" !n in
+    incr n;
+    Core.Unix.mkdir_p sandbox;
+    assert_empty ~sandbox;
+    let sandbox_inputs =
+      File_name.Set.map inputs ~f:(fun file ->
+        sprintf !"%s/%{File_name}" sandbox file |> File_name.of_string)
+    in
+    mkdirs sandbox_inputs;
+    Set.iter inputs ~f:(fun file ->
+      begin
+      if not (file_exists (File_name.to_string file))
+      then failwithf !"Can't build %{sexp:File_name.Set.t}, required file %{File_name} is missing"
+             outputs file ()
+      end;
+      let cmd = sprintf !"cp %{File_name} %s/%{File_name}" file sandbox file in
+      Core.Unix.system cmd
+      |> Core.Unix.Exit_or_signal.or_error
+      |> Or_error.ok_exn
+    );
+    return sandbox
 
 let run_in_sandbox ~sandbox ({ Build_graph. action = _; inputs; outputs; } as node) =
   (* CR datkin: We should actually do this in terms of the project root... *)
@@ -1604,6 +1607,85 @@ let build_cmd =
         )
     ]
 
+let parallel_build_cmd =
+  let open Command.Let_syntax in
+  Command.async_or_error'
+    ~summary:"Build the specified targets"
+    [%map_open
+      let use_sandbox = flag "sandbox" no_arg ~doc:" Build in sandbox"
+      and stop_before_build = flag "stop" no_arg ~doc:" Stop right before the target"
+      and targets = anon (sequence ("target" %: file_arg))
+      in
+      fun () ->
+        let bg =
+          let target_set = File_name.Set.of_list targets in
+          pruned_build_graph ~roots:targets
+        in
+        let r, w = Pipe.create () in
+        let build node =
+          Core.Std.printf !"Started %{sexp#mach:Build_graph.node}\n%!" node;
+          don't_wait_for (
+            prep_sandbox node
+            >>= fun sandbox ->
+            run_in_sandbox ~sandbox node
+            >>= fun result ->
+            Pipe.write w (node, result)
+          )
+        in
+        let unbuilt = Build_graph.by_file bg |> Map.keys |> File_name.Set.of_list in
+        let newly_built_files =
+          Build_graph.by_file bg
+          |> Map.filter ~f:(fun per_file ->
+              Option.is_none per_file.Build_graph.needs)
+          |> Map.keys
+          |> File_name.Set.of_list
+        in
+        let ready_nodes ~newly_built_files unbuilt =
+          assert (not (Set.is_empty newly_built_files));
+          (*
+          let new_files =
+            Set.map newly_built ~f:(fun node -> node.Build_graph.outputs)
+            |> List.fold ~init:File_name.Set.empty ~f:Set.union
+            |> Set.to_list
+          in
+          *)
+          Set.fold newly_built_files ~init:Set.Poly.empty ~f:(fun next file ->
+            let maybe_ready =
+              match Map.find (Build_graph.by_file bg) file with
+              | None -> []
+              | Some per_file -> Build_graph.provides per_file
+            in
+            List.fold maybe_ready ~init:next ~f:(fun next node ->
+              let any_pending = Set.exists node.inputs ~f:(Set.mem unbuilt) in
+              if any_pending
+              then next
+              else Set.add next node))
+        in
+        Set.iter (ready_nodes ~newly_built_files unbuilt) ~f:build; (* enqueue the initial jobs *)
+        Pipe.fold r ~init:(Ok unbuilt) ~f:(fun built (node, build_result) ->
+          match build_result with
+          | Error err ->
+            (* CR-someday datkin: This interrupt builds other parallel. *)
+            Pipe.close_read r;
+            Deferred.return (Error (Error.tag_arg err "node" node [%sexp_of: Build_graph.node]))
+          | Ok () ->
+            Core.Std.printf !"Finished %{sexp#mach:Build_graph.node}\n%!" node;
+            let newly_built_files = Build_graph.outputs node in
+            let unbuilt = Set.fold newly_built_files ~init:unbuilt ~f:Set.remove in
+            if Set.is_empty unbuilt
+            then (
+              Pipe.close_read r;
+              Deferred.return (Ok unbuilt)
+            )
+            else (
+              Set.iter (ready_nodes ~newly_built_files unbuilt) ~f:build;
+              Deferred.return (Ok unbuilt)
+            )
+        )
+        >>=? fun (_ : File_name.Set.t) ->
+        Deferred.return (Ok ())
+    ]
+
 let () =
   let is_test =
     Core.Std.Unix.environment ()
@@ -1618,6 +1700,7 @@ let () =
       ~summary:"Build commands" [
       "dot-graph", dot_cmd;
       "build", build_cmd;
+      "parallel-build", parallel_build_cmd;
       "dump", dump_cmd;
     ]
     |> Command.run
