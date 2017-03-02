@@ -1547,6 +1547,7 @@ let run_in_sandbox ~sandbox ({ Build_graph. action = _; inputs; outputs; } as no
   (* Prep the output dirs so they're there before the renames.  *)
   mkdirs outputs;
   Monitor.protect (fun () ->
+    (* CR datkin: This does not work with sandboxing... *)
     Core.Unix.chdir (cwd ^/ sandbox);
     Monitor.protect (fun () ->
       run_node node
@@ -1640,15 +1641,11 @@ let parallel_build_cmd =
           |> Map.keys
           |> File_name.Set.of_list
         in
+        Core.Std.printf !"Newly built: %{sexp#mach: File_name.Set.t}\n%!" newly_built_files;
+        (* CR datkin: How about files with no dependencies, we gotta run those
+         * too. *)
         let ready_nodes ~newly_built_files unbuilt =
           assert (not (Set.is_empty newly_built_files));
-          (*
-          let new_files =
-            Set.map newly_built ~f:(fun node -> node.Build_graph.outputs)
-            |> List.fold ~init:File_name.Set.empty ~f:Set.union
-            |> Set.to_list
-          in
-          *)
           Set.fold newly_built_files ~init:Set.Poly.empty ~f:(fun next file ->
             let maybe_ready =
               match Map.find (Build_graph.by_file bg) file with
@@ -1661,6 +1658,11 @@ let parallel_build_cmd =
               then next
               else Set.add next node))
         in
+        begin
+          Build_graph.nodes bg
+          |> List.filter ~f:(fun node -> Set.is_empty node.Build_graph.inputs)
+          |> List.iter ~f:build
+        end;
         Set.iter (ready_nodes ~newly_built_files unbuilt) ~f:build; (* enqueue the initial jobs *)
         Pipe.fold r ~init:(Ok unbuilt) ~f:(fun built (node, build_result) ->
           match build_result with
