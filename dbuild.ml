@@ -601,6 +601,9 @@ end = struct
     let output =
       sprintf !"%s/%{Lib_name}.%s" (build_dir kind `archive lib_name) lib_name (ext kind `archive)
     in
+    let a_output =
+      sprintf !"%s/%{Lib_name}.a" (build_dir kind `archive lib_name) lib_name
+    in
     let c_opts =
       match c_stubs with
       | [] -> []
@@ -635,7 +638,7 @@ end = struct
       (* I don't think this actually does anything with the c archive... so it's
        * not actually a dependency? *)
       inputs = f inputs;
-      outputs = f [ output ];
+      outputs = f [ output; a_output; ];
     }
 
   let%expect_test _ =
@@ -654,7 +657,8 @@ end = struct
         (.dbuild/native/foo/c/libfoo.a .dbuild/native/foo/modules/a.cmx
          .dbuild/native/foo/modules/a.o .dbuild/native/foo/modules/b.cmx
          .dbuild/native/foo/modules/b.o))
-       (outputs (.dbuild/native/foo/archive/foo.cmxa))) |}];
+       (outputs
+        (.dbuild/native/foo/archive/foo.a .dbuild/native/foo/archive/foo.cmxa))) |}];
   ;;
 
   let link kind pkgs ~libs_in_dep_order module_name =
@@ -672,7 +676,6 @@ end = struct
       |> String.concat ~sep:","
     in
     let input_archives =
-      (* CR datkin: Do we need to check for c archives too? *)
       List.map libs_in_dep_order ~f:(fun (lib, _) ->
         sprintf !"%s/%{Lib_name}.%s"
           (build_dir kind `archive lib)
@@ -688,6 +691,12 @@ end = struct
             (build_dir kind `c lib)
             lib
           |> Some)
+    in
+    let input_a_archives =
+      List.map libs_in_dep_order ~f:(fun (lib, _) ->
+        sprintf !"%s/%{Lib_name}.a"
+          (build_dir kind `archive lib)
+          lib)
     in
     let input_module =
       sprintf !"%s/%{Module_name}.%s"
@@ -718,7 +727,7 @@ end = struct
     in
     { Build_graph.
       action = Cmd cmd;
-      inputs = f (input_module :: input_object :: input_archives @ input_c_archives);
+      inputs = f (input_module :: input_object :: input_archives @ input_c_archives @ input_a_archives);
       outputs = f [ output ];
     }
 
@@ -741,7 +750,8 @@ end = struct
           (opam_switch (4.03.0)))))
        (inputs
         (.dbuild/native/bin/modules/main.cmx .dbuild/native/bin/modules/main.o
-         .dbuild/native/x/archive/x.cmxa .dbuild/native/x/c/libx.a
+         .dbuild/native/x/archive/x.a .dbuild/native/x/archive/x.cmxa
+         .dbuild/native/x/c/libx.a .dbuild/native/y/archive/y.a
          .dbuild/native/y/archive/y.cmxa))
        (outputs (.dbuild/native/bin/linked/main.native))) |}];
   ;;
@@ -1191,7 +1201,7 @@ let%expect_test "dependency summary" =
       odditty/terminfo.ml
       odditty/terminfo.mli
 
-    .dbuild/native/odditty/archive/odditty.cmxa
+    .dbuild/native/odditty/archive/odditty.a, .dbuild/native/odditty/archive/odditty.cmxa
       .dbuild/native/odditty/c/libodditty.a
       .dbuild/native/odditty/modules/odditty.cmx
       .dbuild/native/odditty/modules/odditty.o
@@ -1225,7 +1235,7 @@ let%expect_test "dependency summary" =
       odditty_kernel/window.ml
       odditty_kernel/window.mli
 
-    .dbuild/native/odditty_kernel/archive/odditty_kernel.cmxa
+    .dbuild/native/odditty_kernel/archive/odditty_kernel.a, .dbuild/native/odditty_kernel/archive/odditty_kernel.cmxa
       .dbuild/native/odditty_kernel/modules/odditty_kernel.cmx
       .dbuild/native/odditty_kernel/modules/odditty_kernel.o
       .dbuild/native/odditty_kernel/modules/odditty_kernel__character_attributes.cmx
@@ -1247,7 +1257,7 @@ let%expect_test "dependency summary" =
       server/web_server.ml
       server/web_server.mli
 
-    .dbuild/native/server/archive/server.cmxa
+    .dbuild/native/server/archive/server.a, .dbuild/native/server/archive/server.cmxa
       .dbuild/native/server/modules/server.cmx
       .dbuild/native/server/modules/server.o
       .dbuild/native/server/modules/server__web_server.cmx
@@ -1256,9 +1266,12 @@ let%expect_test "dependency summary" =
     .dbuild/native/bin/linked/main.native
       .dbuild/native/bin/modules/main.cmx
       .dbuild/native/bin/modules/main.o
+      .dbuild/native/odditty/archive/odditty.a
       .dbuild/native/odditty/archive/odditty.cmxa
       .dbuild/native/odditty/c/libodditty.a
+      .dbuild/native/odditty_kernel/archive/odditty_kernel.a
       .dbuild/native/odditty_kernel/archive/odditty_kernel.cmxa
+      .dbuild/native/server/archive/server.a
       .dbuild/native/server/archive/server.cmxa |}];
   let node =
     Map.find_exn
