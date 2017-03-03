@@ -1477,13 +1477,16 @@ let mkdirs files =
   List.iter dirs ~f:Core.Unix.mkdir_p;
 ;;
 
-let run_node { Build_graph. action; inputs = _; outputs; } =
-  mkdirs outputs;
+let sandbox_file ~sandbox file_name =
+  File_name.of_string (sprintf !"%s/%{File_name}" sandbox file_name)
+
+let run_node ~working_dir { Build_graph. action; inputs = _; outputs; } =
+  mkdirs (File_name.Set.map outputs ~f:(sandbox_file ~sandbox:working_dir));
   begin
     match action with
     | Write_file { file; contents; } ->
       Action.dump action;
-      Writer.with_file (File_name.to_string file) ~f:(fun writer ->
+      Writer.with_file (working_dir ^/ File_name.to_string file) ~f:(fun writer ->
         Writer.write writer contents;
         Deferred.unit)
       >>= fun () ->
@@ -1493,6 +1496,7 @@ let run_node { Build_graph. action; inputs = _; outputs; } =
       Action.dump ?env action;
       Process.create
         ?env:(Option.map env ~f:(fun env -> `Replace env))
+        ~working_dir
         ~prog:exe
         ~args
         ()
@@ -1522,11 +1526,8 @@ let prep_sandbox =
     let sandbox = sprintf ".dbuild-sandbox/%d" !n in
     incr n;
     Core.Unix.mkdir_p sandbox;
-    assert_empty ~sandbox;
-    let sandbox_inputs =
-      File_name.Set.map inputs ~f:(fun file ->
-        sprintf !"%s/%{File_name}" sandbox file |> File_name.of_string)
-    in
+    assert_empty ~sandbox; (* It may have already existed and left unclean *)
+    let sandbox_inputs = File_name.Set.map inputs ~f:(sandbox_file ~sandbox) in
     mkdirs sandbox_inputs;
     Set.iter inputs ~f:(fun file ->
       begin
@@ -1534,7 +1535,9 @@ let prep_sandbox =
       then failwithf !"Can't build %{sexp:File_name.Set.t}, required file %{File_name} is missing"
              outputs file ()
       end;
-      let cmd = sprintf !"cp %{File_name} %s/%{File_name}" file sandbox file in
+      let cmd =
+        sprintf !"cp %{File_name} %{File_name}" file (sandbox_file ~sandbox file)
+      in
       Core.Unix.system cmd
       |> Core.Unix.Exit_or_signal.or_error
       |> Or_error.ok_exn
@@ -1547,25 +1550,24 @@ let run_in_sandbox ~sandbox ({ Build_graph. action = _; inputs; outputs; } as no
   (* Prep the output dirs so they're there before the renames.  *)
   mkdirs outputs;
   Monitor.protect (fun () ->
-    (* CR datkin: This does not work with sandboxing... *)
-    Core.Unix.chdir (cwd ^/ sandbox);
-    Monitor.protect (fun () ->
-      run_node node
-      >>=? fun () ->
-      Set.iter outputs ~f:(fun file ->
-        (* Note: These paths need to be absolute? *)
-        Core.Unix.rename
-          ~src:(sprintf !"%s/%s/%{File_name}" cwd sandbox file)
-          ~dst:(sprintf !"%s/%{File_name}" cwd file));
-      return (Ok ()))
-      ~finally:(fun () ->
-        Set.iter (Set.union inputs outputs) ~f:(fun file ->
-          if file_exists (File_name.to_string file)
-          then Core.Unix.unlink (File_name.to_string file)
-          else ());
-        assert_empty ~sandbox:".";
-        Deferred.unit))
-    ~finally:(fun () -> Core.Unix.chdir cwd; Deferred.unit)
+    run_node ~working_dir:sandbox node
+    >>=? fun () ->
+    Set.iter outputs ~f:(fun file ->
+      Core.Unix.rename
+        ~src:(File_name.to_string (sandbox_file ~sandbox file))
+        ~dst:(File_name.to_string file));
+    return (Ok ()))
+  ~finally:(fun () ->
+    (* If anything goes wrong, cleanup the sandbox, but don't require that
+     * everything actually exists. *)
+    Set.union inputs outputs
+    |> File_name.Set.map ~f:(sandbox_file ~sandbox)
+    |> Set.iter ~f:(fun file ->
+      if file_exists (File_name.to_string file)
+      then Core.Unix.unlink (File_name.to_string file)
+      else ());
+    assert_empty ~sandbox;
+    Deferred.unit)
 ;;
 
 let build_cmd =
@@ -1603,7 +1605,7 @@ let build_cmd =
           else (
             if stop_now
             then Deferred.return (Or_error.error_string "stopped")
-            else run_node node
+            else run_node ~working_dir:"." node
           )
         )
     ]
