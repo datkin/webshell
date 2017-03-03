@@ -1635,7 +1635,6 @@ let parallel_build_cmd =
             Pipe.write w (node, result)
           )
         in
-        let unbuilt = Build_graph.by_file bg |> Map.keys |> File_name.Set.of_list in
         let newly_built_files =
           Build_graph.by_file bg
           |> Map.filter ~f:(fun per_file ->
@@ -1643,10 +1642,12 @@ let parallel_build_cmd =
           |> Map.keys
           |> File_name.Set.of_list
         in
+        let unbuilt = Build_graph.by_file bg |> Map.keys |> File_name.Set.of_list in
+        let unbuilt = Set.fold newly_built_files ~init:unbuilt ~f:Set.remove in
         Core.Std.printf !"Newly built: %{sexp#mach: File_name.Set.t}\n%!" newly_built_files;
         (* CR datkin: How about files with no dependencies, we gotta run those
          * too. *)
-        let ready_nodes ~newly_built_files unbuilt =
+        let ready_nodes ~newly_built_files ~unbuilt =
           assert (not (Set.is_empty newly_built_files));
           Set.fold newly_built_files ~init:Set.Poly.empty ~f:(fun next file ->
             let maybe_ready =
@@ -1665,8 +1666,10 @@ let parallel_build_cmd =
           |> List.filter ~f:(fun node -> Set.is_empty node.Build_graph.inputs)
           |> List.iter ~f:build
         end;
-        Set.iter (ready_nodes ~newly_built_files unbuilt) ~f:build; (* enqueue the initial jobs *)
-        Pipe.fold r ~init:(Ok unbuilt) ~f:(fun built (node, build_result) ->
+        Set.iter (ready_nodes ~newly_built_files ~unbuilt) ~f:build; (* enqueue the initial jobs *)
+        Pipe.fold r ~init:(Ok unbuilt) ~f:(fun result (node, build_result) ->
+          Deferred.return result
+          >>=? fun unbuilt ->
           match build_result with
           | Error err ->
             (* CR-someday datkin: This interrupt builds other parallel. *)
@@ -1682,7 +1685,7 @@ let parallel_build_cmd =
               Deferred.return (Ok unbuilt)
             )
             else (
-              Set.iter (ready_nodes ~newly_built_files unbuilt) ~f:build;
+              Set.iter (ready_nodes ~newly_built_files ~unbuilt) ~f:build;
               Deferred.return (Ok unbuilt)
             )
         )
