@@ -76,10 +76,23 @@ let opam_js = Opam_switch_name.of_string "4.03.0+for-js"
 module Cmd = struct
   type t = {
     exe : string;
-    args : string list;
+    args : string list list;
     (* Switch opam environment to eval before running the command. *)
     opam_switch : Opam_switch_name.t option;
   } [@@deriving sexp, hash, compare]
+
+  let to_string ?env:_ { exe; args; opam_switch; } =
+    ( sprintf !"%{sexp:Opam_switch_name.t option} $ %s \\" opam_switch exe
+    :: (List.map args ~f:(fun arg_group ->
+      List.map arg_group ~f:(fun str ->
+        if String.mem str ' '
+        then sprintf "%S" str
+        else String.to_string str)
+      |> String.concat ~sep:" "
+      |> (fun line -> sprintf "  %s \\" line)
+      )
+    )
+    |> String.concat ~sep:"\n")
 end
 
 (* CR-soon datkin: This may actually be right, but it needs more tests. *)
@@ -140,14 +153,36 @@ module Action = struct
   include T
   include Comparable.Make (T)
 
-  let dump ?env t =
+  let to_string ?env t =
     match t with
-    | Cmd { opam_switch; exe; args; } ->
-      Core.Std.printf !"> (%{sexp:Opam_switch_name.t option} %{sexp#mach:(string * string) list option}) %s %{sexp#mach:string list}\n%!"
-        opam_switch env exe args;
+    | Cmd cmd ->
+      Cmd.to_string ?env cmd
     | Write_file { file; contents = _; } ->
-      Core.Std.printf !"> Write %{File_name}\n%!" file
+      sprintf !"<generate %{File_name}>" file
 end
+
+let group_files_by_dir files =
+  Set.to_list files
+    |> List.map ~f:(fun file ->
+        let file = File_name.to_string file in
+        Filename.dirname file, Filename.basename file)
+    |> String.Map.of_alist_multi
+    |> Map.to_alist
+;;
+
+let (^/) = Core.Std.(^/)
+
+let abbreviated_files_to_string files =
+  group_files_by_dir files
+    |> List.map ~f:(fun (dir, files) ->
+        match files with
+        | [] -> assert false
+        | [file] -> dir ^/ file
+        | files ->
+          dir ^/ "{" ^ (String.concat files ~sep:",") ^ "}"
+    )
+;;
+
 
 module Build_graph = struct
   type node = {
@@ -156,7 +191,23 @@ module Build_graph = struct
     outputs : File_name.Set.t;
   } [@@deriving sexp, fields]
 
-  let hash_fold_t state { action; inputs; outputs; } =
+  module Node = struct
+    type t = node
+
+    let to_string { action; inputs; outputs; } =
+      String.concat ~sep:"\n" (
+        (abbreviated_files_to_string inputs
+        |> List.map ~f:(fun x -> "> " ^ x))
+        @
+        (abbreviated_files_to_string outputs
+        |> List.map ~f:(fun x -> "< " ^ x))
+        @
+        [ Action.to_string action ]
+        )
+    ;;
+  end
+
+  let _hash_fold_t state { action; inputs; outputs; } =
     [%hash_fold: (Action.t * File_name.t list * File_name.t list)]
       state (action, Set.to_list inputs, Set.to_list outputs)
 
@@ -266,7 +317,7 @@ end = struct
         (* Could be [None], but we need this for ocamlc. *)
         opam_switch = Some (opam_switch Native);
         exe = "bash";
-        args = [
+        args = [[
           "-c";
           (String.concat ~sep:" " [
              "gcc";
@@ -274,7 +325,7 @@ end = struct
              "-c"; input;
              "-o"; output;
            ])
-        ];
+        ]];
       }
     in
     { Build_graph.
@@ -293,10 +344,10 @@ end = struct
       { Cmd.
         opam_switch = None;
         exe = "ar";
-        args = [
+        args = [[
           "cr";
           output;
-        ] @ inputs;
+        ]] @ [inputs];
       }
     in
     { Build_graph.
@@ -306,26 +357,18 @@ end = struct
     }
 
   let%expect_test _ =
-    printf !"%{sexp:Build_graph.node}\n%!" (compile (Lib_name.of_string "foo") ~c_base:"bar");
-    printf !"%{sexp:Build_graph.node}\n%!" (archive (Lib_name.of_string "foo") ~c_bases:["bar"; "baz"]);
+    printf !"%{Build_graph.Node}\n%!" (compile (Lib_name.of_string "foo") ~c_base:"bar");
+    printf !"%{Build_graph.Node}\n%!" (archive (Lib_name.of_string "foo") ~c_bases:["bar"; "baz"]);
     [%expect {|
-      ((action
-        (Cmd
-         ((exe bash)
-          (args
-           (-c
-            "gcc -I $(ocamlc -where) -c foo/bar.c -o .dbuild/native/foo/c/bar.o"))
-          (opam_switch (4.03.0)))))
-       (inputs (foo/bar.c)) (outputs (.dbuild/native/foo/c/bar.o)))
-      ((action
-        (Cmd
-         ((exe ar)
-          (args
-           (cr .dbuild/native/foo/c/libfoo.a .dbuild/native/foo/c/bar.o
-            .dbuild/native/foo/c/baz.o))
-          (opam_switch ()))))
-       (inputs (.dbuild/native/foo/c/bar.o .dbuild/native/foo/c/baz.o))
-       (outputs (.dbuild/native/foo/c/libfoo.a))) |}];
+      > foo/bar.c
+      < .dbuild/native/foo/c/bar.o
+      (4.03.0) $ bash \
+        -c "gcc -I $(ocamlc -where) -c foo/bar.c -o .dbuild/native/foo/c/bar.o" \
+      > .dbuild/native/foo/c/{bar.o,baz.o}
+      < .dbuild/native/foo/c/libfoo.a
+      () $ ar \
+        cr .dbuild/native/foo/c/libfoo.a \
+        .dbuild/native/foo/c/bar.o .dbuild/native/foo/c/baz.o \ |}];
   ;;
 end
 
@@ -503,24 +546,25 @@ end = struct
       { Cmd.
         opam_switch = Some (opam_switch kind);
         exe = "ocamlfind";
-        args = [
+        args = [[
           ocamlc kind;
           "-w"; warnings;
           "-g";
-        ]
-          @ implicit_open
-          @ maybe_js_ppx
-          @ ppx
+        ]]
+          @ [implicit_open]
+          @ [maybe_js_ppx]
+          @ [ppx]
           @ [
-            "-thread";
-            "-package"; Set.to_list pkgs |> List.map ~f:Package_name.to_string |> String.concat ~sep:",";
+            ["-thread"];
+            ["-package";
+            Set.to_list pkgs |> List.map ~f:Package_name.to_string |> String.concat ~sep:",";]
           ]
-          @ extra_includes
+          @ [extra_includes]
           @ [
-            "-I"; build_dir;
-            "-no-alias-deps";
-            "-c"; kind_flag; input;
-            "-o"; output;
+            ["-I"; build_dir];
+            ["-no-alias-deps"];
+            ["-c"; kind_flag; input];
+            ["-o"; output];
           ];
       }
     in
@@ -548,11 +592,11 @@ end = struct
         (Cmd
          ((exe ocamlfind)
           (args
-           (ocamlopt -w +a-4-40-42-44-48-58 -g -open Foo -ppx
-            "ppx-jane -as-ppx -inline-test-lib foo" -thread -package a,b -I
-            .dbuild/native/x/modules -I .dbuild/native/y/modules -I
-            .dbuild/native/foo/modules -no-alias-deps -c -impl foo/bar.ml -o
-            .dbuild/native/foo/modules/foo__bar.cmx))
+           ((ocamlopt -w +a-4-40-42-44-48-58 -g) (-open Foo) ()
+            (-ppx "ppx-jane -as-ppx -inline-test-lib foo") (-thread) (-package a,b)
+            (-I .dbuild/native/x/modules -I .dbuild/native/y/modules)
+            (-I .dbuild/native/foo/modules) (-no-alias-deps) (-c -impl foo/bar.ml)
+            (-o .dbuild/native/foo/modules/foo__bar.cmx)))
           (opam_switch (4.03.0)))))
        (inputs
         (.dbuild/native/foo/modules/foo.cmi
@@ -572,10 +616,10 @@ end = struct
         (Cmd
          ((exe ocamlfind)
           (args
-           (ocamlopt -w +a-49-4-40-42-44-48-58 -g -thread -package a,b -I
-            .dbuild/native/foo/modules -no-alias-deps -c -impl
-            .dbuild/native/foo/generated/bar.ml -o
-            .dbuild/native/foo/modules/bar.cmx))
+           ((ocamlopt -w +a-49-4-40-42-44-48-58 -g) () () () (-thread)
+            (-package a,b) () (-I .dbuild/native/foo/modules) (-no-alias-deps)
+            (-c -impl .dbuild/native/foo/generated/bar.ml)
+            (-o .dbuild/native/foo/modules/bar.cmx)))
           (opam_switch (4.03.0)))))
        (inputs (.dbuild/native/foo/generated/bar.ml))
        (outputs
@@ -623,15 +667,15 @@ end = struct
       { Cmd.
         opam_switch = Some (opam_switch kind);
         exe = "ocamlfind";
-        args = [
+        args = [[
           ocamlc kind;
           "-a";
-        ]
-          @ c_opts
-          @ ml_inputs
-          @ [
+        ]]
+          @ [c_opts]
+          @ [ml_inputs]
+          @ [[
             "-o"; output;
-          ];
+          ]];
       }
     in
     let inputs = ml_inputs @ obj_inputs in
@@ -656,9 +700,9 @@ end = struct
         (Cmd
          ((exe ocamlfind)
           (args
-           (ocamlopt -a -ccopt -L.dbuild/native/foo/c -cclib -lfoo
-            .dbuild/native/foo/modules/a.cmx .dbuild/native/foo/modules/b.cmx -o
-            .dbuild/native/foo/archive/foo.cmxa))
+           ((ocamlopt -a) (-ccopt -L.dbuild/native/foo/c -cclib -lfoo)
+            (.dbuild/native/foo/modules/a.cmx .dbuild/native/foo/modules/b.cmx)
+            (-o .dbuild/native/foo/archive/foo.cmxa)))
           (opam_switch (4.03.0)))))
        (inputs
         (.dbuild/native/foo/c/libfoo.a .dbuild/native/foo/modules/a.cmx
@@ -723,14 +767,14 @@ end = struct
         opam_switch = Some (opam_switch kind);
         exe = "ocamlfind";
         args = [
-          ocamlc kind;
+          [ocamlc kind;
           "-linkpkg";
-          "-thread";
-          "-package"; packages;
-        ] @ input_archives
+          "-thread"];
+          ["-package"; packages];
+        ] @ [input_archives]
           @ [
-            input_module;
-            "-o"; output;
+            [input_module];
+            ["-o"; output];
           ];
       }
     in
@@ -753,9 +797,10 @@ end = struct
         (Cmd
          ((exe ocamlfind)
           (args
-           (ocamlopt -linkpkg -thread -package a,b .dbuild/native/x/archive/x.cmxa
-            .dbuild/native/y/archive/y.cmxa .dbuild/native/bin/modules/main.cmx -o
-            .dbuild/native/bin/linked/main.native))
+           ((ocamlopt -linkpkg -thread) (-package a,b)
+            (.dbuild/native/x/archive/x.cmxa .dbuild/native/y/archive/y.cmxa)
+            (.dbuild/native/bin/modules/main.cmx)
+            (-o .dbuild/native/bin/linked/main.native)))
           (opam_switch (4.03.0)))))
        (inputs
         (.dbuild/native/bin/modules/main.cmx .dbuild/native/bin/modules/main.o
@@ -1573,7 +1618,7 @@ let run_node ~working_dir { Build_graph. action; inputs = _; outputs; } =
   begin
     match action with
     | Write_file { file; contents; } ->
-      Action.dump action;
+      Core.Std.printf !"%{Action}\n%!" action;
       Writer.with_file (working_dir ^/ File_name.to_string file) ~f:(fun writer ->
         Writer.write writer contents;
         Deferred.unit)
@@ -1581,12 +1626,12 @@ let run_node ~working_dir { Build_graph. action; inputs = _; outputs; } =
       Deferred.return (Ok ())
     | Cmd { Cmd. exe; args; opam_switch; } ->
       let env = Option.map opam_switch ~f:get_opam_env in
-      Action.dump ?env action;
+      Core.Std.printf !"%{Action}\n%!" (*?env*) action;
       Process.create
         ?env:(Option.map env ~f:(fun env -> `Replace env))
         ~working_dir
         ~prog:exe
-        ~args
+        ~args:(List.concat args)
         ()
       >>=? fun process ->
       Process.collect_output_and_wait process
@@ -1680,7 +1725,7 @@ let build_cmd =
           in
           begin
             if stop_now
-            then Action.dump node.action;
+            then Core.Std.printf !"%{Action}\n%!" node.action;
           end;
           if use_sandbox
           then (
