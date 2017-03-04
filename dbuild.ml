@@ -1624,6 +1624,9 @@ let parallel_build_cmd =
           let target_set = File_name.Set.of_list targets in
           pruned_build_graph ~roots:targets
         in
+        (* CR datkin: Factor the parallel logic out so we can test it. *)
+        (* CR datkin: It would be nice if we had a version of this which
+         * allowed us to enumerate/monitor which jobs were running. *)
         let r, w = Pipe.create () in
         let build node =
           Core.Std.printf !"Started %{sexp#mach:Build_graph.node}\n%!" node;
