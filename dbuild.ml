@@ -196,13 +196,13 @@ module Build_graph = struct
 
     let to_string { action; inputs; outputs; } =
       String.concat ~sep:"\n" (
+        [ Action.to_string action ]
+        @
         (abbreviated_files_to_string inputs
         |> List.map ~f:(fun x -> "> " ^ x))
         @
         (abbreviated_files_to_string outputs
         |> List.map ~f:(fun x -> "< " ^ x))
-        @
-        [ Action.to_string action ]
         )
     ;;
   end
@@ -360,15 +360,15 @@ end = struct
     printf !"%{Build_graph.Node}\n%!" (compile (Lib_name.of_string "foo") ~c_base:"bar");
     printf !"%{Build_graph.Node}\n%!" (archive (Lib_name.of_string "foo") ~c_bases:["bar"; "baz"]);
     [%expect {|
-      > foo/bar.c
-      < .dbuild/native/foo/c/bar.o
       (4.03.0) $ bash \
         -c "gcc -I $(ocamlc -where) -c foo/bar.c -o .dbuild/native/foo/c/bar.o" \
-      > .dbuild/native/foo/c/{bar.o,baz.o}
-      < .dbuild/native/foo/c/libfoo.a
+      > foo/bar.c
+      < .dbuild/native/foo/c/bar.o
       () $ ar \
         cr .dbuild/native/foo/c/libfoo.a \
-        .dbuild/native/foo/c/bar.o .dbuild/native/foo/c/baz.o \ |}];
+        .dbuild/native/foo/c/bar.o .dbuild/native/foo/c/baz.o \
+      > .dbuild/native/foo/c/{bar.o,baz.o}
+      < .dbuild/native/foo/c/libfoo.a |}];
   ;;
 end
 
@@ -1763,16 +1763,20 @@ let parallel_build_cmd =
         let r, w = Pipe.create () in
         let old_cache = Cache.load () in
         let build cache node =
-          Core.Std.printf !"Started %{sexp#mach:Build_graph.node}\n%!" node;
           don't_wait_for (
             begin
               if Cache.should_rebuild old_cache cache node
-              then
+              then (
+                Core.Std.printf !"= start =\n%{Build_graph.Node}\n%!" node;
                 prep_sandbox node
                 >>= fun sandbox ->
                 run_in_sandbox ~sandbox node
-              else
-                Deferred.return (Ok ())
+                >>=? fun () ->
+                Deferred.return (Ok `Built)
+              )
+              else (
+                Deferred.return (Ok `Cached)
+              )
             end
             >>= fun result ->
             Pipe.write w (node, result)
@@ -1787,9 +1791,6 @@ let parallel_build_cmd =
         in
         let unbuilt = Build_graph.by_file bg |> Map.keys |> File_name.Set.of_list in
         let unbuilt = Set.fold newly_built_files ~init:unbuilt ~f:Set.remove in
-        Core.Std.printf !"Newly built: %{sexp#mach: File_name.Set.t}\n%!" newly_built_files;
-        (* CR datkin: How about files with no dependencies, we gotta run those
-         * too. *)
         let ready_nodes ~newly_built_files ~unbuilt =
           assert (not (Set.is_empty newly_built_files));
           Set.fold newly_built_files ~init:Set.Poly.empty ~f:(fun next file ->
@@ -1819,8 +1820,10 @@ let parallel_build_cmd =
             (* CR-someday datkin: This interrupt builds other parallel. *)
             Pipe.close_read r;
             Deferred.return (Error (Error.tag_arg err "node" node [%sexp_of: Build_graph.node]))
-          | Ok () ->
-            Core.Std.printf !"Finished %{sexp#mach:Build_graph.node}\n%!" node;
+          | Ok build_kind ->
+            Core.Std.printf
+              !"%{sexp:[`Built|`Cached]} %{sexp#mach:(string * string list) list}\n%!"
+              build_kind (group_files_by_dir node.outputs);
             let new_cache = Cache.update_node new_cache node in
             let newly_built_files = Build_graph.outputs node in
             let unbuilt = Set.fold newly_built_files ~init:unbuilt ~f:Set.remove in
