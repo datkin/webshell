@@ -156,6 +156,10 @@ module Build_graph = struct
     outputs : File_name.Set.t;
   } [@@deriving sexp, fields]
 
+  let hash_fold_t state { action; inputs; outputs; } =
+    [%hash_fold: (Action.t * File_name.t list * File_name.t list)]
+      state (action, Set.to_list inputs, Set.to_list outputs)
+
   type per_file = {
     needs : node option;
     provides : node list;
@@ -1330,36 +1334,109 @@ module Cache : sig
 
   val load : unit -> t
 
-  (* Checks the file against the cache, and also updates the cache. *)
-  val snapshot : t -> File_name.t -> [ `Changed | `Same | `Missing ]
+  val create : Build_graph.t -> t
+
+  (* If you've just eval'd the node, recache the digests of the output files.
+   * Assumes [Buid_graph.node] was part of the [Build_graph.t] used to
+   * construct [t], and may raise if not. *)
+  val update_node : t -> Build_graph.node -> t
+
+  (* If [action_digest] is provided, [t]'s entry for [file] should contain the
+   * given action digest. Otherwise, raises. *)
+  val update_file : t -> ?action_digest:int option -> File_name.t -> t * [`Changed | `Same]
+
+  val should_rebuild : t -> t -> Build_graph.node -> bool
 
   val save : t -> unit
 end = struct
-  type t = string File_name.Table.t [@@deriving sexp]
+  type entry = {
+    file_digest : string option; (* None if file didn't exist *)
+    action_digest : int option; (* None if the file was a leaf *)
+  } [@@deriving sexp, compare, fields]
+
+  (* CR-someday datkin: If we also save the hash of the whole build graph, then
+   * we can slightly optimize: if none of the leaf files changed (and trusting
+   * none of the interior files was modified?) we can just short circuit
+   * building anything. *)
+  type t = entry File_name.Map.t [@@deriving sexp]
 
   let file = ".dbuild-cache"
+
+  let digest_file file =
+    if file_exists (File_name.to_string file)
+    then Some (Digest.file (File_name.to_string file))
+    else None
+
+  let create bg =
+    Build_graph.by_file bg
+    |> Map.mapi ~f:(fun ~key:file ~data:{ needs; provides = _; } ->
+      let file_digest = digest_file file in
+      let action_digest =
+        Option.map needs ~f:(fun { action; _ } ->
+          Action.hash action)
+      in
+      { file_digest; action_digest; })
+
+  let update_file t ?action_digest:expected_action_digest file =
+    let new_digest = digest_file file in
+    match Map.find t file with
+    | None ->
+      begin
+        match expected_action_digest with
+        | None ->
+          let entry = { file_digest = new_digest; action_digest = None; } in
+          Map.add t ~key:file ~data:entry, `Changed
+        | Some _ -> failwith "Expected file to exist in the cache"
+      end
+    | Some { file_digest; action_digest; } ->
+      begin
+        match expected_action_digest with
+        | None -> ()
+        | Some expect -> [%test_result: int option] ~expect action_digest
+      end;
+      if [%equal: string option] file_digest new_digest
+      then t, `Same
+      else (
+        let t =
+          Map.add t ~key:file ~data:{ file_digest = new_digest; action_digest; }
+        in
+        t, `Changed
+      )
+  ;;
+
+  let update_node t { Build_graph. action; outputs; inputs = _; } =
+    let action_digest = Some (Action.hash action) in
+    Set.fold outputs ~init:t ~f:(fun t file ->
+      fst (update_file t ~action_digest file))
+  ;;
+
+  let should_rebuild t1 t2 { Build_graph. action = _; inputs; outputs; } =
+    let inputs_changed =
+      (* Do the inputs look the same? Doesn't even matter if they were built the
+       * same way. *)
+      Set.exists inputs ~f:(fun file ->
+        [%equal: string option option]
+          (Map.find t1 file |> Option.map ~f:file_digest)
+          (Map.find t2 file |> Option.map ~f:file_digest)
+      )
+    in
+    let outputs_changed =
+      (* The files may have changed, or the action may have changed. *)
+      Set.exists outputs ~f:(fun file ->
+        [%equal: entry option]
+          (Map.find t1 file)
+          (Map.find t2 file)
+      )
+    in
+    inputs_changed || outputs_changed
+  ;;
 
   let load () =
     if file_exists file
     then Sexp.load_sexp_conv_exn file [%of_sexp: t]
-    else File_name.Table.create ()
+    else File_name.Map.empty
 
   let save t = Sexp.save_hum file ([%sexp_of: t] t)
-
-  let snapshot t filename =
-    if not (file_exists (File_name.to_string filename))
-    then `Missing
-    else
-      let new_digest = Digest.file (File_name.to_string filename) in
-      match Hashtbl.find t filename with
-      | None -> `Changed
-      | Some old_digest ->
-        if String.(=) old_digest new_digest
-        then `Same
-        else (
-          Hashtbl.set t ~key:filename ~data:new_digest;
-          `Changed
-        )
 end
 
 let parse_deps lines : Module_name.t list =
