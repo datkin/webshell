@@ -1426,6 +1426,7 @@ end = struct
         [%equal: string option option]
           (Map.find t1 file |> Option.map ~f:file_digest)
           (Map.find t2 file |> Option.map ~f:file_digest)
+        |> not
       )
     in
     let outputs_changed =
@@ -1435,7 +1436,7 @@ end = struct
         | None -> true
         | Some _ as t2_entry ->
           (* If the file doesn't exist, definitely need to rebuild. *)
-          [%equal: entry option] (Map.find t1 file) t2_entry
+          not ([%equal: entry option] (Map.find t1 file) t2_entry)
       )
     in
     inputs_changed || outputs_changed
