@@ -1,0 +1,180 @@
+((.dbuild/js/bin/linked/web_main.byte
+  ((file_digest ()) (action_digest (240422452))))
+ (.dbuild/js/bin/modules/web_main.cmi
+  ((file_digest ()) (action_digest (630603632))))
+ (.dbuild/js/bin/modules/web_main.cmo
+  ((file_digest ()) (action_digest (630603632))))
+ (.dbuild/js/web/archive/web.cma
+  ((file_digest ()) (action_digest (272011773))))
+ (.dbuild/js/web/generated/web.ml
+  ((file_digest ()) (action_digest (34785577))))
+ (.dbuild/js/web/modules/web.cmi
+  ((file_digest ()) (action_digest (684716600))))
+ (.dbuild/js/web/modules/web.cmo
+  ((file_digest ()) (action_digest (684716600))))
+ (.dbuild/js/web/modules/web__main.cmi
+  ((file_digest ()) (action_digest (459406017))))
+ (.dbuild/js/web/modules/web__main.cmo
+  ((file_digest ()) (action_digest (459406017))))
+ (.dbuild/native/bin/linked/main.native
+  ((file_digest ()) (action_digest (527332921))))
+ (.dbuild/native/bin/modules/main.cmi
+  ((file_digest ()) (action_digest (634619905))))
+ (.dbuild/native/bin/modules/main.cmx
+  ((file_digest ()) (action_digest (634619905))))
+ (.dbuild/native/bin/modules/main.o
+  ((file_digest ()) (action_digest (634619905))))
+ (.dbuild/native/odditty/archive/odditty.a
+  ((file_digest ()) (action_digest (691664081))))
+ (.dbuild/native/odditty/archive/odditty.cmxa
+  ((file_digest ()) (action_digest (691664081))))
+ (.dbuild/native/odditty/c/libodditty.a
+  ((file_digest ()) (action_digest (49760703))))
+ (.dbuild/native/odditty/c/pty_stubs.o
+  ((file_digest ()) (action_digest (210711258))))
+ (.dbuild/native/odditty/generated/odditty.ml
+  ((file_digest ()) (action_digest (400543816))))
+ (.dbuild/native/odditty/modules/odditty.cmi
+  ((file_digest ()) (action_digest (131090141))))
+ (.dbuild/native/odditty/modules/odditty.cmx
+  ((file_digest ()) (action_digest (131090141))))
+ (.dbuild/native/odditty/modules/odditty.o
+  ((file_digest ()) (action_digest (131090141))))
+ (.dbuild/native/odditty/modules/odditty__pty.cmi
+  ((file_digest ()) (action_digest (749269700))))
+ (.dbuild/native/odditty/modules/odditty__pty.cmx
+  ((file_digest ()) (action_digest (83535382))))
+ (.dbuild/native/odditty/modules/odditty__pty.o
+  ((file_digest ()) (action_digest (83535382))))
+ (.dbuild/native/odditty/modules/odditty__terminfo.cmi
+  ((file_digest ()) (action_digest (1012972257))))
+ (.dbuild/native/odditty/modules/odditty__terminfo.cmx
+  ((file_digest ()) (action_digest (1041180351))))
+ (.dbuild/native/odditty/modules/odditty__terminfo.o
+  ((file_digest ()) (action_digest (1041180351))))
+ (.dbuild/native/odditty_kernel/archive/odditty_kernel.a
+  ((file_digest ()) (action_digest (730474262))))
+ (.dbuild/native/odditty_kernel/archive/odditty_kernel.cmxa
+  ((file_digest ()) (action_digest (730474262))))
+ (.dbuild/native/odditty_kernel/generated/odditty_kernel.ml
+  ((file_digest ()) (action_digest (7261453))))
+ (.dbuild/native/odditty_kernel/modules/odditty_kernel.cmi
+  ((file_digest ()) (action_digest (112432518))))
+ (.dbuild/native/odditty_kernel/modules/odditty_kernel.cmx
+  ((file_digest ()) (action_digest (112432518))))
+ (.dbuild/native/odditty_kernel/modules/odditty_kernel.o
+  ((file_digest ()) (action_digest (112432518))))
+ (.dbuild/native/odditty_kernel/modules/odditty_kernel__character_attributes.cmi
+  ((file_digest ()) (action_digest (472380355))))
+ (.dbuild/native/odditty_kernel/modules/odditty_kernel__character_attributes.cmx
+  ((file_digest ()) (action_digest (472380355))))
+ (.dbuild/native/odditty_kernel/modules/odditty_kernel__character_attributes.o
+  ((file_digest ()) (action_digest (472380355))))
+ (.dbuild/native/odditty_kernel/modules/odditty_kernel__character_set.cmi
+  ((file_digest ()) (action_digest (729852476))))
+ (.dbuild/native/odditty_kernel/modules/odditty_kernel__character_set.cmx
+  ((file_digest ()) (action_digest (729852476))))
+ (.dbuild/native/odditty_kernel/modules/odditty_kernel__character_set.o
+  ((file_digest ()) (action_digest (729852476))))
+ (.dbuild/native/odditty_kernel/modules/odditty_kernel__control_functions.cmi
+  ((file_digest ()) (action_digest (1061122189))))
+ (.dbuild/native/odditty_kernel/modules/odditty_kernel__control_functions.cmx
+  ((file_digest ()) (action_digest (450558732))))
+ (.dbuild/native/odditty_kernel/modules/odditty_kernel__control_functions.o
+  ((file_digest ()) (action_digest (450558732))))
+ (.dbuild/native/odditty_kernel/modules/odditty_kernel__dec_private_mode.cmi
+  ((file_digest ()) (action_digest (779704873))))
+ (.dbuild/native/odditty_kernel/modules/odditty_kernel__dec_private_mode.cmx
+  ((file_digest ()) (action_digest (779704873))))
+ (.dbuild/native/odditty_kernel/modules/odditty_kernel__dec_private_mode.o
+  ((file_digest ()) (action_digest (779704873))))
+ (.dbuild/native/odditty_kernel/modules/odditty_kernel__terminfo.cmi
+  ((file_digest ()) (action_digest (605169933))))
+ (.dbuild/native/odditty_kernel/modules/odditty_kernel__terminfo.cmx
+  ((file_digest ()) (action_digest (381725862))))
+ (.dbuild/native/odditty_kernel/modules/odditty_kernel__terminfo.o
+  ((file_digest ()) (action_digest (381725862))))
+ (.dbuild/native/odditty_kernel/modules/odditty_kernel__window.cmi
+  ((file_digest ()) (action_digest (222802709))))
+ (.dbuild/native/odditty_kernel/modules/odditty_kernel__window.cmx
+  ((file_digest ()) (action_digest (419678522))))
+ (.dbuild/native/odditty_kernel/modules/odditty_kernel__window.o
+  ((file_digest ()) (action_digest (419678522))))
+ (.dbuild/native/server/archive/server.a
+  ((file_digest ()) (action_digest (70312599))))
+ (.dbuild/native/server/archive/server.cmxa
+  ((file_digest ()) (action_digest (70312599))))
+ (.dbuild/native/server/generated/server.ml
+  ((file_digest ()) (action_digest (332302346))))
+ (.dbuild/native/server/modules/server.cmi
+  ((file_digest ()) (action_digest (179388441))))
+ (.dbuild/native/server/modules/server.cmx
+  ((file_digest ()) (action_digest (179388441))))
+ (.dbuild/native/server/modules/server.o
+  ((file_digest ()) (action_digest (179388441))))
+ (.dbuild/native/server/modules/server__web_server.cmi
+  ((file_digest ()) (action_digest (706276102))))
+ (.dbuild/native/server/modules/server__web_server.cmx
+  ((file_digest ()) (action_digest (116603784))))
+ (.dbuild/native/server/modules/server__web_server.o
+  ((file_digest ()) (action_digest (116603784))))
+ (bin/main.ml
+  ((file_digest ("\255\198U\181B\171\r\011\152\146K\030\b\135\143\161"))
+   (action_digest ())))
+ (bin/web_main.ml
+  ((file_digest ("\242\210\130\022c\006\2407v\136\017\190y#\232\169"))
+   (action_digest ())))
+ (odditty/pty.ml
+  ((file_digest ("D\164\161\142\211\225\190\238[\176\251g\133\229\003\195"))
+   (action_digest ())))
+ (odditty/pty.mli
+  ((file_digest ("\249h\018\151+]\131\022\217\128cJ\179\174\018o"))
+   (action_digest ())))
+ (odditty/pty_stubs.c
+  ((file_digest ("A\016\017,\151\135\224\204\206j\2247\165h\rO"))
+   (action_digest ())))
+ (odditty/terminfo.ml
+  ((file_digest ("y\t\193\134c\006\225^\192\135H\148\191W\015`"))
+   (action_digest ())))
+ (odditty/terminfo.mli
+  ((file_digest ("g1N\214gM\180a\204\193\021\218\184o\225\245"))
+   (action_digest ())))
+ (odditty_kernel/character_attributes.ml
+  ((file_digest ("l?|>\246\242\2343T\147\017G\185]\r\142"))
+   (action_digest ())))
+ (odditty_kernel/character_set.ml
+  ((file_digest ("\2510W\023t|Y%\232\132\243*s\241N\030"))
+   (action_digest ())))
+ (odditty_kernel/control_functions.ml
+  ((file_digest ( "\
+                 \n\012\178\003z\022\142\178\151\143\173<\001\127\242+"))
+   (action_digest ())))
+ (odditty_kernel/control_functions.mli
+  ((file_digest ("\022\221\179\226\159G\234\239O\199JQ\192c\155\214"))
+   (action_digest ())))
+ (odditty_kernel/dec_private_mode.ml
+  ((file_digest ( "\134\221\023\193R\020\176+E\166\223\187\
+                 \n\229)B"))
+   (action_digest ())))
+ (odditty_kernel/terminfo.ml
+  ((file_digest ("\164`8\221i]\031\235|\\Y\252h~\136\178"))
+   (action_digest ())))
+ (odditty_kernel/terminfo.mli
+  ((file_digest ("\195@)D\230\171\r\131rNl\135\026\195\238\156"))
+   (action_digest ())))
+ (odditty_kernel/window.ml
+  ((file_digest ( "0[,\029\144\132\206\028\r\236\140\017e\239\
+                 \n\186"))
+   (action_digest ())))
+ (odditty_kernel/window.mli
+  ((file_digest ("\192\028h!\030\196\000\161\014\200\202\164\0075\175\027"))
+   (action_digest ())))
+ (server/web_server.ml
+  ((file_digest ("U\132\187\026\253\189d\182\006\208\179\221\231/y\226"))
+   (action_digest ())))
+ (server/web_server.mli
+  ((file_digest ("\157\195\145kK\2116\235[\131\1700\132\198j\n"))
+   (action_digest ())))
+ (web/main.ml
+  ((file_digest ("\142\"\178QG\151\020\189\r\"\188/k\154\023\221"))
+   (action_digest ()))))

@@ -1349,6 +1349,14 @@ module Cache : sig
 
   val save : t -> unit
 end = struct
+
+  (*
+  type action_digest = int option
+
+  let sexp_of_action_digest int_opt =
+    [%sexp_of: string option] (Option.map int_opt ~f:(sprintf "%064x"))
+*)
+
   type entry = {
     file_digest : string option; (* None if file didn't exist *)
     action_digest : int option; (* None if the file was a leaf *)
@@ -1423,9 +1431,11 @@ end = struct
     let outputs_changed =
       (* The files may have changed, or the action may have changed. *)
       Set.exists outputs ~f:(fun file ->
-        [%equal: entry option]
-          (Map.find t1 file)
-          (Map.find t2 file)
+        match Map.find t2 file with
+        | None -> true
+        | Some _ as t2_entry ->
+          (* If the file doesn't exist, definitely need to rebuild. *)
+          [%equal: entry option] (Map.find t1 file) t2_entry
       )
     in
     inputs_changed || outputs_changed
