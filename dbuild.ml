@@ -1618,7 +1618,7 @@ let run_node ~working_dir { Build_graph. action; inputs = _; outputs; } =
   begin
     match action with
     | Write_file { file; contents; } ->
-      Core.Std.printf !"%{Action}\n%!" action;
+      (*Core.Std.printf !"%{Action}\n%!" action;*)
       Writer.with_file (working_dir ^/ File_name.to_string file) ~f:(fun writer ->
         Writer.write writer contents;
         Deferred.unit)
@@ -1626,7 +1626,7 @@ let run_node ~working_dir { Build_graph. action; inputs = _; outputs; } =
       Deferred.return (Ok ())
     | Cmd { Cmd. exe; args; opam_switch; } ->
       let env = Option.map opam_switch ~f:get_opam_env in
-      Core.Std.printf !"%{Action}\n%!" (*?env*) action;
+      (*Core.Std.printf !"%{Action}\n%!" (*?env*) action;*)
       Process.create
         ?env:(Option.map env ~f:(fun env -> `Replace env))
         ~working_dir
@@ -1768,11 +1768,13 @@ let parallel_build_cmd =
               if Cache.should_rebuild old_cache cache node
               then (
                 Core.Std.printf !"= start =\n%{Build_graph.Node}\n%!" node;
+                let start = Time_ns.now () in
                 prep_sandbox node
                 >>= fun sandbox ->
                 run_in_sandbox ~sandbox node
                 >>=? fun () ->
-                Deferred.return (Ok `Built)
+                let elapsed = Time_ns.diff (Time_ns.now ()) start in
+                Deferred.return (Ok (`Built elapsed))
               )
               else (
                 Deferred.return (Ok `Cached)
@@ -1822,7 +1824,7 @@ let parallel_build_cmd =
             Deferred.return (Error (Error.tag_arg err "node" node [%sexp_of: Build_graph.node]))
           | Ok build_kind ->
             Core.Std.printf
-              !"%{sexp:[`Built|`Cached]} %{sexp#mach:(string * string list) list}\n%!"
+              !"%{sexp:[`Built of Time_ns.Span.t|`Cached]} %{sexp#mach:(string * string list) list}\n%!"
               build_kind (group_files_by_dir node.outputs);
             let new_cache = Cache.update_node new_cache node in
             let newly_built_files = Build_graph.outputs node in
