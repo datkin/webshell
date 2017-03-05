@@ -768,8 +768,9 @@ end = struct
         exe = "ocamlfind";
         args = [
           [ocamlc kind;
+          "-thread";
           "-linkpkg";
-          "-thread"];
+          ];
           ["-package"; packages];
         ] @ [input_archives]
           @ [
@@ -797,7 +798,7 @@ end = struct
         (Cmd
          ((exe ocamlfind)
           (args
-           ((ocamlopt -linkpkg -thread) (-package a,b)
+           ((ocamlopt -thread -linkpkg) (-package a,b)
             (.dbuild/native/x/archive/x.cmxa .dbuild/native/y/archive/y.cmxa)
             (.dbuild/native/bin/modules/main.cmx)
             (-o .dbuild/native/bin/linked/main.native)))
@@ -1613,8 +1614,27 @@ let mkdirs files =
 let sandbox_file ~sandbox file_name =
   File_name.of_string (sprintf !"%s/%{File_name}" sandbox file_name)
 
-let run_node ~working_dir { Build_graph. action; inputs = _; outputs; } =
+module Node_result = struct
+  type t =
+    | Cached
+    | Generated of { elapsed : Time_ns.Span.t; }
+    | Ran of {
+      output : Process.Output.t;
+      elapsed : Time_ns.Span.t;
+    }
+  [@@deriving sexp_of]
+
+  let to_unit_or_error = function
+    | Cached
+    | Generated _ -> Ok ()
+    | Ran { output = { exit_status; _ }; _ } -> Unix.Exit_or_signal.or_error exit_status
+
+  let succeeded t = Result.is_ok (to_unit_or_error t)
+end
+
+let run_node ~working_dir { Build_graph. action; inputs = _; outputs; } : Node_result.t Or_error.t Deferred.t =
   mkdirs (File_name.Set.map outputs ~f:(sandbox_file ~sandbox:working_dir));
+  let start = Time_ns.now () in
   begin
     match action with
     | Write_file { file; contents; } ->
@@ -1623,7 +1643,8 @@ let run_node ~working_dir { Build_graph. action; inputs = _; outputs; } =
         Writer.write writer contents;
         Deferred.unit)
       >>= fun () ->
-      Deferred.return (Ok ())
+      let elapsed = Time_ns.diff (Time_ns.now ()) start in
+      Deferred.return (Ok (Node_result.Generated { elapsed; }))
     | Cmd { Cmd. exe; args; opam_switch; } ->
       let env = Option.map opam_switch ~f:get_opam_env in
       (*Core.Std.printf !"%{Action}\n%!" (*?env*) action;*)
@@ -1635,10 +1656,9 @@ let run_node ~working_dir { Build_graph. action; inputs = _; outputs; } =
         ()
       >>=? fun process ->
       Process.collect_output_and_wait process
-      >>= fun { stdout; stderr; exit_status; } ->
-      Core.Std.printf "  stdout:\n%s\n%!" stdout;
-      Core.Std.printf "  stderr:\n%s\n%!" stderr;
-      Deferred.return (Unix.Exit_or_signal.or_error exit_status)
+      >>| fun output ->
+      let elapsed = Time_ns.diff (Time_ns.now ()) start in
+      Ok (Node_result.Ran { elapsed; output; })
   end
 
 let assert_empty ~sandbox =
@@ -1655,8 +1675,7 @@ let assert_empty ~sandbox =
 let prep_sandbox =
   let n = ref 0 in
   fun { Build_graph. action = _; inputs; outputs; } : string Deferred.t ->
-  (* CR datkin: When we do parallel builds, we need separate sandboxes. *)
-    let sandbox = sprintf ".dbuild-sandbox/%d" !n in
+    let sandbox = sprintf ".dbuild-sandbox/%d" !n in (* For parallel build, ensure sandboxes are unique. *)
     incr n;
     Core.Unix.mkdir_p sandbox;
     assert_empty ~sandbox; (* It may have already existed and left unclean *)
@@ -1684,12 +1703,17 @@ let run_in_sandbox ~sandbox ({ Build_graph. action = _; inputs; outputs; } as no
   mkdirs outputs;
   Monitor.protect (fun () ->
     run_node ~working_dir:sandbox node
-    >>=? fun () ->
-    Set.iter outputs ~f:(fun file ->
-      Core.Unix.rename
-        ~src:(File_name.to_string (sandbox_file ~sandbox file))
-        ~dst:(File_name.to_string file));
-    return (Ok ()))
+    >>=? fun node_result ->
+    begin
+      if Node_result.succeeded node_result
+      then
+        Set.iter outputs ~f:(fun file ->
+          Core.Unix.rename
+            ~src:(File_name.to_string (sandbox_file ~sandbox file))
+            ~dst:(File_name.to_string file))
+      else ()
+    end;
+    return (Ok node_result))
   ~finally:(fun () ->
     (* If anything goes wrong, cleanup the sandbox, but don't require that
      * everything actually exists. *)
@@ -1733,12 +1757,18 @@ let build_cmd =
             >>= fun sandbox ->
             if stop_now
             then Deferred.return (Or_error.errorf "Stopped, sandbox in %s" sandbox)
-            else run_in_sandbox ~sandbox node
+            else
+              run_in_sandbox ~sandbox node
+              >>=? fun result ->
+              Deferred.return (Node_result.to_unit_or_error result)
           )
           else (
             if stop_now
             then Deferred.return (Or_error.error_string "stopped")
-            else run_node ~working_dir:"." node
+            else
+              run_node ~working_dir:"." node
+              >>=? fun result ->
+              Deferred.return (Node_result.to_unit_or_error result)
           )
         )
     ]
@@ -1767,20 +1797,19 @@ let parallel_build_cmd =
             begin
               if Cache.should_rebuild old_cache cache node
               then (
-                Core.Std.printf !"= start =\n%{Build_graph.Node}\n%!" node;
-                let start = Time_ns.now () in
+                Core.Std.printf !"Building %s\n%!"
+                  (abbreviated_files_to_string node.outputs |> String.concat ~sep:" ");
                 prep_sandbox node
                 >>= fun sandbox ->
                 run_in_sandbox ~sandbox node
-                >>=? fun () ->
-                let elapsed = Time_ns.diff (Time_ns.now ()) start in
-                Deferred.return (Ok (`Built elapsed))
+                >>=? fun node_result ->
+                Deferred.return (Ok node_result)
               )
               else (
-                Deferred.return (Ok `Cached)
+                Deferred.return (Ok Node_result.Cached)
               )
             end
-            >>= fun result ->
+            >>= fun (result : Node_result.t Or_error.t) ->
             Pipe.write w (node, result)
           )
         in
@@ -1819,25 +1848,44 @@ let parallel_build_cmd =
           >>=? fun (new_cache, unbuilt) ->
           match build_result with
           | Error err ->
-            (* CR-someday datkin: This interrupt builds other parallel. *)
+            (* CR-someday datkin: This interrupt other parallel builds. *)
             Pipe.close_read r;
             Deferred.return (Error (Error.tag_arg err "node" node [%sexp_of: Build_graph.node]))
-          | Ok build_kind ->
-            Core.Std.printf
-              !"%{sexp:[`Built of Time_ns.Span.t|`Cached]} %{sexp#mach:(string * string list) list}\n%!"
-              build_kind (group_files_by_dir node.outputs);
-            let new_cache = Cache.update_node new_cache node in
-            let newly_built_files = Build_graph.outputs node in
-            let unbuilt = Set.fold newly_built_files ~init:unbuilt ~f:Set.remove in
-            if Set.is_empty unbuilt
-            then (
+          | Ok (node_result : Node_result.t) ->
+            let step_succeeded =
+              match node_result with
+              | Cached -> Ok `Cached
+              | Generated { elapsed } -> Ok (`Built elapsed)
+              | Ran { output = { stdout; stderr; exit_status }; elapsed } ->
+                Core.Std.printf
+                  !"%{Build_graph.Node}\n= stdout =\n%s= stderr =\n%s\n%!"
+                  node
+                  stdout
+                  stderr;
+                Unix.Exit_or_signal.or_error exit_status
+                |> Result.map ~f:(fun () -> `Built elapsed)
+            in
+            match step_succeeded with
+            | Error _ as err ->
               Pipe.close_read r;
-              Deferred.return (Ok (new_cache, unbuilt))
-            )
-            else (
-              Set.iter (ready_nodes ~newly_built_files ~unbuilt) ~f:(build new_cache);
-              Deferred.return (Ok (new_cache, unbuilt))
-            )
+              Deferred.return err
+            | Ok build_info ->
+              Core.Std.printf
+                !"%{sexp:[`Built of Time_ns.Span.t|`Cached]} %s\n%!"
+                build_info
+                (abbreviated_files_to_string node.outputs |> String.concat ~sep:" ");
+              let new_cache = Cache.update_node new_cache node in
+              let newly_built_files = Build_graph.outputs node in
+              let unbuilt = Set.fold newly_built_files ~init:unbuilt ~f:Set.remove in
+              if Set.is_empty unbuilt
+              then (
+                Pipe.close_read r;
+                Deferred.return (Ok (new_cache, unbuilt))
+              )
+              else (
+                Set.iter (ready_nodes ~newly_built_files ~unbuilt) ~f:(build new_cache);
+                Deferred.return (Ok (new_cache, unbuilt))
+              )
         )
         >>=? fun (new_cache, (_ : File_name.Set.t)) ->
         Cache.save new_cache;
