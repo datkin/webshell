@@ -1858,10 +1858,15 @@ let incremental_parallel_build ~old_cache ~new_cache bg : (Cache.t * unit Or_err
           Pipe.close_read r;
           Deferred.return (new_cache, err)
         | Ok build_info ->
-          Core.Std.printf
-            !"%{sexp:[`Built of Time_ns.Span.t|`Cached]} %s\n%!"
-            build_info
-            (abbreviated_files_to_string node.outputs |> String.concat ~sep:" ");
+          begin
+            match build_info with
+            | `Cached -> ()
+            | `Built _ ->
+              Core.Std.printf
+                !"%{sexp:[`Built of Time_ns.Span.t|`Cached]} %s\n%!"
+                build_info
+                (abbreviated_files_to_string node.outputs |> String.concat ~sep:" ");
+          end;
           let new_cache = Cache.update_node new_cache node in
           let newly_built_files = Build_graph.outputs node in
           let unbuilt = Set.fold newly_built_files ~init:unbuilt ~f:Set.remove in
