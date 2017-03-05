@@ -1376,7 +1376,7 @@ let file_exists file =
 ;;
 
 module Cache : sig
-  type t
+  type t [@@deriving compare]
 
   val load : unit -> t
 
@@ -1412,7 +1412,7 @@ end = struct
    * we can slightly optimize: if none of the leaf files changed (and trusting
    * none of the interior files was modified?) we can just short circuit
    * building anything. *)
-  type t = entry File_name.Map.t [@@deriving sexp]
+  type t = entry File_name.Map.t [@@deriving sexp, compare]
 
   let file = ".dbuild-cache"
 
@@ -1775,7 +1775,7 @@ let build_cmd =
 ;;
 
 (* Returns the cache up to what we've built, and the result. *)
-let incremental_parallel_build ~old_cache bg : (Cache.t * unit Or_error.t) Deferred.t =
+let incremental_parallel_build ~old_cache ~new_cache bg : (Cache.t * unit Or_error.t) Deferred.t =
   (* CR datkin: Factor the parallel logic out so we can test it. *)
   (* CR datkin: It would be nice if we had a version of this which
    * allowed us to enumerate/monitor which jobs were running. *)
@@ -1824,7 +1824,6 @@ let incremental_parallel_build ~old_cache bg : (Cache.t * unit Or_error.t) Defer
         then next
         else Set.add next node))
   in
-  let new_cache = Cache.create bg in
   begin
     Build_graph.nodes bg
     |> List.filter ~f:(fun node -> Set.is_empty node.Build_graph.inputs)
@@ -1887,18 +1886,45 @@ let parallel_build_cmd =
     [%map_open
       let use_sandbox = flag "sandbox" no_arg ~doc:" Build in sandbox"
       and stop_before_build = flag "stop" no_arg ~doc:" Stop right before the target"
+      and poll = flag "poll" no_arg ~doc:" Poll continually (don't exit on first error/success)"
       and targets = anon (sequence ("target" %: file_arg))
       in
       fun () ->
-        let old_cache = Cache.load () in
         let bg =
           let target_set = File_name.Set.of_list targets in
           pruned_build_graph ~roots:targets
         in
-        incremental_parallel_build ~old_cache bg
-        >>= fun (cache, result) ->
-        Cache.save cache;
-        Deferred.return result
+        let rec loop ~old_cache =
+          let new_cache = Cache.create bg in
+          if poll && [%equal: Cache.t] old_cache new_cache
+          then (
+            Clock.after (sec 0.5)
+            >>= fun () ->
+            loop ~old_cache
+          )
+          else (
+            incremental_parallel_build ~old_cache ~new_cache bg
+            >>= fun (cache, result) ->
+            Cache.save cache;
+            if poll
+            then (
+              begin
+                match result with
+                | Ok () -> Core.Std.printf "Done, yay!\n%!"
+                | Error err ->
+                  Core.Std.printf !"Failed: %{sexp#hum:Error.t}\n%!" err
+              end;
+              Clock.after (sec 0.5)
+              >>= fun () ->
+              loop ~old_cache:cache
+            )
+            else (
+              Deferred.return result
+            )
+          )
+        in
+        let old_cache = Cache.load () in
+        loop ~old_cache
     ]
 
 let () =
