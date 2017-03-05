@@ -1772,6 +1772,113 @@ let build_cmd =
           )
         )
     ]
+;;
+
+(* Returns the cache up to what we've built, and the result. *)
+let incremental_parallel_build ~old_cache bg : (Cache.t * unit Or_error.t) Deferred.t =
+  (* CR datkin: Factor the parallel logic out so we can test it. *)
+  (* CR datkin: It would be nice if we had a version of this which
+   * allowed us to enumerate/monitor which jobs were running. *)
+  let r, w = Pipe.create () in
+  let build cache node =
+    don't_wait_for (
+      begin
+        if Cache.should_rebuild old_cache cache node
+        then (
+          Core.Std.printf !"Building %s\n%!"
+            (abbreviated_files_to_string node.outputs |> String.concat ~sep:" ");
+          prep_sandbox node
+          >>= fun sandbox ->
+          run_in_sandbox ~sandbox node
+          >>=? fun node_result ->
+          Deferred.return (Ok node_result)
+        )
+        else (
+          Deferred.return (Ok Node_result.Cached)
+        )
+      end
+      >>= fun (result : Node_result.t Or_error.t) ->
+      Pipe.write w (node, result)
+    )
+  in
+  let newly_built_files =
+    Build_graph.by_file bg
+    |> Map.filter ~f:(fun per_file ->
+        Option.is_none per_file.Build_graph.needs)
+    |> Map.keys
+    |> File_name.Set.of_list
+  in
+  let unbuilt = Build_graph.by_file bg |> Map.keys |> File_name.Set.of_list in
+  let unbuilt = Set.fold newly_built_files ~init:unbuilt ~f:Set.remove in
+  let ready_nodes ~newly_built_files ~unbuilt =
+    assert (not (Set.is_empty newly_built_files));
+    Set.fold newly_built_files ~init:Set.Poly.empty ~f:(fun next file ->
+      let maybe_ready =
+        match Map.find (Build_graph.by_file bg) file with
+        | None -> []
+        | Some per_file -> Build_graph.provides per_file
+      in
+      List.fold maybe_ready ~init:next ~f:(fun next node ->
+        let any_pending = Set.exists node.inputs ~f:(Set.mem unbuilt) in
+        if any_pending
+        then next
+        else Set.add next node))
+  in
+  let new_cache = Cache.create bg in
+  begin
+    Build_graph.nodes bg
+    |> List.filter ~f:(fun node -> Set.is_empty node.Build_graph.inputs)
+    |> List.iter ~f:(build new_cache)
+  end;
+  Set.iter (ready_nodes ~newly_built_files ~unbuilt) ~f:(build new_cache); (* enqueue the initial jobs *)
+  Pipe.fold r ~init:(new_cache, (Ok unbuilt)) ~f:(fun (new_cache, result) (node, build_result) ->
+    match result with
+    | Error _ -> return (new_cache, result)
+    | Ok unbuilt ->
+      match build_result with
+      | Error err ->
+        (* CR-someday datkin: This interrupt other parallel builds. *)
+        Pipe.close_read r;
+        Deferred.return (new_cache, Error (Error.tag_arg err "node" node [%sexp_of: Build_graph.node]))
+      | Ok (node_result : Node_result.t) ->
+        let step_succeeded =
+          match node_result with
+          | Cached -> Ok `Cached
+          | Generated { elapsed } -> Ok (`Built elapsed)
+          | Ran { output = { stdout; stderr; exit_status }; elapsed } ->
+            Core.Std.printf
+              !"%{Build_graph.Node}\n= stdout =\n%s= stderr =\n%s\n%!"
+              node
+              stdout
+              stderr;
+            Unix.Exit_or_signal.or_error exit_status
+            |> Result.map ~f:(fun () -> `Built elapsed)
+        in
+        match step_succeeded with
+        | Error _ as err ->
+          Pipe.close_read r;
+          Deferred.return (new_cache, err)
+        | Ok build_info ->
+          Core.Std.printf
+            !"%{sexp:[`Built of Time_ns.Span.t|`Cached]} %s\n%!"
+            build_info
+            (abbreviated_files_to_string node.outputs |> String.concat ~sep:" ");
+          let new_cache = Cache.update_node new_cache node in
+          let newly_built_files = Build_graph.outputs node in
+          let unbuilt = Set.fold newly_built_files ~init:unbuilt ~f:Set.remove in
+          if Set.is_empty unbuilt
+          then (
+            Pipe.close_read r;
+            Deferred.return (new_cache, Ok unbuilt)
+          )
+          else (
+            Set.iter (ready_nodes ~newly_built_files ~unbuilt) ~f:(build new_cache);
+            Deferred.return (new_cache, Ok unbuilt)
+          )
+  )
+  >>= fun (new_cache, result) ->
+  return (new_cache, Result.ignore result)
+;;
 
 let parallel_build_cmd =
   let open Command.Let_syntax in
@@ -1783,113 +1890,15 @@ let parallel_build_cmd =
       and targets = anon (sequence ("target" %: file_arg))
       in
       fun () ->
+        let old_cache = Cache.load () in
         let bg =
           let target_set = File_name.Set.of_list targets in
           pruned_build_graph ~roots:targets
         in
-        (* CR datkin: Factor the parallel logic out so we can test it. *)
-        (* CR datkin: It would be nice if we had a version of this which
-         * allowed us to enumerate/monitor which jobs were running. *)
-        let r, w = Pipe.create () in
-        let old_cache = Cache.load () in
-        let build cache node =
-          don't_wait_for (
-            begin
-              if Cache.should_rebuild old_cache cache node
-              then (
-                Core.Std.printf !"Building %s\n%!"
-                  (abbreviated_files_to_string node.outputs |> String.concat ~sep:" ");
-                prep_sandbox node
-                >>= fun sandbox ->
-                run_in_sandbox ~sandbox node
-                >>=? fun node_result ->
-                Deferred.return (Ok node_result)
-              )
-              else (
-                Deferred.return (Ok Node_result.Cached)
-              )
-            end
-            >>= fun (result : Node_result.t Or_error.t) ->
-            Pipe.write w (node, result)
-          )
-        in
-        let newly_built_files =
-          Build_graph.by_file bg
-          |> Map.filter ~f:(fun per_file ->
-              Option.is_none per_file.Build_graph.needs)
-          |> Map.keys
-          |> File_name.Set.of_list
-        in
-        let unbuilt = Build_graph.by_file bg |> Map.keys |> File_name.Set.of_list in
-        let unbuilt = Set.fold newly_built_files ~init:unbuilt ~f:Set.remove in
-        let ready_nodes ~newly_built_files ~unbuilt =
-          assert (not (Set.is_empty newly_built_files));
-          Set.fold newly_built_files ~init:Set.Poly.empty ~f:(fun next file ->
-            let maybe_ready =
-              match Map.find (Build_graph.by_file bg) file with
-              | None -> []
-              | Some per_file -> Build_graph.provides per_file
-            in
-            List.fold maybe_ready ~init:next ~f:(fun next node ->
-              let any_pending = Set.exists node.inputs ~f:(Set.mem unbuilt) in
-              if any_pending
-              then next
-              else Set.add next node))
-        in
-        let new_cache = Cache.create bg in
-        begin
-          Build_graph.nodes bg
-          |> List.filter ~f:(fun node -> Set.is_empty node.Build_graph.inputs)
-          |> List.iter ~f:(build new_cache)
-        end;
-        Set.iter (ready_nodes ~newly_built_files ~unbuilt) ~f:(build new_cache); (* enqueue the initial jobs *)
-        Pipe.fold r ~init:(Ok (new_cache, unbuilt)) ~f:(fun result (node, build_result) ->
-          Deferred.return result
-          >>=? fun (new_cache, unbuilt) ->
-          match build_result with
-          | Error err ->
-            (* CR-someday datkin: This interrupt other parallel builds. *)
-            Pipe.close_read r;
-            Deferred.return (Error (Error.tag_arg err "node" node [%sexp_of: Build_graph.node]))
-          | Ok (node_result : Node_result.t) ->
-            let step_succeeded =
-              match node_result with
-              | Cached -> Ok `Cached
-              | Generated { elapsed } -> Ok (`Built elapsed)
-              | Ran { output = { stdout; stderr; exit_status }; elapsed } ->
-                Core.Std.printf
-                  !"%{Build_graph.Node}\n= stdout =\n%s= stderr =\n%s\n%!"
-                  node
-                  stdout
-                  stderr;
-                Unix.Exit_or_signal.or_error exit_status
-                |> Result.map ~f:(fun () -> `Built elapsed)
-            in
-            match step_succeeded with
-            | Error _ as err ->
-              Pipe.close_read r;
-              Deferred.return err
-            | Ok build_info ->
-              Core.Std.printf
-                !"%{sexp:[`Built of Time_ns.Span.t|`Cached]} %s\n%!"
-                build_info
-                (abbreviated_files_to_string node.outputs |> String.concat ~sep:" ");
-              let new_cache = Cache.update_node new_cache node in
-              let newly_built_files = Build_graph.outputs node in
-              let unbuilt = Set.fold newly_built_files ~init:unbuilt ~f:Set.remove in
-              if Set.is_empty unbuilt
-              then (
-                Pipe.close_read r;
-                Deferred.return (Ok (new_cache, unbuilt))
-              )
-              else (
-                Set.iter (ready_nodes ~newly_built_files ~unbuilt) ~f:(build new_cache);
-                Deferred.return (Ok (new_cache, unbuilt))
-              )
-        )
-        >>=? fun (new_cache, (_ : File_name.Set.t)) ->
-        Cache.save new_cache;
-        Deferred.return (Ok ())
+        incremental_parallel_build ~old_cache bg
+        >>= fun (cache, result) ->
+        Cache.save cache;
+        Deferred.return result
     ]
 
 let () =
