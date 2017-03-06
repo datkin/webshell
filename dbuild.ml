@@ -1392,7 +1392,10 @@ module Cache : sig
    * given action digest. Otherwise, raises. *)
   val update_file : t -> ?action_digest:int option -> File_name.t -> t * [`Changed | `Same]
 
+  (* CR-soon datkin: It would be nice to return a reason why we should rebuild. *)
   val should_rebuild : t -> t -> Build_graph.node -> bool
+
+  val anything_changed : t -> t -> [ `Yes of Info.t | `No ]
 
   val save : t -> unit
 end = struct
@@ -1414,6 +1417,17 @@ end = struct
    * none of the interior files was modified?) we can just short circuit
    * building anything. *)
   type t = entry File_name.Map.t [@@deriving sexp, compare]
+
+  let anything_changed t1 t2 =
+    match
+      Map.symmetric_diff t1 t2 ~data_equal:[%equal: entry]
+      |> Sequence.to_list
+    with
+    | [] -> `No
+    | diff ->
+      `Yes (Info.create_s [%message
+        (diff : (File_name.t, entry) Map.Symmetric_diff_element.t list)
+      ])
 
   let file = ".dbuild-cache"
 
@@ -1480,9 +1494,11 @@ end = struct
       (* The files may have changed, or the action may have changed. *)
       Set.exists outputs ~f:(fun file ->
         match Map.find t2 file with
-        | None -> true
-        | Some _ as t2_entry ->
+        | None
+        | Some { file_digest = None; _ }
           (* If the file doesn't exist, definitely need to rebuild. *)
+          -> true
+        | Some _ as t2_entry ->
           not ([%equal: entry option] (Map.find t1 file) t2_entry)
       )
     in
@@ -1775,6 +1791,55 @@ let build_cmd =
     ]
 ;;
 
+module Job_pool : sig
+  type 'a t
+
+  val create : unit -> _ t
+
+  (* Raises if [t] is closed *)
+  val add_exn : 'a t -> 'a Deferred.t -> unit
+
+  (* Raises if no jobs have been added. Multiple parallel calls may return the
+   * same element. *)
+  val next_exn : 'a t -> 'a Deferred.t
+
+  val close : 'a t -> [ `Pending of 'a Deferred.t list ]
+end = struct
+  type 'a t = {
+    jobs : 'a Deferred.t Bag.t;
+    closed : unit Set_once.t;
+  } [@@deriving sexp_of]
+
+  let create () = {
+    jobs = Bag.create ();
+    closed = Set_once.create ();
+  }
+
+  let add_exn t job =
+    match Set_once.get t.closed with
+    | Some () -> raise_s [%message "Can't add, closed"]
+    | None -> ignore (Bag.add t.jobs job : _ Bag.Elt.t)
+
+  let next_exn t =
+    match Bag.elts t.jobs with
+    | [] -> raise_s [%message "No jobs pending"]
+    | jobs ->
+      List.map jobs ~f:(fun elt ->
+        choice (Bag.Elt.value elt) (fun result -> (result, elt)))
+      |> choose
+      >>= fun (result, elt) ->
+      begin
+        if Bag.mem_elt t.jobs elt
+        then Bag.remove t.jobs elt
+        else ()
+      end;
+      return result
+
+  let close t =
+    Set_once.set_exn t.closed ();
+    `Pending (Bag.elts t.jobs |> List.map ~f:Bag.Elt.value)
+end
+
 (* Returns the cache up to what we've built, and the result. *)
 let incremental_parallel_build ~old_cache ~new_cache bg : (Cache.t * unit Or_error.t) Deferred.t =
   (* CR datkin: Factor the parallel logic out so we can test it. *)
@@ -1863,7 +1928,7 @@ let incremental_parallel_build ~old_cache ~new_cache bg : (Cache.t * unit Or_err
         | Ok build_info ->
           begin
             match build_info with
-            | `Cached -> ()
+            | `Cached (*-> ()*)
             | `Built _ ->
               Core.Std.printf
                 !"%{sexp:[`Built of Time_ns.Span.t|`Cached]} %s\n%!"
@@ -1904,7 +1969,16 @@ let parallel_build_cmd =
         in
         let rec loop ~old_cache =
           let new_cache = Cache.create bg in
-          if poll && [%equal: Cache.t] old_cache new_cache
+          let wait =
+            poll
+            &&
+            match Cache.anything_changed old_cache new_cache with
+            | `No -> true
+            | `Yes what_changed ->
+              Core.Std.printf !"Rebuilding %{sexp#mach:Info.t}\n%!" what_changed;
+              false
+          in
+          if wait
           then (
             Clock.after (sec 0.5)
             >>= fun () ->
