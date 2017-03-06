@@ -13,7 +13,7 @@ let view (_ : 'a) =
   ]
 ;;
 
-let () =
+let vdom_loop () =
   Dom_html.window##.onload := Dom.handler (fun _ ->
     Firebug.console##log (Js.string "onload callback");
     let k    = ref 0 in
@@ -57,7 +57,7 @@ type event =
   | Message of WebSockets.webSocket WebSockets.messageEvent Js.t
   | Key of Dom_html.keyboardEvent Js.t
 
-let () =
+let log_and_send_time () =
   Firebug.console##log (Js.string "started");
   don't_wait_for (
     make_ws ~url:"ws://localhost:8081"

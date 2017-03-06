@@ -1052,7 +1052,8 @@ let project_spec =
         ))
         (direct_deps (
           ;; js_of_ocaml.async
-          (packages (js_of_ocaml async_js virtual_dom))
+          ;; async_js
+          (packages (js_of_ocaml core_kernel async_kernel virtual_dom))
           (libs ())
         ))
       )
@@ -1798,7 +1799,9 @@ let incremental_parallel_build ~old_cache ~new_cache bg : (Cache.t * unit Or_err
         )
       end
       >>= fun (result : Node_result.t Or_error.t) ->
-      Pipe.write w (node, result)
+      if Pipe.is_closed w
+      then Deferred.unit
+      else Pipe.write w (node, result)
     )
   in
   let newly_built_files =
