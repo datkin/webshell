@@ -1796,78 +1796,109 @@ module Job_pool : sig
 
   val create : unit -> _ t
 
-  (* Raises if [t] is closed *)
+  (* Raises if [t] is closed. *)
   val add_exn : 'a t -> 'a Deferred.t -> unit
 
-  (* Raises if no jobs have been added. Multiple parallel calls may return the
-   * same element. *)
-  val next_exn : 'a t -> 'a Deferred.t
+  (* Raises if [t] is closed. Only one call may be pending at a time. *)
+  val next_exn : 'a t -> [ `No_jobs | `Ok of 'a Deferred.t ]
 
+  (*
+  (* Raises if you call this while [next_exn] calls are "pending". *)
   val close : 'a t -> [ `Pending of 'a Deferred.t list ]
+  *)
+
+  val is_closed : 'a t -> bool
 end = struct
   type 'a t = {
     jobs : 'a Deferred.t Bag.t;
     closed : unit Set_once.t;
+    mutable next : [ `Listener of 'a Ivar.t | `Done of 'a list ];
   } [@@deriving sexp_of]
 
   let create () = {
     jobs = Bag.create ();
     closed = Set_once.create ();
+    next = `Done [];
   }
+
+  let is_closed t = Option.is_some (Set_once.get t.closed)
 
   let add_exn t job =
     match Set_once.get t.closed with
     | Some () -> raise_s [%message "Can't add, closed"]
-    | None -> ignore (Bag.add t.jobs job : _ Bag.Elt.t)
+    | None ->
+      let elt = Bag.add t.jobs job in
+      don't_wait_for (
+        job
+        >>| fun result ->
+        if is_closed t
+        then ()
+        else (
+          Bag.remove t.jobs elt;
+          match t.next with
+          | `Listener ivar ->
+            Ivar.fill ivar result;
+            t.next <- `Done [];
+          | `Done finished ->
+            t.next <- `Done (result :: finished);
+        )
+      )
+  ;;
 
   let next_exn t =
-    match Bag.elts t.jobs with
-    | [] -> raise_s [%message "No jobs pending"]
-    | jobs ->
-      List.map jobs ~f:(fun elt ->
-        choice (Bag.Elt.value elt) (fun result -> (result, elt)))
-      |> choose
-      >>= fun (result, elt) ->
-      begin
-        if Bag.mem_elt t.jobs elt
-        then Bag.remove t.jobs elt
-        else ()
-      end;
-      return result
+    if Bag.is_empty t.jobs
+    then `No_jobs
+    else
+      let result =
+        match t.next with
+        | `Listener _ ->
+          raise_s [%message "Another call to [next_exn] is pending"]
+        | `Done [] ->
+          Deferred.create (fun ivar ->
+            t.next <- `Listener ivar)
+        | `Done (result :: finished) ->
+          t.next <- `Done finished;
+          return result
+      in
+      `Ok result
+  ;;
 
+  (*
   let close t =
-    Set_once.set_exn t.closed ();
-    `Pending (Bag.elts t.jobs |> List.map ~f:Bag.Elt.value)
+    match t.next with
+    | `Listener _ ->
+      raise_s [%message "Can't close while a [next_exn] call is pending"]
+    | `Done finished ->
+      `Pending (
+        (Bag.elts t.jobs |> List.map ~f:Bag.Elt.value)
+        @ (List.map finished ~f:return)
+      )
+  ;;
+  *)
 end
 
 (* Returns the cache up to what we've built, and the result. *)
 let incremental_parallel_build ~old_cache ~new_cache bg : (Cache.t * unit Or_error.t) Deferred.t =
   (* CR datkin: Factor the parallel logic out so we can test it. *)
-  (* CR datkin: It would be nice if we had a version of this which
-   * allowed us to enumerate/monitor which jobs were running. *)
-  let r, w = Pipe.create () in
+  let pool = Job_pool.create () in
   let build cache node =
-    don't_wait_for (
-      begin
-        if Cache.should_rebuild old_cache cache node
-        then (
-          Core.Std.printf !"Building %s\n%!"
-            (abbreviated_files_to_string node.outputs |> String.concat ~sep:" ");
-          prep_sandbox node
-          >>= fun sandbox ->
-          run_in_sandbox ~sandbox node
-          >>=? fun node_result ->
-          Deferred.return (Ok node_result)
-        )
-        else (
-          Deferred.return (Ok Node_result.Cached)
-        )
-      end
-      >>= fun (result : Node_result.t Or_error.t) ->
-      if Pipe.is_closed w
-      then Deferred.unit
-      else Pipe.write w (node, result)
+    if Cache.should_rebuild old_cache cache node
+    then (
+      Core.Std.printf !"Building %s\n%!"
+        (abbreviated_files_to_string node.outputs |> String.concat ~sep:" ");
+      prep_sandbox node
+      >>= fun sandbox ->
+      run_in_sandbox ~sandbox node
+      >>=? fun node_result ->
+      Deferred.return (Ok node_result)
     )
+    else (
+      Deferred.return (Ok Node_result.Cached)
+    )
+  in
+  let build cache node =
+    let job = build cache node >>| fun r -> (node, r) in
+    Job_pool.add_exn pool job
   in
   let newly_built_files =
     Build_graph.by_file bg
@@ -1898,15 +1929,20 @@ let incremental_parallel_build ~old_cache ~new_cache bg : (Cache.t * unit Or_err
     |> List.iter ~f:(build new_cache)
   end;
   Set.iter (ready_nodes ~newly_built_files ~unbuilt) ~f:(build new_cache); (* enqueue the initial jobs *)
-  Pipe.fold r ~init:(new_cache, (Ok unbuilt)) ~f:(fun (new_cache, result) (node, build_result) ->
-    match result with
-    | Error _ -> return (new_cache, result)
-    | Ok unbuilt ->
+  (* CR datkin: Check that [unbuilt] isn't empty and/or that the pool isn't
+   * empty. *)
+  Deferred.repeat_until_finished (new_cache, unbuilt) (fun (new_cache, unbuilt) ->
+    match Job_pool.next_exn pool with
+    | `No_jobs -> return (`Finished (new_cache, Ok unbuilt))
+    | `Ok result ->
+      result
+      >>= fun (node, build_result) ->
       match build_result with
       | Error err ->
-        (* CR-someday datkin: This interrupt other parallel builds. *)
-        Pipe.close_read r;
-        Deferred.return (new_cache, Error (Error.tag_arg err "node" node [%sexp_of: Build_graph.node]))
+        return (`Finished (
+          new_cache,
+          Error (Error.tag_arg err "node" node [%sexp_of: Build_graph.node])
+        ))
       | Ok (node_result : Node_result.t) ->
         let step_succeeded =
           match node_result with
@@ -1923,8 +1959,7 @@ let incremental_parallel_build ~old_cache ~new_cache bg : (Cache.t * unit Or_err
         in
         match step_succeeded with
         | Error _ as err ->
-          Pipe.close_read r;
-          Deferred.return (new_cache, err)
+          return (`Finished (new_cache, err))
         | Ok build_info ->
           begin
             match build_info with
@@ -1938,17 +1973,18 @@ let incremental_parallel_build ~old_cache ~new_cache bg : (Cache.t * unit Or_err
           let new_cache = Cache.update_node new_cache node in
           let newly_built_files = Build_graph.outputs node in
           let unbuilt = Set.fold newly_built_files ~init:unbuilt ~f:Set.remove in
+          Set.iter (ready_nodes ~newly_built_files ~unbuilt) ~f:(build new_cache);
+          return (`Repeat (new_cache, unbuilt))
+          (*
+          (* CR datkin: Just hoist this to the top as a termination condition? *)
           if Set.is_empty unbuilt
-          then (
-            Pipe.close_read r;
-            Deferred.return (new_cache, Ok unbuilt)
-          )
+          then return (`Finished (new_cache, Ok unbuilt))
           else (
-            Set.iter (ready_nodes ~newly_built_files ~unbuilt) ~f:(build new_cache);
-            Deferred.return (new_cache, Ok unbuilt)
           )
+  *)
   )
   >>= fun (new_cache, result) ->
+  (* CR datkin: Ensure the failure, if there was one, is clearly printed. *)
   return (new_cache, Result.ignore result)
 ;;
 
