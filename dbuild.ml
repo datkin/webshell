@@ -1878,7 +1878,8 @@ end = struct
 end
 
 (* Returns the cache up to what we've built, and the result. *)
-let incremental_parallel_build ~old_cache ~new_cache bg : (Cache.t * unit Or_error.t) Deferred.t =
+let incremental_parallel_build ~old_cache ~new_cache bg
+  : (Cache.t * (unit, Error.t list * File_name.Set.t) Result.t) Deferred.t =
   (* CR datkin: Factor the parallel logic out so we can test it. *)
   let pool = Job_pool.create () in
   let build cache node =
@@ -1931,61 +1932,63 @@ let incremental_parallel_build ~old_cache ~new_cache bg : (Cache.t * unit Or_err
   Set.iter (ready_nodes ~newly_built_files ~unbuilt) ~f:(build new_cache); (* enqueue the initial jobs *)
   (* CR datkin: Check that [unbuilt] isn't empty and/or that the pool isn't
    * empty. *)
-  Deferred.repeat_until_finished (new_cache, unbuilt) (fun (new_cache, unbuilt) ->
-    match Job_pool.next_exn pool with
-    | `No_jobs -> return (`Finished (new_cache, Ok unbuilt))
-    | `Ok result ->
-      result
-      >>= fun (node, build_result) ->
-      match build_result with
-      | Error err ->
-        return (`Finished (
-          new_cache,
-          Error (Error.tag_arg err "node" node [%sexp_of: Build_graph.node])
-        ))
-      | Ok (node_result : Node_result.t) ->
-        let step_succeeded =
-          match node_result with
-          | Cached -> Ok `Cached
-          | Generated { elapsed } -> Ok (`Built elapsed)
-          | Ran { output = { stdout; stderr; exit_status }; elapsed } ->
-            Core.Std.printf
-              !"%{Build_graph.Node}\n= stdout =\n%s= stderr =\n%s\n%!"
-              node
-              stdout
-              stderr;
-            Unix.Exit_or_signal.or_error exit_status
-            |> Result.map ~f:(fun () -> `Built elapsed)
-        in
-        match step_succeeded with
-        | Error _ as err ->
-          return (`Finished (new_cache, err))
-        | Ok build_info ->
-          begin
-            match build_info with
-            | `Cached (*-> ()*)
-            | `Built _ ->
+  Deferred.repeat_until_finished (new_cache, ([] : Error.t list), unbuilt) (fun (new_cache, failures, unbuilt) ->
+    if Set.is_empty unbuilt
+    then (
+      assert (List.is_empty failures);
+      assert (Job_pool.next_exn pool = `No_jobs);
+      return (`Finished (new_cache, Ok ()))
+    )
+    else (
+      match Job_pool.next_exn pool with
+      | `No_jobs -> return (`Finished (new_cache, Error (failures, unbuilt)))
+      | `Ok result ->
+        result
+        >>= fun (node, build_result) ->
+        match build_result with
+        | Error err ->
+          (* NB: We don't bother to update the cache in this case. *)
+          let err = Error.tag_arg err "node" node [%sexp_of: Build_graph.node] in
+          return (`Repeat (new_cache, err :: failures, unbuilt))
+        | Ok (node_result : Node_result.t) ->
+          let step_succeeded =
+            match node_result with
+            | Cached -> Ok `Cached
+            | Generated { elapsed } -> Ok (`Built elapsed)
+            | Ran { output = { stdout; stderr; exit_status }; elapsed } ->
               Core.Std.printf
-                !"%{sexp:[`Built of Time_ns.Span.t|`Cached]} %s\n%!"
-                build_info
-                (abbreviated_files_to_string node.outputs |> String.concat ~sep:" ");
-          end;
-          let new_cache = Cache.update_node new_cache node in
-          let newly_built_files = Build_graph.outputs node in
-          let unbuilt = Set.fold newly_built_files ~init:unbuilt ~f:Set.remove in
-          Set.iter (ready_nodes ~newly_built_files ~unbuilt) ~f:(build new_cache);
-          return (`Repeat (new_cache, unbuilt))
-          (*
-          (* CR datkin: Just hoist this to the top as a termination condition? *)
-          if Set.is_empty unbuilt
-          then return (`Finished (new_cache, Ok unbuilt))
-          else (
-          )
-  *)
+                !"%{Build_graph.Node}\n= stdout =\n%s= stderr =\n%s\n%!"
+                node
+                stdout
+                stderr;
+              Unix.Exit_or_signal.or_error exit_status
+              |> Result.map ~f:(fun () -> `Built elapsed)
+          in
+          match step_succeeded with
+          | Error err ->
+            return (`Repeat (new_cache, err :: failures, unbuilt))
+          | Ok build_info ->
+            begin
+              match build_info with
+              | `Cached (*-> ()*)
+              | `Built _ ->
+                Core.Std.printf
+                  !"%{sexp:[`Built of Time_ns.Span.t|`Cached]} %s\n%!"
+                  build_info
+                  (abbreviated_files_to_string node.outputs |> String.concat ~sep:" ");
+            end;
+            let new_cache = Cache.update_node new_cache node in
+            let newly_built_files = Build_graph.outputs node in
+            let unbuilt = Set.fold newly_built_files ~init:unbuilt ~f:Set.remove in
+            Set.iter (ready_nodes ~newly_built_files ~unbuilt) ~f:(build new_cache);
+            return (`Repeat (new_cache, failures, unbuilt))
+    )
   )
+  (*
   >>= fun (new_cache, result) ->
   (* CR datkin: Ensure the failure, if there was one, is clearly printed. *)
-  return (new_cache, Result.ignore result)
+  return (new_cache, result)
+*)
 ;;
 
 let parallel_build_cmd =
@@ -2029,15 +2032,19 @@ let parallel_build_cmd =
               begin
                 match result with
                 | Ok () -> Core.Std.printf "Done, yay!\n%!"
-                | Error err ->
-                  Core.Std.printf !"Failed: %{sexp#hum:Error.t}\n%!" err
+                | Error (errors, _unbuilt) ->
+                  List.iter errors ~f:(fun err ->
+                    Core.Std.printf !"Failed: %{sexp#hum:Error.t}\n%!" err
+                  )
               end;
               Clock.after (sec 0.5)
               >>= fun () ->
               loop ~old_cache:cache
             )
             else (
-              Deferred.return result
+              Result.map_error result ~f:(fun (failures, _unbuilt) ->
+                Error.of_list failures)
+              |> Deferred.return
             )
           )
         in
