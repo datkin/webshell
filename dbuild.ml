@@ -1400,15 +1400,17 @@ module Cache : sig
   val save : t -> unit
 end = struct
 
-  (*
-  type action_digest = int option
+  type file_digest = string [@@deriving compare]
 
-  let sexp_of_action_digest int_opt =
-    [%sexp_of: string option] (Option.map int_opt ~f:(sprintf "%064x"))
-*)
+  let sexp_of_file_digest str =
+    [%sexp_of: string] (Digest.to_hex str)
+
+  let file_digest_of_sexp = function
+    | Sexp.Atom str -> Digest.from_hex str
+    | List _ -> assert false
 
   type entry = {
-    file_digest : string option; (* None if file didn't exist *)
+    file_digest : file_digest option; (* None if file didn't exist *)
     action_digest : int option; (* None if the file was a leaf *)
   } [@@deriving sexp, compare, fields]
 
