@@ -1826,6 +1826,7 @@ end = struct
   let is_closed t = Option.is_some (Set_once.get t.closed)
 
   let add_exn t job =
+    Core.Std.printf " -- Add called\n%!";
     match Set_once.get t.closed with
     | Some () -> raise_s [%message "Can't add, closed"]
     | None ->
@@ -1833,6 +1834,7 @@ end = struct
       don't_wait_for (
         job
         >>| fun result ->
+        Core.Std.printf "Job finished\n%!";
         if is_closed t
         then ()
         else (
@@ -1847,22 +1849,25 @@ end = struct
       )
   ;;
 
+
   let next_exn t =
-    if Bag.is_empty t.jobs
-    then `No_jobs
-    else
-      let result =
-        match t.next with
-        | `Listener _ ->
-          raise_s [%message "Another call to [next_exn] is pending"]
-        | `Done [] ->
-          Deferred.create (fun ivar ->
-            t.next <- `Listener ivar)
-        | `Done (result :: finished) ->
-          t.next <- `Done finished;
-          return result
-      in
-      `Ok result
+    match t.next with
+    | `Listener _ ->
+      raise_s [%message "Another call to [next_exn] is pending"]
+    | `Done queue ->
+      match queue with
+      | [] ->
+        if Bag.is_empty t.jobs
+        then `No_jobs
+        else
+          let result =
+            Deferred.create (fun ivar ->
+              t.next <- `Listener ivar)
+          in
+          `Ok result
+    | result :: finished ->
+      t.next <- `Done finished;
+      `Ok (return result)
   ;;
 
   (*
@@ -1942,6 +1947,7 @@ let incremental_parallel_build ~old_cache ~new_cache bg
       return (`Finished (new_cache, Ok ()))
     )
     else (
+      Core.Std.printf "Waiting for next job\n%!";
       match Job_pool.next_exn pool with
       | `No_jobs -> return (`Finished (new_cache, Error (failures, unbuilt)))
       | `Ok result ->
@@ -2030,6 +2036,8 @@ let parallel_build_cmd =
               begin
                 match result with
                 | Ok () -> Core.Std.printf "Done, yay!\n%!"
+                | Error ([], unbuilt) ->
+                  Core.Std.printf !"Build failed, but no errors: %{sexp#mach:File_name.Set.t}\n%!" unbuilt
                 | Error (errors, _unbuilt) ->
                   List.iter errors ~f:(fun err ->
                     Core.Std.printf !"Failed: %{sexp#mach:Error.t}\n%!" err
