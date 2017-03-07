@@ -1966,6 +1966,7 @@ let incremental_parallel_build ~old_cache ~new_cache bg
           in
           match step_succeeded with
           | Error err ->
+            let err = Error.tag_arg err "targets" node.outputs [%sexp_of: File_name.Set.t] in
             return (`Repeat (new_cache, err :: failures, unbuilt))
           | Ok build_info ->
             begin
@@ -1984,11 +1985,6 @@ let incremental_parallel_build ~old_cache ~new_cache bg
             return (`Repeat (new_cache, failures, unbuilt))
     )
   )
-  (*
-  >>= fun (new_cache, result) ->
-  (* CR datkin: Ensure the failure, if there was one, is clearly printed. *)
-  return (new_cache, result)
-*)
 ;;
 
 let parallel_build_cmd =
@@ -2034,7 +2030,7 @@ let parallel_build_cmd =
                 | Ok () -> Core.Std.printf "Done, yay!\n%!"
                 | Error (errors, _unbuilt) ->
                   List.iter errors ~f:(fun err ->
-                    Core.Std.printf !"Failed: %{sexp#hum:Error.t}\n%!" err
+                    Core.Std.printf !"Failed: %{sexp#mach:Error.t}\n%!" err
                   )
               end;
               Clock.after (sec 0.5)
