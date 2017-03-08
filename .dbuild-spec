@@ -1,0 +1,26 @@
+((libraries
+  (((dir odditty_kernel)
+    (modules
+     (terminfo dec_private_mode control_functions window character_attributes
+      character_set))
+    (direct_deps ((packages (async_kernel core_kernel)) (libs ()))))
+   ((dir odditty) (modules (pty terminfo)) (c_stub_basenames (pty_stubs))
+    (direct_deps ((packages (async core)) (libs (odditty_kernel)))))
+   ((dir web) (modules (main))
+    (direct_deps
+     ((packages (async_kernel core_kernel js_of_ocaml.async virtual_dom))
+      (libs ()))))
+   ((dir server) (modules (web_server))
+    (direct_deps ((packages (async websocket.async)) (libs ()))))))
+ (binaries
+  (((module_name inline_test_runner)
+    (direct_deps
+     ((packages (async core ppx_expect.evaluator ppx_inline_test.runner.lib))
+      (libs (odditty odditty_kernel))))
+    (output native))
+   ((module_name main)
+    (direct_deps
+     ((packages (async core)) (libs (odditty odditty_kernel server))))
+    (output native))
+   ((module_name web_main) (direct_deps ((packages ()) (libs (web))))
+    (output js)))))

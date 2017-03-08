@@ -35,6 +35,7 @@ An example usage of `dbuild` to build some of the project:
          parallel-build \
          -poll \
          -sandbox \
+         -spec .dbuild-spec \
          .dbuild/js/bin/linked/web_main.byte \
          .dbuild/native/bin/linked/main.native \
          2>&1 \

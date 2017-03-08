@@ -1979,7 +1979,7 @@ let parallel_build_cmd =
           let target_set = File_name.Set.of_list targets in
           pruned_build_graph project_spec ~roots:targets
         in
-        let rec loop ~old_cache =
+        let rec loop ~old_cache ~first_call =
           let new_cache = Cache.create bg in
           let wait =
             poll
@@ -1992,9 +1992,14 @@ let parallel_build_cmd =
           in
           if wait
           then (
+            if first_call
+            then (
+              Core.Std.printf "No changes since last build, polling\n%!";
+            )
+            else ();
             Clock.after (sec 0.5)
             >>= fun () ->
-            loop ~old_cache
+            loop ~old_cache ~first_call:false
           )
           else (
             incremental_parallel_build ~old_cache ~new_cache bg
@@ -2015,7 +2020,7 @@ let parallel_build_cmd =
               end;
               Clock.after (sec 0.5)
               >>= fun () ->
-              loop ~old_cache:cache
+              loop ~old_cache:cache ~first_call:false
             )
             else (
               Result.map_error result ~f:(fun (failures, _unbuilt) ->
@@ -2025,7 +2030,7 @@ let parallel_build_cmd =
           )
         in
         let old_cache = Cache.load () in
-        loop ~old_cache
+        loop ~old_cache ~first_call:true
     ]
 
 
