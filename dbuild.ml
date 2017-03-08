@@ -1803,52 +1803,31 @@ module Job_pool : sig
 
   (* Raises if [t] is closed. Only one call may be pending at a time. *)
   val next_exn : 'a t -> [ `No_jobs | `Ok of 'a Deferred.t ]
-
-  (*
-  (* Raises if you call this while [next_exn] calls are "pending". *)
-  val close : 'a t -> [ `Pending of 'a Deferred.t list ]
-  *)
-
-  val is_closed : 'a t -> bool
 end = struct
   type 'a t = {
     jobs : 'a Deferred.t Bag.t;
-    closed : unit Set_once.t;
     mutable next : [ `Listener of 'a Ivar.t | `Done of 'a list ];
   } [@@deriving sexp_of]
 
   let create () = {
     jobs = Bag.create ();
-    closed = Set_once.create ();
     next = `Done [];
   }
 
-  let is_closed t = Option.is_some (Set_once.get t.closed)
-
   let add_exn t job =
-    Core.Std.printf " -- Add called\n%!";
-    match Set_once.get t.closed with
-    | Some () -> raise_s [%message "Can't add, closed"]
-    | None ->
-      let elt = Bag.add t.jobs job in
-      don't_wait_for (
-        job
-        >>| fun result ->
-        Core.Std.printf "Job finished\n%!";
-        if is_closed t
-        then ()
-        else (
-          Bag.remove t.jobs elt;
-          match t.next with
-          | `Listener ivar ->
-            Ivar.fill ivar result;
-            t.next <- `Done [];
-          | `Done finished ->
-            t.next <- `Done (result :: finished);
-        )
-      )
+    let elt = Bag.add t.jobs job in
+    don't_wait_for (
+      job
+      >>| fun result ->
+      Bag.remove t.jobs elt;
+      match t.next with
+      | `Listener ivar ->
+        Ivar.fill ivar result;
+        t.next <- `Done [];
+      | `Done finished ->
+        t.next <- `Done (result :: finished);
+    )
   ;;
-
 
   let next_exn t =
     match t.next with
@@ -1869,19 +1848,6 @@ end = struct
       t.next <- `Done finished;
       `Ok (return result)
   ;;
-
-  (*
-  let close t =
-    match t.next with
-    | `Listener _ ->
-      raise_s [%message "Can't close while a [next_exn] call is pending"]
-    | `Done finished ->
-      `Pending (
-        (Bag.elts t.jobs |> List.map ~f:Bag.Elt.value)
-        @ (List.map finished ~f:return)
-      )
-  ;;
-  *)
 end
 
 (* Returns the cache up to what we've built, and the result. *)
@@ -1947,7 +1913,6 @@ let incremental_parallel_build ~old_cache ~new_cache bg
       return (`Finished (new_cache, Ok ()))
     )
     else (
-      Core.Std.printf "Waiting for next job\n%!";
       match Job_pool.next_exn pool with
       | `No_jobs -> return (`Finished (new_cache, Error (failures, unbuilt)))
       | `Ok result ->
@@ -2036,11 +2001,12 @@ let parallel_build_cmd =
               begin
                 match result with
                 | Ok () -> Core.Std.printf "Done, yay!\n%!"
-                | Error ([], unbuilt) ->
-                  Core.Std.printf !"Build failed, but no errors: %{sexp#mach:File_name.Set.t}\n%!" unbuilt
-                | Error (errors, _unbuilt) ->
+                | Error (errors, unbuilt) ->
+                  Core.Std.printf !"Build failed, %d errors, %d unbuilt\n%!"
+                    (List.length errors)
+                    (Set.length unbuilt);
                   List.iter errors ~f:(fun err ->
-                    Core.Std.printf !"Failed: %{sexp#mach:Error.t}\n%!" err
+                    Core.Std.printf !"  %{sexp#mach:Error.t}\n%!" err
                   )
               end;
               Clock.after (sec 0.5)
