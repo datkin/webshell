@@ -1557,7 +1557,7 @@ let get_deps dir ~basename =
   parse_deps output
 ;;
 
-let pruned_build_graph ~roots =
+let pruned_build_graph project_spec ~roots =
   spec_to_nodes ~file_exists ~get_deps project_spec
   |> Build_graph.of_nodes
   |> Build_graph.prune ~roots
@@ -1588,18 +1588,29 @@ let file_arg = Command.Arg_type.create File_name.of_string
 
 let () = Core.Unix.create_process_backend := `spawn_vfork
 
+let project_spec_param () =
+  let open Command.Let_syntax in
+  [%map_open
+    let file = flag "spec" (optional file) ~doc:"file Project spec sexp file" in
+    match file with
+    | None -> project_spec
+    | Some file -> Sexp.load_sexp_conv_exn file [%of_sexp: Project_spec.t]
+  ]
+;;
+
 let dot_cmd =
   let open Command.Let_syntax in
   Command.async'
     ~summary:"Output a dot file for the graph spec. You can compile with, e.g.  `dot -Tpng /tmp/x.dot  > /tmp/x.png`."
     [%map_open
-      let roots = anon (sequence ("target" %: file_arg)) in
+      let roots = anon (sequence ("target" %: file_arg))
+      and project_spec = project_spec_param () in
       fun () ->
         printf "digraph deps {\n%!";
         printf "  rankdir=LR;\n";
         printf "  splines=line;\n"; (* also "polyline"? *)
         printf "  edge[samehead=x sametail=y];\n";
-        (pruned_build_graph ~roots
+        (pruned_build_graph project_spec ~roots
          |> Build_graph.nodes
          |> List.iter ~f:(fun node ->
            Set.iter node.Build_graph.outputs ~f:(fun output ->
@@ -1609,17 +1620,6 @@ let dot_cmd =
              )))
         );
         printf "}\n";
-        Deferred.unit]
-
-let dump_cmd =
-  let open Command.Let_syntax in
-  Command.async'
-    ~summary:"Dump sexp represention of the build graph."
-    [%map_open
-      let roots = anon (sequence ("target" %: file_arg)) in
-      fun () ->
-        printf !"%{sexp#hum:Build_graph.node list}\n"
-          (Build_graph.nodes (pruned_build_graph ~roots));
         Deferred.unit]
 
 let mkdirs files =
@@ -1755,10 +1755,11 @@ let build_cmd =
       let use_sandbox = flag "sandbox" no_arg ~doc:" Build in sandbox"
       and stop_before_build = flag "stop" no_arg ~doc:" Stop right before the target"
       and targets = anon (sequence ("target" %: file_arg))
+      and project_spec = project_spec_param ()
       in
       fun () ->
         let target_set = File_name.Set.of_list targets in
-        pruned_build_graph ~roots:targets
+        pruned_build_graph project_spec ~roots:targets
         |> Build_graph.nodes
         |> Deferred.List.fold ~init:(Ok ()) ~f:(fun result node ->
           Deferred.return result
@@ -1961,6 +1962,7 @@ let incremental_parallel_build ~old_cache ~new_cache bg
   )
 ;;
 
+
 let parallel_build_cmd =
   let open Command.Let_syntax in
   Command.async_or_error'
@@ -1970,11 +1972,12 @@ let parallel_build_cmd =
       and stop_before_build = flag "stop" no_arg ~doc:" Stop right before the target"
       and poll = flag "poll" no_arg ~doc:" Poll continually (don't exit on first error/success)"
       and targets = anon (sequence ("target" %: file_arg))
+      and project_spec = project_spec_param ()
       in
       fun () ->
         let bg =
           let target_set = File_name.Set.of_list targets in
-          pruned_build_graph ~roots:targets
+          pruned_build_graph project_spec ~roots:targets
         in
         let rec loop ~old_cache =
           let new_cache = Cache.create bg in
@@ -2023,6 +2026,36 @@ let parallel_build_cmd =
         in
         let old_cache = Cache.load () in
         loop ~old_cache
+    ]
+
+
+let dump_cmd =
+  let open Command.Let_syntax in
+  let build_graph_cmd =
+    Command.async'
+      ~summary:"Dump sexp represention of the build graph."
+      [%map_open
+        let roots = anon (sequence ("target" %: file_arg))
+        and project_spec = project_spec_param ()
+        in
+        fun () ->
+          printf !"%{sexp#hum:Build_graph.node list}\n"
+            (Build_graph.nodes (pruned_build_graph project_spec ~roots));
+          Deferred.unit]
+  in
+  let project_spec_cmd =
+    Command.async'
+      ~summary:"Dump sexp represention of the project spec."
+      [%map_open
+        let project_spec = project_spec_param () in
+        fun () ->
+          printf !"%{sexp#hum:Project_spec.t}\n" project_spec;
+          Deferred.unit]
+  in
+  Command.group
+    ~summary:"Print stuff" [
+      "build-graph", build_graph_cmd;
+      "project-spec", project_spec_cmd;
     ]
 
 let () =
