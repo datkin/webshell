@@ -1051,9 +1051,10 @@ let project_spec =
           main
         ))
         (direct_deps (
-          ;; js_of_ocaml.async
-          ;; async_js
-          (packages (js_of_ocaml core_kernel async_kernel virtual_dom))
+          ;; CR datkin: What's the difference between:
+          ;;   js_of_ocaml.async
+          ;;   async_js
+          (packages (js_of_ocaml.async core_kernel async_kernel virtual_dom))
           (libs ())
         ))
       )
