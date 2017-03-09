@@ -1054,6 +1054,8 @@ let project_spec =
           ;; CR datkin: What's the difference between:
           ;;   js_of_ocaml.async
           ;;   async_js
+          ;; Seems like async_js got folded into js_of_ocaml as js_of_ocaml.async?
+          ;; See: https://ocsigen.org/js_of_ocaml/2.8.3/manual/core_async_kernel
           (packages (js_of_ocaml.async core_kernel async_kernel virtual_dom))
           (libs ())
         ))
@@ -1962,7 +1964,6 @@ let incremental_parallel_build ~old_cache ~new_cache bg
   )
 ;;
 
-
 let parallel_build_cmd =
   let open Command.Let_syntax in
   Command.async_or_error'
@@ -2032,7 +2033,6 @@ let parallel_build_cmd =
         let old_cache = Cache.load () in
         loop ~old_cache ~first_call:true
     ]
-
 
 let dump_cmd =
   let open Command.Let_syntax in

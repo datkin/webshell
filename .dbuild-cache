@@ -5,7 +5,7 @@
   ((file_digest (1da7cd0496dfa50ac776570995c9dc27))
    (action_digest (888029952))))
  (.dbuild/js/bin/modules/web_main.cmo
-  ((file_digest (432031d6464972954d901f3cbf4e7e3b))
+  ((file_digest (f959a2f51f0d044c043b55d75cf92fdd))
    (action_digest (888029952))))
  (.dbuild/js/web/archive/web.cma
   ((file_digest (e2c02b96fcf5c458a315ce37cf3f19c0))
@@ -181,7 +181,7 @@
  (bin/main.ml
   ((file_digest (ffc655b542ab0d0b98924b1e08878fa1)) (action_digest ())))
  (bin/web_main.ml
-  ((file_digest (e00c33435e2bac88223d266f44de8255)) (action_digest ())))
+  ((file_digest (1843ba60f7a0ccea2e7f5f99e554552e)) (action_digest ())))
  (odditty/pty.ml
   ((file_digest (44a4a18ed3e1beee5bb0fb6785e503c3)) (action_digest ())))
  (odditty/pty.mli
