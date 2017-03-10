@@ -293,6 +293,19 @@ for lib in web; do
 done
 
 exe bin/web_main.ml
-js bin/web_main.ml
+
+mkdir findlib-js
+for f in $(ocamlfind query -format '%+(archive)' core_kernel -recursive -predicates byte | sort -u | grep -v '^$');
+do
+  base=$(basename $f)
+  js_of_ocaml +runtime.js +weak.js --no-runtime --pretty --source-map $f -o findlib-js/${base}.js
+done
+
+mkdir local-js
+js_of_ocaml +runtime.js +weak.js --no-runtime -o local-js/runtime.js --runtime-only dummy-source
+
+jsoo_link local-js/runtime.js /Users/datkin/.opam/4.03.0+for-js/lib/core_kernel/runtime.js /Users/datkin/.opam/4.03.0+for-js/lib/js_of_ocaml/runtime.js findlib-js/*.js local-js/web.cma.js local-js/web_main.cmo.js -o linked.js
+
+#js bin/web_main.ml
 
 exit
