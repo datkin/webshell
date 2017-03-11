@@ -306,10 +306,20 @@ time js_of_ocaml --no-runtime -o /tmp/runtime-1.js --source-map-inline --pretty 
 
 # /Users/datkin/.opam/4.03.0+for-js//lib/js_of_ocaml/mlString.js
 
+time js_of_ocaml --no-runtime -o /tmp/runtime-1.js --source-map-inline --pretty +predefined_exceptions.js +runtime.js +weak.js +base/runtime.js --runtime-only dummy-source
+time js_of_ocaml --pretty --source-map-inline +runtime.js +weak.js /Users/datkin/.opam/4.03.0+for-js//lib/ocaml/bigarray.cma -o findlib-js/bigarray.cma.js
+
 #
 # This should *exclude* the +runtime.js and +weak.js files (in fact, all the "runtime.js" files)
 # I'm unclear on which *.js files should be listed here, and which are "covered" by runtime.js
-jsoo_link /tmp/runtime-1.js findlib-js/stdlib.cma.js findlib-js/caml.cma.js findlib-js/shadow_stdlib.cma.js findlib-js/base.cma.js findlib-js/base_for_tests.cma.js findlib-js/bigarray.cma.js findlib-js/bin_prot.cma.js findlib-js/bin_shape_lib.cma.js findlib-js/core_kernel.cma.js findlib-js/expect_test_collector.cma.js findlib-js/expect_test_common.cma.js findlib-js/expect_test_config.cma.js findlib-js/fieldslib.cma.js findlib-js/inline_test_config.cma.js findlib-js/jane_street_headers.cma.js findlib-js/nums.cma.js findlib-js/ppx_assert_lib.cma.js findlib-js/ppx_bench_lib.cma.js findlib-js/ppx_compare_lib.cma.js findlib-js/ppx_hash_lib.cma.js findlib-js/ppx_inline_test_lib.cma.js findlib-js/sexplib.cma.js findlib-js/stdio.cma.js findlib-js/typerep_lib.cma.js findlib-js/unix.cma.js findlib-js/variantslib.cma.js local-js/web.cma.js local-js/web_main.cmo.js -o linked.js
+# Definite order:
+#  - custom runtime.js
+#  - stdlib.cma.js w/ +runtime.js, +weak.js
+#  - caml, shadow_stdlib, bigarray, base, ...
+# CR datkin: Sort this list in dep order: 
+# ocamlfind query -format 'findlib-js/%(archive).js' core_kernel -recursive -predicates byte | uniq
+
+jsoo_link /tmp/runtime-1.js findlib-js/stdlib.cma.js findlib-js/bigarray.cma.js findlib-js/caml.cma.js findlib-js/shadow_stdlib.cma.js findlib-js/base.cma.js findlib-js/sexplib.cma.js findlib-js/base_for_tests.cma.js findlib-js/bigarray.cma.js findlib-js/bin_prot.cma.js findlib-js/bin_shape_lib.cma.js findlib-js/core_kernel.cma.js findlib-js/expect_test_collector.cma.js findlib-js/expect_test_common.cma.js findlib-js/expect_test_config.cma.js findlib-js/fieldslib.cma.js findlib-js/inline_test_config.cma.js findlib-js/jane_street_headers.cma.js findlib-js/nums.cma.js findlib-js/ppx_assert_lib.cma.js findlib-js/ppx_bench_lib.cma.js findlib-js/ppx_compare_lib.cma.js findlib-js/ppx_hash_lib.cma.js findlib-js/ppx_inline_test_lib.cma.js findlib-js/stdio.cma.js findlib-js/typerep_lib.cma.js findlib-js/unix.cma.js findlib-js/variantslib.cma.js local-js/web.cma.js local-js/web_main.cmo.js -o linked.js
 
 #js bin/web_main.ml
 
