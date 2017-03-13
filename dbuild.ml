@@ -372,8 +372,9 @@ end = struct
   ;;
 end
 
-(* Special "library" name for executables *)
+(* Special "library" name for executables and js code *)
 let bin_lib = Lib_name.of_string "bin"
+let  js_lib = Lib_name.of_string "js"
 
 let add_namespace lib_name module_name =
   Module_name.of_string (sprintf !"%{Lib_name}__%{Module_name}" lib_name module_name)
@@ -811,6 +812,66 @@ end = struct
        (outputs (.dbuild/native/bin/linked/main.native))) |}];
   ;;
 
+end
+
+module Js_of_ocaml : sig
+  val compile : js_libs:String.Set.t -> [ `file of File_name.t | `runtime ] -> Build_graph.node
+
+  val link : js_files_in_order:File_name.t list -> dst:File_name.t -> Build_graph.node
+end = struct
+  let compile ~js_libs target =
+    let input_file, output_file, extra_flags =
+      match target with
+      | `file input_file ->
+        let output_file =
+          sprintf !"%s/%s.js"
+            (build_dir Native `modules js_lib)
+            (Filename.basename (File_name.to_string input_file))
+          |> File_name.of_string
+        in
+        input_file, output_file, [ "--runtime" ]
+      | `runtime ->
+        let output_file =
+          sprintf !"%s/runtime.js" (build_dir Native `modules js_lib)
+          |> File_name.of_string
+        in
+        File_name.of_string "/dev/null", output_file, []
+    in
+    let cmd = {
+      Cmd.
+      opam_switch = Some opam_js;
+      exe = "js_of_ocaml";
+      args = [
+        [ "--no-runtime"; "--source-map-inline"; "--pretty"; ];
+        [ "-o"; File_name.to_string output_file; ];
+        (Set.to_list js_libs);
+        extra_flags;
+        [ File_name.to_string input_file ];
+      ];
+    }
+    in
+    { Build_graph.
+      inputs = File_name.Set.singleton input_file;
+      outputs = File_name.Set.singleton output_file;
+      action = Cmd cmd;
+    }
+
+  let link ~js_files_in_order ~dst =
+    let cmd = {
+      Cmd.
+      opam_switch = Some opam_js;
+      exe = "jsoo_link";
+      args = [
+        [ "-o"; File_name.to_string dst; ];
+        (List.map js_files_in_order ~f:File_name.to_string);
+      ];
+    }
+    in
+    { Build_graph.
+      inputs = File_name.Set.of_list js_files_in_order;
+      outputs = File_name.Set.singleton dst;
+      action = Cmd cmd;
+    }
 end
 
 (* Notes on how to do js-of-ocaml:
