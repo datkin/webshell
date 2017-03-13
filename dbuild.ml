@@ -874,25 +874,28 @@ end = struct
     }
 end
 
-(* Notes on how to do js-of-ocaml:
- *
- * Cribbing
- * https://github.com/janestreet/jenga-rules/blob/master/lib/js_of_ocaml.ml
- *
- * Find the closure of libs we need to js'ify:
- * $ ocamlfind query core_kernel async_kernel -recursive | sort -u
- *
- * And specifically:
- * ocamlfind query -format '%+(archive)' core_kernel -recursive -predicates byte | sort -u
- *
- * Compiling findlib cma's to js:
- * js_of_ocaml --no-runtime --pretty --source-map ~/.opam/4.03.0+for-js/lib/async_kernel/async_kernel.cma -o async_kernel.cma.js
- *
- * Linking all the .js together:
- * jsoo_link ~/.opam/4.03.0+for-js/lib/js_of_ocaml/bin_prot.js core_kernel.cma.js async_kernel.cma.js -o /tmp/output
- *
- *)
-let spec_to_nodes ~file_exists ~get_deps { Project_spec. libraries; binaries; } : Build_graph.node list =
+let dedupe_merge file_name_lists =
+  List.fold file_name_lists ~init:[] ~f:(fun merged file_names ->
+    List.fold file_names ~init:(List.rev merged) ~f:(fun merged file ->
+      if List.mem ~equal:[%equal: File_name.t] merged file
+      then merged
+      else file :: merged)
+    |> List.rev)
+
+let%expect_test _ =
+  dedupe_merge [
+    ["a"; "b"; "c"; "d"; ] |> List.map ~f:File_name.of_string;
+    ["a"; "c"; "d"; "e"; "f"; ] |> List.map ~f:File_name.of_string;
+  ] |> Core.Std.printf !"%{sexp:File_name.t list}";
+  [%expect {| (a b c d e f) |}];
+;;
+
+let spec_to_nodes
+  ~file_exists
+  ~get_deps
+
+  { Project_spec. libraries; binaries; }
+  : Build_graph.node list =
   let archive_by_lib =
     List.map libraries ~f:(fun { Project_spec. dir; c_stub_basenames; _ } ->
       let has_archive =
