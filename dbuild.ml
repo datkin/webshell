@@ -893,7 +893,10 @@ let%expect_test _ =
 let spec_to_nodes
   ~file_exists
   ~get_deps
-
+  (*
+  ~findlib_cma_deps
+  ~findlib_js_libs
+  *)
   { Project_spec. libraries; binaries; }
   : Build_graph.node list =
   let archive_by_lib =
@@ -1631,6 +1634,23 @@ let%expect_test _ =
 
 open Core.Std
 open Async.Std
+
+let findlib_cmd package_name ~format_flag ~flags =
+  let cmd =
+    sprintf !"ocamlfind query -format '%s' %{Package_name} -recursive %s"
+      format_flag package_name (String.concat ~sep:" " flags)
+  in
+  let output =
+    Core.Unix.open_process_in cmd
+    |> In_channel.input_lines
+    |> List.filter ~f:(fun line -> not (String.is_empty line))
+  in
+  output
+;;
+
+(*
+let findlib_cma_deps package_name
+*)
 
 let get_deps dir ~basename =
   (* CR-someday datkin: Add '-ppx'? *)
