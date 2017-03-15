@@ -1635,10 +1635,10 @@ let%expect_test _ =
 open Core.Std
 open Async.Std
 
-let findlib_cmd package_name ~format_flag ~flags =
+let findlib_cmd package_name ~format_flag ~predicate =
   let cmd =
-    sprintf !"ocamlfind query -format '%s' %{Package_name} -recursive %s"
-      format_flag package_name (String.concat ~sep:" " flags)
+    sprintf !"ocamlfind query -format '%s' %{Package_name} -recursive -predicates %s"
+      format_flag package_name predicate
   in
   let output =
     Core.Unix.open_process_in cmd
@@ -1648,9 +1648,11 @@ let findlib_cmd package_name ~format_flag ~flags =
   output
 ;;
 
-(*
-let findlib_cma_deps package_name
-*)
+let findlib_cma_deps package_name =
+  findlib_cmd package_name ~format_flag:"%+a" ~predicate:"byte"
+
+let findlib_js_deps package_name =
+  findlib_cmd package_name ~format_flag:"%o" ~predicate:"javascript"
 
 let get_deps dir ~basename =
   (* CR-someday datkin: Add '-ppx'? *)
