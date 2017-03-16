@@ -893,10 +893,8 @@ let%expect_test _ =
 let spec_to_nodes
   ~file_exists
   ~get_deps
-  (*
-  ~findlib_cma_deps
-  ~findlib_js_libs
-  *)
+  ~findlib_cma_deps:_
+  ~findlib_js_deps:_
   { Project_spec. libraries; binaries; }
   : Build_graph.node list =
   let archive_by_lib =
@@ -1204,8 +1202,36 @@ let%expect_test "dependency summary" =
     in
     List.map dep_names ~f:Module_name.of_string
   in
+  let findlib_cma_deps package_name =
+    let rel_paths =
+      match Package_name.to_string package_name with
+      | "core_kernel" -> [
+        "core_kernel/core_kernel.cma";
+        "ocaml/ocaml.cma";
+      ]
+      | _ -> []
+    in
+    List.map rel_paths ~f:(fun rel_path ->
+      "~/.opam/4.03.0+for-js/" ^ rel_path)
+  in
+  let findlib_js_deps package_name =
+    match Package_name.to_string package_name with
+    | "core_kernel" -> [
+      "+base/runtime.js";
+      "+bin_prot/runtime.js";
+      "+ppx_expect/runtime.js";
+      "+core_kernel/strftime.js";
+      "+core_kernel/runtime.js";
+    ]
+    | _ -> []
+  in
   let bg =
-    spec_to_nodes ~file_exists ~get_deps project_spec
+    spec_to_nodes
+      ~file_exists
+      ~get_deps
+      ~findlib_cma_deps
+      ~findlib_js_deps
+      project_spec
     |> Build_graph.of_nodes
     |> Build_graph.prune ~roots:[
       File_name.of_string (sprintf "%s/main.native" (build_dir Native `linked bin_lib));
@@ -1648,11 +1674,14 @@ let findlib_cmd package_name ~format_flag ~predicate =
   output
 ;;
 
+(* CR datkin: This needs to run in the js opam env... *)
 let findlib_cma_deps package_name =
   findlib_cmd package_name ~format_flag:"%+a" ~predicate:"byte"
+;;
 
 let findlib_js_deps package_name =
   findlib_cmd package_name ~format_flag:"%o" ~predicate:"javascript"
+;;
 
 let get_deps dir ~basename =
   (* CR-someday datkin: Add '-ppx'? *)
@@ -1664,7 +1693,12 @@ let get_deps dir ~basename =
 ;;
 
 let pruned_build_graph project_spec ~roots =
-  spec_to_nodes ~file_exists ~get_deps project_spec
+  spec_to_nodes
+    ~file_exists
+    ~get_deps
+    ~findlib_cma_deps
+    ~findlib_js_deps
+    project_spec
   |> Build_graph.of_nodes
   |> Build_graph.prune ~roots
 
