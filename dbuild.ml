@@ -1086,12 +1086,34 @@ let spec_to_nodes
     in
     let packages = Set.union packages extra_pkgs in
     let kind = match output with `native -> Native | `js -> Js in
+    let linked_js =
+      match output with
+      | `native -> []
+      | `js ->
+        let dst =
+          sprintf !"%s/%{Module_name}.js"
+            (build_dir Js `linked bin_lib) module_name
+          |> File_name.of_string
+        in
+        let js_files_in_order =
+          (* 1. Find all required findlib cma files. Compile to js.
+           * 2. Compile runtime to js. This requires getting a JS link opts for
+           *    the required cma's.
+           * 3. Find all required lib cma files. Compile to js. (just add this
+           *    as part of the lib stuff above)
+           * 4. Compile the main's .byte to js
+           * *)
+          []
+        in
+        [ Js_of_ocaml.link ~js_files_in_order ~dst ]
+    in
     [
       (* CR-soon datkin: `no_mli is a guess *)
       Ocaml_compiler.compile kind packages libs bin_lib Module_name.Set.empty
         module_name (`ml `no_mli) `vanilla;
       Ocaml_compiler.link kind packages ~libs_in_dep_order module_name;
     ]
+    @ linked_js
   in
   let libs = List.concat_map libraries ~f:of_lib in
   let bins = List.concat_map binaries ~f:of_bin in
@@ -1235,7 +1257,7 @@ let%expect_test "dependency summary" =
     |> Build_graph.of_nodes
     |> Build_graph.prune ~roots:[
       File_name.of_string (sprintf "%s/main.native" (build_dir Native `linked bin_lib));
-      File_name.of_string (sprintf "%s/web_main.byte" (build_dir Js `linked bin_lib));
+      File_name.of_string (sprintf "%s/web_main.js" (build_dir Js `linked bin_lib));
     ]
   in
   List.iter (Build_graph.nodes bg) ~f:(fun node ->
