@@ -183,7 +183,6 @@ let abbreviated_files_to_string files =
     )
 ;;
 
-
 module Build_graph = struct
   type node = {
     action : Action.t;
@@ -193,6 +192,16 @@ module Build_graph = struct
 
   module Node = struct
     type t = node
+
+    let output_with ({ outputs; _ } as t) ~ext =
+      let suffix = "." ^ ext in
+      Set.filter outputs ~f:(fun file ->
+        String.is_suffix (File_name.to_string file) ~suffix)
+      |> Set.to_list
+      |> function
+      | [ x ] -> x
+      | files -> raise_s [%message "Multiple outputs with ext" ext (t : node)]
+    ;;
 
     let to_string { action; inputs; outputs; } =
       String.concat ~sep:"\n" (
@@ -1048,7 +1057,17 @@ let spec_to_nodes
           in
           Ocaml_compiler.archive kind ~c_stubs:c_stub_basenames dir ~modules_in_dep_order
         in
-        compiled_wrapper :: generated_wrapper :: archive :: mls)
+        let js =
+          match kind with
+          | Native -> []
+          | Js -> [
+            (* CR-someday datkin: Check there are no cstubs? *)
+            Js_of_ocaml.compile
+              ~js_libs:Js_of_ocaml.non_runtime_js_libs
+              (`file (Build_graph.Node.output_with ~ext:"cma" archive))
+          ]
+        in
+        compiled_wrapper :: generated_wrapper :: archive :: mls @ js)
     in
     let c =
       if List.is_empty c_stub_basenames
@@ -1060,14 +1079,15 @@ let spec_to_nodes
         let c_archive = C_compiler.archive dir ~c_bases:c_stub_basenames in
         c_archive :: cs
     in
+    (*
     let js =
-      (* CR-someday datkin: Check there are no cstubs *)
       [ Js_of_ocaml.compile
           ~js_libs:Js_of_ocaml.non_runtime_js_libs
           (`file (File_name.of_string (sprintf !"%s/%{Lib_name}.byte" (build_dir Js `modules dir) dir)))
       ]
     in
-    List.concat_no_order [ mli; ml; c; js ]
+    *)
+    List.concat_no_order [ mli; ml; c ]
   in
   let deps_by_lib_name =
     List.map libraries ~f:(fun { Project_spec. dir; direct_deps; _ } ->
@@ -1103,15 +1123,11 @@ let spec_to_nodes
     in
     let packages = Set.union packages extra_pkgs in
     let kind = match output with `native -> Native | `js -> Js in
+    let linked_byte = Ocaml_compiler.link kind packages ~libs_in_dep_order module_name in
     let linked_js =
       match output with
       | `native -> []
       | `js ->
-        let bin_file ~ext =
-          sprintf !"%s/%{Module_name}.%s"
-            (build_dir Js `linked bin_lib) module_name ext
-          |> File_name.of_string
-        in
         let runtime_js =
           (*
            * 2. Compile runtime to js. This requires getting a JS link opts for
@@ -1122,25 +1138,29 @@ let spec_to_nodes
         let bin_js =
           Js_of_ocaml.compile
             ~js_libs:Js_of_ocaml.non_runtime_js_libs
-            (`file (bin_file ~ext:"byte"))
+            (`file (Build_graph.Node.output_with ~ext:"cma" linked_byte))
         in
         let js_files_in_order =
-          (* - Find all required findlib cma files. Compile to js.
-           * - Find all required lib cma files. Compile to js. (just add this
-           *    as part of the lib stuff above)
-           * - Compile the main's .byte to js
-           * *)
-          runtime_js
-          :: [
-          ]
+          [ Build_graph.Node.output_with ~ext:"js" runtime_js ]
+          @ package_js_files_in_order
+          @ lib_js_files_in_order
+          @ [ Build_graph.Node.output_with ~ext:"js" bin_js ]
         in
-        [ Js_of_ocaml.link ~js_files_in_order ~dst:(bin_file ~ext:"js-linked") ]
+        let bin_file ~ext =
+          sprintf !"%s/%{Module_name}.%s"
+            (build_dir Js `linked bin_lib) module_name ext
+          |> File_name.of_string
+        in
+        [ runtime_js;
+          bin_js;
+          Js_of_ocaml.link ~js_files_in_order ~dst:(bin_file ~ext:"js-linked");
+        ]
     in
     [
       (* CR-soon datkin: `no_mli is a guess *)
       Ocaml_compiler.compile kind packages libs bin_lib Module_name.Set.empty
         module_name (`ml `no_mli) `vanilla;
-      Ocaml_compiler.link kind packages ~libs_in_dep_order module_name;
+      linked_byte;
     ]
     @ linked_js
   in
