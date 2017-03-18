@@ -862,9 +862,9 @@ end = struct
     let input_file, extra_flags =
       match target with
       | `file input_file ->
-        input_file, [ "--runtime" ]
+        input_file, []
       | `runtime _ ->
-        File_name.of_string "/dev/null", []
+        File_name.of_string "/dev/null", [ "--runtime" ]
     in
     let cmd = {
       Cmd.
@@ -1133,6 +1133,11 @@ let spec_to_nodes
     in
     let packages = Set.union packages extra_pkgs in
     let kind = match output with `native -> Native | `js -> Js in
+    let cmo =
+      (* CR-soon datkin: `no_mli is a guess *)
+      Ocaml_compiler.compile kind packages libs bin_lib Module_name.Set.empty
+        module_name (`ml `no_mli) `vanilla
+    in
     let linked_byte = Ocaml_compiler.link kind packages ~libs_in_dep_order module_name in
     let linked_js =
       match output with
@@ -1149,7 +1154,7 @@ let spec_to_nodes
         let bin_js =
           Js_of_ocaml.compile
             ~js_libs:Js_of_ocaml.non_runtime_js_libs
-            (`file (Build_graph.Node.output_with ~ext:"byte" linked_byte))
+            (`file (Build_graph.Node.output_with ~ext:"cmo" cmo))
         in
         let package_js_files_in_order =
           let package_cma_closure_in_dep_order =
@@ -1157,8 +1162,10 @@ let spec_to_nodes
             |> List.map ~f:(fun package_name -> findlib_cma_deps package_name)
             |> dedupe_merge
           in
-          List.map package_cma_closure_in_dep_order ~f:(fun file ->
-            Js_of_ocaml.output_file (`file file))
+          (* CR datkin: Hack. :( *)
+          ((File_name.of_string "/Users/datkin/.opam/4.03.0+for-js/lib/ocaml/stdlib.cma")
+          :: package_cma_closure_in_dep_order)
+          |> List.map ~f:(fun file -> Js_of_ocaml.output_file (`file file))
         in
         let lib_js_files_in_order =
           List.map libs_in_dep_order ~f:(fun (lib, archive_or_no) ->
@@ -1188,9 +1195,7 @@ let spec_to_nodes
         ]
     in
     [
-      (* CR-soon datkin: `no_mli is a guess *)
-      Ocaml_compiler.compile kind packages libs bin_lib Module_name.Set.empty
-        module_name (`ml `no_mli) `vanilla;
+      cmo;
       linked_byte;
     ]
     @ linked_js
@@ -1212,7 +1217,8 @@ let spec_to_nodes
       |> List.concat_map ~f:findlib_cma_deps
       |> File_name.Set.of_list
     in
-    Set.to_list full_closure
+    ((File_name.of_string "/Users/datkin/.opam/4.03.0+for-js/lib/ocaml/stdlib.cma")
+    :: Set.to_list full_closure)
     |> List.map ~f:(fun cma ->
      Js_of_ocaml.compile
        ~js_libs:Js_of_ocaml.non_runtime_js_libs
@@ -1568,15 +1574,19 @@ let%expect_test "dependency summary" =
       .dbuild/native/server/archive/server.a
       .dbuild/native/server/archive/server.cmxa
 
+    .dbuild/js/js/modules/core_kernel.cma.js
+      ~/.opam/4.03.0+for-js/core_kernel/core_kernel.cma
+
+    .dbuild/js/js/modules/ocaml.cma.js
+      ~/.opam/4.03.0+for-js/ocaml/ocaml.cma
+
+    .dbuild/js/js/modules/stdlib.cma.js
+      /Users/datkin/.opam/4.03.0+for-js/lib/ocaml/stdlib.cma
+
     .dbuild/js/web/generated/web.ml
 
     .dbuild/js/web/modules/web.cmi, .dbuild/js/web/modules/web.cmo
       .dbuild/js/web/generated/web.ml
-
-    .dbuild/js/bin/modules/web_main.cmi, .dbuild/js/bin/modules/web_main.cmo
-      .dbuild/js/web/modules/web.cmi
-      .dbuild/js/web/modules/web__main.cmi
-      bin/web_main.ml
 
     .dbuild/js/web/modules/web__main.cmo
       .dbuild/js/web/modules/web.cmi
@@ -1588,9 +1598,27 @@ let%expect_test "dependency summary" =
       .dbuild/js/web/modules/web.cmo
       .dbuild/js/web/modules/web__main.cmo
 
-    .dbuild/js/bin/linked/web_main.byte
+    .dbuild/js/js/modules/web.cma.js
+      .dbuild/js/web/archive/web.cma
+
+    .dbuild/js/bin/modules/web_main.cmi, .dbuild/js/bin/modules/web_main.cmo
+      .dbuild/js/web/modules/web.cmi
+      .dbuild/js/web/modules/web__main.cmi
+      bin/web_main.ml
+
+    .dbuild/js/js/modules/web_main.cmo.js
       .dbuild/js/bin/modules/web_main.cmo
-      .dbuild/js/web/archive/web.cma |}];
+
+    .dbuild/js/js/modules/web_main.runtime.js
+      /dev/null
+
+    .dbuild/js/bin/linked/web_main.js-linked
+      .dbuild/js/js/modules/core_kernel.cma.js
+      .dbuild/js/js/modules/ocaml.cma.js
+      .dbuild/js/js/modules/stdlib.cma.js
+      .dbuild/js/js/modules/web.cma.js
+      .dbuild/js/js/modules/web_main.cmo.js
+      .dbuild/js/js/modules/web_main.runtime.js |}];
   let bg = Or_error.ok_exn bg in
   List.iter [
     ".dbuild/native/odditty_kernel/generated/odditty_kernel.ml";
@@ -1616,7 +1644,18 @@ let%expect_test "dependency summary" =
         \nmodule Window = Odditty_kernel__window\
         \nmodule Character_attributes = Odditty_kernel__character_attributes")))
      (inputs ())
-     (outputs (.dbuild/native/odditty_kernel/generated/odditty_kernel.ml))) |}];
+     (outputs (.dbuild/native/odditty_kernel/generated/odditty_kernel.ml)))
+    ((action
+      (Cmd
+       ((exe js_of_ocaml)
+        (args
+         ((--no-runtime --source-map-inline --pretty)
+          (-o .dbuild/js/js/modules/web_main.runtime.js)
+          (+base/runtime.js +bin_prot/runtime.js +core_kernel/runtime.js
+           +core_kernel/strftime.js +ppx_expect/runtime.js)
+          (--runtime) (/dev/null)))
+        (opam_switch (4.03.0+for-js)))))
+     (inputs (/dev/null)) (outputs (.dbuild/js/js/modules/web_main.runtime.js))) |}];
 ;;
 
 let file_exists file =

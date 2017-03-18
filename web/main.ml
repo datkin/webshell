@@ -14,20 +14,19 @@ let view (_ : 'a) =
 ;;
 
 let vdom_loop () =
+  let open Virtual_dom.Vdom in
   Dom_html.window##.onload := Dom.handler (fun _ ->
     Firebug.console##log (Js.string "onload callback");
     let k    = ref 0 in
     let vdom = ref (view !k) in
     let elt  = ref (Virtual_dom.Vdom.Node.to_dom !vdom :> Dom.element Js.t) in
     Dom.appendChild Dom_html.document##.body !elt;
-    (*
     Dom_html.window##setInterval (Js.wrap_callback (fun _ ->
       incr k;
       let new_vdom = view !k in
       elt := Node.Patch.apply (Node.Patch.create ~previous:!vdom ~current:new_vdom) !elt;
       vdom := new_vdom
     )) 100. |> ignore;
-    *)
     Js._false
   )
 

@@ -36,7 +36,7 @@ An example usage of `dbuild` to build some of the project:
          -poll \
          -sandbox \
          -spec .dbuild-spec \
-         .dbuild/js/bin/linked/web_main.byte \
+         .dbuild/js/bin/linked/web_main.js-linked \
          .dbuild/native/bin/linked/main.native \
          2>&1 \
     | tee /tmp/dbuild.log

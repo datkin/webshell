@@ -309,7 +309,6 @@ mkdir local-js
 
 time js_of_ocaml --no-runtime -o /tmp/runtime-1.js --source-map-inline --pretty +predefined_exceptions.js +runtime.js +weak.js +nat.js +base/runtime.js +core_kernel/runtime.js +virtual_dom/virtualdom.compiled.js --runtime-only dummy-source
 
-#
 # This should *exclude* the +runtime.js and +weak.js files (in fact, all the "runtime.js" files)
 # I'm unclear on which *.js files should be listed here, and which are "covered" by runtime.js
 # Definite order:

@@ -11,3 +11,5 @@ a.out
 *.cm*
 dbuild
 .dbuild/*
+*.js
+.dbuild-cache
