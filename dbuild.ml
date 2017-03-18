@@ -1797,9 +1797,14 @@ open Core.Std
 open Async.Std
 
 let findlib_cmd package_name ~format_flag ~predicate =
-  let cmd =
-    sprintf !"ocamlfind query -format '%s' %{Package_name} -recursive -predicates %s"
+  let ocamlfind_cmd =
+    sprintf !{|ocamlfind query -format "%s" %{Package_name} -recursive -predicates %s|}
       format_flag package_name predicate
+  in
+  let cmd =
+    sprintf !{|bash -c 'eval $(opam config env --switch %{Opam_switch_name}) && %s'|}
+      opam_js
+      ocamlfind_cmd
   in
   let output =
     Core.Unix.open_process_in cmd
@@ -1861,6 +1866,7 @@ let get_opam_env =
       ))
 
 let file_arg = Command.Arg_type.create File_name.of_string
+let package_arg = Command.Arg_type.create Package_name.of_string
 
 let () = Core.Unix.create_process_backend := `spawn_vfork
 
@@ -2331,10 +2337,32 @@ let dump_cmd =
           printf !"%{sexp#hum:Project_spec.t}\n" project_spec;
           Deferred.unit]
   in
+  let findlib_cma_cmd =
+    Command.async'
+      ~summary:""
+      [%map_open
+        let package_name = anon ("package" %: package_arg)
+        in
+        fun () ->
+          printf !"%{sexp:File_name.t list}\n" (findlib_cma_deps package_name);
+          Deferred.unit]
+  in
+  let findlib_js_cmd =
+    Command.async'
+      ~summary:""
+      [%map_open
+        let package_name = anon ("package" %: package_arg)
+        in
+        fun () ->
+          printf !"%{sexp:string list}\n" (findlib_js_deps package_name);
+          Deferred.unit]
+  in
   Command.group
     ~summary:"Print stuff" [
       "build-graph", build_graph_cmd;
       "project-spec", project_spec_cmd;
+      "findlib-cma", findlib_cma_cmd;
+      "findlib-js", findlib_js_cmd;
     ]
 
 let () =
