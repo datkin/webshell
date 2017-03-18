@@ -1129,17 +1129,22 @@ let spec_to_nodes
       | `native -> []
       | `js ->
         let runtime_js =
-          (*
-           * 2. Compile runtime to js. This requires getting a JS link opts for
-           *    the required cma's.
-           *    *)
-          assert false
+          let js_libs =
+            (*
+             * 2. Compile runtime to js. This requires getting a JS link opts for
+             *    the required cma's.
+             *    *)
+            String.Set.empty
+          in
+          Js_of_ocaml.compile ~js_libs `runtime
         in
         let bin_js =
           Js_of_ocaml.compile
             ~js_libs:Js_of_ocaml.non_runtime_js_libs
-            (`file (Build_graph.Node.output_with ~ext:"cma" linked_byte))
+            (`file (Build_graph.Node.output_with ~ext:"byte" linked_byte))
         in
+        let package_js_files_in_order = [] in
+        let lib_js_files_in_order = [] in
         let js_files_in_order =
           [ Build_graph.Node.output_with ~ext:"js" runtime_js ]
           @ package_js_files_in_order
@@ -1318,28 +1323,35 @@ let%expect_test "dependency summary" =
     | _ -> []
   in
   let bg =
-    spec_to_nodes
-      ~file_exists
-      ~get_deps
-      ~findlib_cma_deps
-      ~findlib_js_deps
-      project_spec
-    |> Build_graph.of_nodes
-    |> Build_graph.prune ~roots:[
-      File_name.of_string (sprintf "%s/main.native" (build_dir Native `linked bin_lib));
-      File_name.of_string (sprintf "%s/web_main.js" (build_dir Js `linked bin_lib));
-    ]
+    Or_error.try_with (fun () ->
+      spec_to_nodes
+        ~file_exists
+        ~get_deps
+        ~findlib_cma_deps
+        ~findlib_js_deps
+        project_spec
+      |> Build_graph.of_nodes
+      |> Build_graph.prune ~roots:[
+        File_name.of_string (sprintf "%s/main.native" (build_dir Native `linked bin_lib));
+        File_name.of_string (sprintf "%s/web_main.js" (build_dir Js `linked bin_lib));
+      ]
+    )
   in
-  List.iter (Build_graph.nodes bg) ~f:(fun node ->
-    printf "%s\n"
-      (node.Build_graph.outputs
-       |> Set.to_list
-       |> List.map ~f:File_name.to_string
-       |> String.concat ~sep:", ");
-    Set.iter node.Build_graph.inputs ~f:(fun file_name ->
-      printf "  %s\n" (File_name.to_string file_name));
-    printf "\n";
-  );
+  begin
+    match bg with
+    | Error err -> printf !"%{sexp#hum:Error.t}" err
+    | Ok bg ->
+      List.iter (Build_graph.nodes bg) ~f:(fun node ->
+        printf "%s\n"
+          (node.Build_graph.outputs
+           |> Set.to_list
+           |> List.map ~f:File_name.to_string
+           |> String.concat ~sep:", ");
+        Set.iter node.Build_graph.inputs ~f:(fun file_name ->
+          printf "  %s\n" (File_name.to_string file_name));
+        printf "\n";
+      )
+  end;
   [%expect {|
     .dbuild/native/odditty/generated/odditty.ml
 
@@ -1553,6 +1565,7 @@ let%expect_test "dependency summary" =
     .dbuild/js/bin/linked/web_main.byte
       .dbuild/js/bin/modules/web_main.cmo
       .dbuild/js/web/archive/web.cma |}];
+  let bg = Or_error.ok_exn bg in
   let node =
     Map.find_exn
       (Build_graph.by_file bg)
