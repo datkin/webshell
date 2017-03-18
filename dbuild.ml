@@ -405,6 +405,8 @@ module Ocaml_compiler : sig
   val link
     :  kind
     -> Package_name.Set.t
+    (* CR-someday datkin: Perhaps renamed "no_archive". *)
+    (* [`no_archive] means no c archive ( *.a file ). *)
     -> libs_in_dep_order:(Lib_name.t * [ `archive | `no_archive ]) list
     -> Module_name.t
     -> Build_graph.node
@@ -824,6 +826,8 @@ end = struct
 end
 
 module Js_of_ocaml : sig
+  val output_file : [ `file of File_name.t | `runtime ] -> File_name.t
+
   val compile : js_libs:String.Set.t -> [ `file of File_name.t | `runtime ] -> Build_graph.node
 
   (* i.e. the standard libs you need to reference for non-runtime stuff.... I
@@ -838,23 +842,26 @@ end = struct
       "+weak.js";
     ]
 
+  let output_file target =
+    match target with
+    | `file input_file ->
+      (* CR-someday datkin: A bit weird that everything goes to [js_lib]. *)
+      sprintf !"%s/%s.js"
+        (build_dir Js `modules js_lib)
+        (Filename.basename (File_name.to_string input_file))
+      |> File_name.of_string
+    | `runtime ->
+      sprintf !"%s/runtime.js" (build_dir Js `modules js_lib)
+      |> File_name.of_string
+
   let compile ~js_libs target =
-    let input_file, output_file, extra_flags =
+    let output_file = output_file target in
+    let input_file, extra_flags =
       match target with
       | `file input_file ->
-        let output_file =
-          sprintf !"%s/%s.js"
-            (build_dir Js `modules js_lib)
-            (Filename.basename (File_name.to_string input_file))
-          |> File_name.of_string
-        in
-        input_file, output_file, [ "--runtime" ]
+        input_file, [ "--runtime" ]
       | `runtime ->
-        let output_file =
-          sprintf !"%s/runtime.js" (build_dir Js `modules js_lib)
-          |> File_name.of_string
-        in
-        File_name.of_string "/dev/null", output_file, []
+        File_name.of_string "/dev/null", []
     in
     let cmd = {
       Cmd.
@@ -1143,12 +1150,20 @@ let spec_to_nodes
             ~js_libs:Js_of_ocaml.non_runtime_js_libs
             (`file (Build_graph.Node.output_with ~ext:"byte" linked_byte))
         in
-        let package_js_files_in_order = [] in
+        let package_js_files_in_order =
+          let package_cma_closure_in_dep_order =
+            Set.to_list packages
+            |> List.map ~f:(fun package_name -> findlib_cma_deps package_name)
+            |> dedupe_merge
+          in
+          List.map package_cma_closure_in_dep_order ~f:(fun file ->
+            Js_of_ocaml.output_file (`file file))
+        in
         let lib_js_files_in_order =
           List.map libs_in_dep_order ~f:(fun (lib, archive_or_no) ->
             begin
               match archive_or_no with
-              | `archive -> assert false (* Whooops, c bindings? *)
+              | `archive -> assert false (* Whoops, there are c bindings. *)
               | `no_archive -> ()
             end;
             sprintf !"%s/%{Lib_name}.cma.js"
