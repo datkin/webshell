@@ -847,7 +847,7 @@ end = struct
 
   let runtime_js_libs = [
     "+predefined_exceptions.js";
-    "+runtime.js";
+    (*"+runtime.js";*) (* This is picked up by the "linkopts" ocamlfind query. *)
     "+weak.js";
     "+nat.js";
   ]
@@ -1661,7 +1661,7 @@ let%expect_test "dependency summary" =
         (args
          ((--no-runtime --source-map-inline --pretty)
           (-o .dbuild/js/js/modules/web_main.runtime.js)
-          (+predefined_exceptions.js +runtime.js +weak.js +nat.js)
+          (+predefined_exceptions.js +weak.js +nat.js)
           (+base/runtime.js +bin_prot/runtime.js +core_kernel/runtime.js
            +core_kernel/strftime.js +ppx_expect/runtime.js)
           (--runtime) (/dev/null)))
@@ -1877,7 +1877,12 @@ let findlib_js_deps package_name =
 let get_deps dir ~basename =
   (* CR-someday datkin: Add '-ppx'? *)
   (* CR-soon datkin: This isn't necessarily running in the right opam env. *)
-  let cmd = sprintf !"ocamldep -one-line -I %{Lib_name} %{Lib_name}/%s" dir dir basename in
+  let ocamldep_cmd = sprintf !"ocamldep -one-line -I %{Lib_name} %{Lib_name}/%s" dir dir basename in
+  let cmd =
+    sprintf !"bash -c 'eval $(opam config env --switch %{Opam_switch_name}) && %s'"
+      opam_native
+      ocamldep_cmd
+  in
   let output = Core.Unix.open_process_in cmd |> In_channel.input_lines in
   (* eprintf !"> %s\n< %{sexp#mach:string list}\n" cmd output; *)
   parse_deps output

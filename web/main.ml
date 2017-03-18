@@ -56,6 +56,7 @@ type event =
   | Message of WebSockets.webSocket WebSockets.messageEvent Js.t
   | Key of Dom_html.keyboardEvent Js.t
 
+
 let log_and_send_time () =
   Firebug.console##log (Js.string "started");
   don't_wait_for (
