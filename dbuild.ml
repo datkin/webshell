@@ -223,14 +223,14 @@ module Build_graph = struct
   type per_file = {
     needs : node option;
     provides : node list;
-  } [@@deriving fields]
+  } [@@deriving sexp_of, fields]
 
   type t = {
     (* CR-soon datkin: in the [pruned] case this is topologically sorted.
      * Should probably make that an invariant. *)
     nodes : node list;
     by_file : per_file File_name.Map.t;
-  } [@@deriving fields]
+  } [@@deriving sexp_of, fields]
 
   let of_nodes nodes =
     let by_file =
@@ -274,7 +274,7 @@ module Build_graph = struct
           match Map.find t.by_file file with
           | Some { needs = None; _ } -> []
           | Some { needs = Some node; _ } -> File_name.Set.to_list node.inputs
-          | None -> raise_s [%message "Unknown" (file : File_name.t)])
+          | None -> raise_s [%message "Unknown direct dep" (t : t) (file : File_name.t)])
         ~init:(Action.Set.empty, [])
         ~f:(fun file (action_set, nodes) ->
           match Map.find t.by_file file with
@@ -1333,7 +1333,7 @@ let%expect_test "dependency summary" =
       |> Build_graph.of_nodes
       |> Build_graph.prune ~roots:[
         File_name.of_string (sprintf "%s/main.native" (build_dir Native `linked bin_lib));
-        File_name.of_string (sprintf "%s/web_main.js" (build_dir Js `linked bin_lib));
+        File_name.of_string (sprintf "%s/web_main.js-linked" (build_dir Js `linked bin_lib));
       ]
     )
   in
