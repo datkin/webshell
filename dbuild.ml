@@ -826,9 +826,12 @@ end = struct
 end
 
 module Js_of_ocaml : sig
-  val output_file : [ `file of File_name.t | `runtime ] -> File_name.t
+  val output_file : [ `file of File_name.t | `runtime of Module_name.t ] -> File_name.t
 
-  val compile : js_libs:String.Set.t -> [ `file of File_name.t | `runtime ] -> Build_graph.node
+  val compile
+    :  js_libs:String.Set.t
+    -> [ `file of File_name.t | `runtime of Module_name.t ]
+    -> Build_graph.node
 
   (* i.e. the standard libs you need to reference for non-runtime stuff.... I
    * think? *)
@@ -850,8 +853,8 @@ end = struct
         (build_dir Js `modules js_lib)
         (Filename.basename (File_name.to_string input_file))
       |> File_name.of_string
-    | `runtime ->
-      sprintf !"%s/runtime.js" (build_dir Js `modules js_lib)
+    | `runtime module_name ->
+      sprintf !"%s/%{Module_name}.runtime.js" (build_dir Js `modules js_lib) module_name
       |> File_name.of_string
 
   let compile ~js_libs target =
@@ -860,7 +863,7 @@ end = struct
       match target with
       | `file input_file ->
         input_file, [ "--runtime" ]
-      | `runtime ->
+      | `runtime _ ->
         File_name.of_string "/dev/null", []
     in
     let cmd = {
@@ -920,7 +923,7 @@ let spec_to_nodes
   ~file_exists
   ~get_deps
   ~findlib_cma_deps
-  ~findlib_js_deps:_
+  ~findlib_js_deps
   { Project_spec. libraries; binaries; }
   : Build_graph.node list =
   let archive_by_lib =
@@ -1137,13 +1140,11 @@ let spec_to_nodes
       | `js ->
         let runtime_js =
           let js_libs =
-            (*
-             * 2. Compile runtime to js. This requires getting a JS link opts for
-             *    the required cma's.
-             *    *)
-            String.Set.empty
+            Set.to_list packages
+            |> List.concat_map ~f:(fun package -> findlib_js_deps package)
+            |> String.Set.of_list
           in
-          Js_of_ocaml.compile ~js_libs `runtime
+          Js_of_ocaml.compile ~js_libs (`runtime module_name)
         in
         let bin_js =
           Js_of_ocaml.compile
@@ -1591,14 +1592,18 @@ let%expect_test "dependency summary" =
       .dbuild/js/bin/modules/web_main.cmo
       .dbuild/js/web/archive/web.cma |}];
   let bg = Or_error.ok_exn bg in
-  let node =
-    Map.find_exn
-      (Build_graph.by_file bg)
-      (File_name.of_string ".dbuild/native/odditty_kernel/generated/odditty_kernel.ml")
-    |> Build_graph.needs
-    |> Option.value_exn
-  in
-  printf !"%{sexp:Build_graph.node}\n" node;
+  List.iter [
+    ".dbuild/native/odditty_kernel/generated/odditty_kernel.ml";
+    ".dbuild/js/js/modules/web_main.runtime.js";
+  ] ~f:(fun file ->
+    let node =
+      Map.find_exn
+        (Build_graph.by_file bg)
+        (File_name.of_string file)
+      |> Build_graph.needs
+      |> Option.value_exn
+    in
+    printf !"%{sexp:Build_graph.node}\n" node);
   [%expect {|
     ((action
       (Write_file
