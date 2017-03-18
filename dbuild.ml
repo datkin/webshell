@@ -1144,7 +1144,17 @@ let spec_to_nodes
             (`file (Build_graph.Node.output_with ~ext:"byte" linked_byte))
         in
         let package_js_files_in_order = [] in
-        let lib_js_files_in_order = [] in
+        let lib_js_files_in_order =
+          List.map libs_in_dep_order ~f:(fun (lib, archive_or_no) ->
+            begin
+              match archive_or_no with
+              | `archive -> assert false (* Whooops, c bindings? *)
+              | `no_archive -> ()
+            end;
+            sprintf !"%s/%{Lib_name}.cma.js"
+              (build_dir Js `modules js_lib) lib
+            |> File_name.of_string)
+        in
         let js_files_in_order =
           [ Build_graph.Node.output_with ~ext:"js" runtime_js ]
           @ package_js_files_in_order
