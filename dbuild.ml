@@ -845,6 +845,13 @@ end = struct
       "+weak.js";
     ]
 
+  let runtime_js_libs = [
+    "+predefined_exceptions.js";
+    "+runtime.js";
+    "+weak.js";
+    "+nat.js";
+  ]
+
   let output_file target =
     match target with
     | `file input_file ->
@@ -873,6 +880,9 @@ end = struct
       args = [
         [ "--no-runtime"; "--source-map-inline"; "--pretty"; ];
         [ "-o"; File_name.to_string output_file; ];
+        (match target with
+        | `file _ -> []
+        | `runtime _ -> runtime_js_libs);
         (Set.to_list js_libs);
         extra_flags;
         [ File_name.to_string input_file ];
@@ -1651,6 +1661,7 @@ let%expect_test "dependency summary" =
         (args
          ((--no-runtime --source-map-inline --pretty)
           (-o .dbuild/js/js/modules/web_main.runtime.js)
+          (+predefined_exceptions.js +runtime.js +weak.js +nat.js)
           (+base/runtime.js +bin_prot/runtime.js +core_kernel/runtime.js
            +core_kernel/strftime.js +ppx_expect/runtime.js)
           (--runtime) (/dev/null)))
