@@ -1074,21 +1074,6 @@ let spec_to_nodes
       dir, direct_deps)
     |> Lib_name.Map.of_alist_exn
   in
-  let package_deps_to_js =
-    let direct_unique_packages =
-      Package_name.Set.empty
-    in
-    let full_closure =
-      Set.to_list direct_unique_packages
-      |> List.concat_map ~f:findlib_cma_deps
-      |> File_name.Set.of_list
-    in
-    Set.to_list full_closure
-    |> List.map ~f:(fun cma ->
-     Js_of_ocaml.compile
-       ~js_libs:Js_of_ocaml.non_runtime_js_libs
-       (`file cma))
-  in
   let of_bin { Project_spec. module_name; direct_deps = { packages; libs; }; output; } =
     let (extra_pkgs, libs_in_dep_order) =
       topological_fold
@@ -1161,7 +1146,28 @@ let spec_to_nodes
   in
   let libs = List.concat_map libraries ~f:of_lib in
   let bins = List.concat_map binaries ~f:of_bin in
-  List.concat_no_order [libs; bins;]
+  let package_deps_to_js =
+    let direct_unique_packages =
+      List.concat [
+        List.map libraries ~f:(fun { direct_deps = { packages; _ }; _ } ->
+          packages);
+        List.map binaries ~f:(fun { direct_deps = { packages; _ }; _ } ->
+          packages);
+      ]
+      |> List.fold ~init:Package_name.Set.empty ~f:Set.union
+    in
+    let full_closure =
+      Set.to_list direct_unique_packages
+      |> List.concat_map ~f:findlib_cma_deps
+      |> File_name.Set.of_list
+    in
+    Set.to_list full_closure
+    |> List.map ~f:(fun cma ->
+     Js_of_ocaml.compile
+       ~js_libs:Js_of_ocaml.non_runtime_js_libs
+       (`file cma))
+  in
+  List.concat_no_order [libs; bins; package_deps_to_js;]
 ;;
 
 let project_spec =
