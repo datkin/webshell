@@ -817,22 +817,32 @@ end
 module Js_of_ocaml : sig
   val compile : js_libs:String.Set.t -> [ `file of File_name.t | `runtime ] -> Build_graph.node
 
+  (* i.e. the standard libs you need to reference for non-runtime stuff.... I
+   * think? *)
+  val non_runtime_js_libs : String.Set.t
+
   val link : js_files_in_order:File_name.t list -> dst:File_name.t -> Build_graph.node
 end = struct
+  let non_runtime_js_libs =
+    String.Set.of_list [
+      "+runtime.js";
+      "+weak.js";
+    ]
+
   let compile ~js_libs target =
     let input_file, output_file, extra_flags =
       match target with
       | `file input_file ->
         let output_file =
           sprintf !"%s/%s.js"
-            (build_dir Native `modules js_lib)
+            (build_dir Js `modules js_lib)
             (Filename.basename (File_name.to_string input_file))
           |> File_name.of_string
         in
         input_file, output_file, [ "--runtime" ]
       | `runtime ->
         let output_file =
-          sprintf !"%s/runtime.js" (build_dir Native `modules js_lib)
+          sprintf !"%s/runtime.js" (build_dir Js `modules js_lib)
           |> File_name.of_string
         in
         File_name.of_string "/dev/null", output_file, []
@@ -893,7 +903,7 @@ let%expect_test _ =
 let spec_to_nodes
   ~file_exists
   ~get_deps
-  ~findlib_cma_deps:_
+  ~findlib_cma_deps
   ~findlib_js_deps:_
   { Project_spec. libraries; binaries; }
   : Build_graph.node list =
@@ -1050,12 +1060,34 @@ let spec_to_nodes
         let c_archive = C_compiler.archive dir ~c_bases:c_stub_basenames in
         c_archive :: cs
     in
-    List.concat_no_order [ mli; ml; c ]
+    let js =
+      (* CR-someday datkin: Check there are no cstubs *)
+      [ Js_of_ocaml.compile
+          ~js_libs:Js_of_ocaml.non_runtime_js_libs
+          (`file (File_name.of_string (sprintf !"%s/%{Lib_name}.byte" (build_dir Js `modules dir) dir)))
+      ]
+    in
+    List.concat_no_order [ mli; ml; c; js ]
   in
   let deps_by_lib_name =
     List.map libraries ~f:(fun { Project_spec. dir; direct_deps; _ } ->
       dir, direct_deps)
     |> Lib_name.Map.of_alist_exn
+  in
+  let package_deps_to_js =
+    let direct_unique_packages =
+      Package_name.Set.empty
+    in
+    let full_closure =
+      Set.to_list direct_unique_packages
+      |> List.concat_map ~f:findlib_cma_deps
+      |> File_name.Set.of_list
+    in
+    Set.to_list full_closure
+    |> List.map ~f:(fun cma ->
+     Js_of_ocaml.compile
+       ~js_libs:Js_of_ocaml.non_runtime_js_libs
+       (`file cma))
   in
   let of_bin { Project_spec. module_name; direct_deps = { packages; libs; }; output; } =
     let (extra_pkgs, libs_in_dep_order) =
@@ -1090,22 +1122,34 @@ let spec_to_nodes
       match output with
       | `native -> []
       | `js ->
-        let dst =
-          sprintf !"%s/%{Module_name}.js"
-            (build_dir Js `linked bin_lib) module_name
+        let bin_file ~ext =
+          sprintf !"%s/%{Module_name}.%s"
+            (build_dir Js `linked bin_lib) module_name ext
           |> File_name.of_string
         in
-        let js_files_in_order =
-          (* 1. Find all required findlib cma files. Compile to js.
+        let runtime_js =
+          (*
            * 2. Compile runtime to js. This requires getting a JS link opts for
            *    the required cma's.
-           * 3. Find all required lib cma files. Compile to js. (just add this
-           *    as part of the lib stuff above)
-           * 4. Compile the main's .byte to js
-           * *)
-          []
+           *    *)
+          assert false
         in
-        [ Js_of_ocaml.link ~js_files_in_order ~dst ]
+        let bin_js =
+          Js_of_ocaml.compile
+            ~js_libs:Js_of_ocaml.non_runtime_js_libs
+            (`file (bin_file ~ext:"byte"))
+        in
+        let js_files_in_order =
+          (* - Find all required findlib cma files. Compile to js.
+           * - Find all required lib cma files. Compile to js. (just add this
+           *    as part of the lib stuff above)
+           * - Compile the main's .byte to js
+           * *)
+          runtime_js
+          :: [
+          ]
+        in
+        [ Js_of_ocaml.link ~js_files_in_order ~dst:(bin_file ~ext:"js-linked") ]
     in
     [
       (* CR-soon datkin: `no_mli is a guess *)
@@ -1234,7 +1278,7 @@ let%expect_test "dependency summary" =
       | _ -> []
     in
     List.map rel_paths ~f:(fun rel_path ->
-      "~/.opam/4.03.0+for-js/" ^ rel_path)
+      File_name.of_string ("~/.opam/4.03.0+for-js/" ^ rel_path))
   in
   let findlib_js_deps package_name =
     match Package_name.to_string package_name with
@@ -1699,6 +1743,7 @@ let findlib_cmd package_name ~format_flag ~predicate =
 (* CR datkin: This needs to run in the js opam env... *)
 let findlib_cma_deps package_name =
   findlib_cmd package_name ~format_flag:"%+a" ~predicate:"byte"
+  |> List.map ~f:File_name.of_string
 ;;
 
 let findlib_js_deps package_name =
