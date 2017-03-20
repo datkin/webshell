@@ -11,7 +11,7 @@
      ((packages (async_kernel core_kernel js_of_ocaml.async virtual_dom))
       (libs ()))))
    ((dir server) (modules (web_server))
-    (direct_deps ((packages (async websocket.async)) (libs (odditty)))))))
+    (direct_deps ((packages (async websocket.async)) (libs (odditty_kernel odditty)))))))
  (binaries
   (((module_name inline_test_runner)
     (direct_deps

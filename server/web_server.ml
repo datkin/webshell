@@ -20,6 +20,14 @@ type frame = Websocket_async.Frame.t = {
 } [@@deriving sexp]
 
 let run ~ws_port ~http_port =
+  let pty =
+    Odditty.Pty.create
+      ~cwd:"/home/datkin"
+      ~exe:"/bin/bash"
+      ~argv:[| "bash"; |]
+      ~env:[| "TERM=xterm"; "HOME=/Users/datkin"; |]
+      { Odditty_kernel.Window. width = 20; height = 20; }
+  in
   Tcp.Server.create
     (Tcp.on_port ws_port)
     (fun address reader writer ->

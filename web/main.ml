@@ -1,8 +1,6 @@
 open Core_kernel.Std
 open Async_kernel.Std
 
-let () = Async_js.init ()
-
 let view x =
   let open Virtual_dom.Vdom in
   Node.div [
@@ -65,17 +63,19 @@ let keys =
   r
 ;;
 
-let log_and_send_time () =
+let run () : unit Deferred.t =
   Firebug.console##log (Js.string "started");
+  make_ws ~url:"ws://localhost:8081"
+  >>= fun (from_ws, to_ws) ->
   don't_wait_for (
-    make_ws ~url:"ws://localhost:8081"
-    >>= fun (from_ws, to_ws) ->
-    Pipe.iter_without_pushback keys (fun key ->
+    Pipe.iter_without_pushback keys ~f:(fun key ->
       let message = Char.to_string key in
       Firebug.console##log (Js.string ("sending: " ^ message));
       Pipe.write_without_pushback to_ws message;
-    );
-    Pipe.iter_without_pushback from_ws ~f:(fun str ->
-      Firebug.console##log (Js.string ("received: " ^ str)))
+    )
+  );
+  Pipe.iter_without_pushback from_ws ~f:(fun str ->
+    let chrs = [%of_sexp: char list list] (Sexp.of_string str) in
+    Firebug.console##log (Js.string (sprintf !"received %{sexp:char list list}" chrs))
   )
 ;;
