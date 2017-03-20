@@ -3,13 +3,13 @@ open Async_kernel.Std
 
 let () = Async_js.init ()
 
-let view (_ : 'a) =
+let view x =
   let open Virtual_dom.Vdom in
   Node.div [
     Attr.class_ "terminal";
   ] [
     Node.text "&nbsp;";
-    Node.text "foobar";
+    Node.text (sprintf "foobar %d" x);
   ]
 ;;
 
@@ -56,6 +56,18 @@ type event =
   | Message of WebSockets.webSocket WebSockets.messageEvent Js.t
   | Key of Dom_html.keyboardEvent Js.t
 
+let keys =
+  let r, w = Pipe.create () in
+  Dom_html.document##.onkeypress := Dom_html.handler (fun ev ->
+    let key =
+      try
+        Char.of_int_exn (Js.Optdef.get (ev##.charCode) (fun _ -> 0))
+      with Invalid_argument _ -> '\000'
+    in
+    Pipe.write_without_pushback w key;
+    Js._true);
+  r
+;;
 
 let log_and_send_time () =
   Firebug.console##log (Js.string "started");
