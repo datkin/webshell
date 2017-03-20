@@ -52,10 +52,6 @@ let make_ws ~url =
   return (from_ws_r, to_ws_w)
 ;;
 
-type event =
-  | Message of WebSockets.webSocket WebSockets.messageEvent Js.t
-  | Key of Dom_html.keyboardEvent Js.t
-
 let keys =
   let r, w = Pipe.create () in
   Dom_html.document##.onkeypress := Dom_html.handler (fun ev ->
@@ -74,9 +70,8 @@ let log_and_send_time () =
   don't_wait_for (
     make_ws ~url:"ws://localhost:8081"
     >>= fun (from_ws, to_ws) ->
-    Clock_ns.every (Time_ns.Span.of_int_sec 1) (fun () ->
-      let ns_since_epoch = Time_ns.to_int63_ns_since_epoch (Time_ns.now ()) in
-      let message = sprintf !"%{Int63}" ns_since_epoch in
+    Pipe.iter_without_pushback keys (fun key ->
+      let message = Char.to_string key in
       Firebug.console##log (Js.string ("sending: " ^ message));
       Pipe.write_without_pushback to_ws message;
     );

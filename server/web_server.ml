@@ -27,11 +27,11 @@ let run ~ws_port ~http_port =
       let to_ws_r, to_ws_w = Pipe.create () in
       don't_wait_for (
         Pipe.iter_without_pushback from_ws_r ~f:(fun frame ->
-          Log.Global.info
-            !"from %{sexp:Socket.Address.Inet.t}: %{sexp:frame}"
-            address frame)
+          let chr = Char.of_string frame.content in
+          Core.Std.printf "Got '%c'\n%!" chr;
+        )
       );
-      Clock.every (sec 1.) (fun () ->
+      begin
         let frame : Websocket_async.Frame.t = {
           opcode = Text;
           extension = 0;
@@ -40,7 +40,7 @@ let run ~ws_port ~http_port =
         }
         in
         Pipe.write_without_pushback to_ws_w frame
-      );
+      end;
       Log.Global.set_level `Debug;
       Websocket_async.server
         ~log:(force Log.Global.log)

@@ -14,3 +14,21 @@ val fork_in_pty
   -> env:string array
   -> Window.dim
   -> pty_child
+
+open Async.Std
+
+type t
+
+val window : t -> Window.t
+
+val changed : t -> unit Deferred.t
+
+val create
+  :  cwd:string
+  -> exe:string
+  -> argv:string array
+  -> env:string array
+  -> Window.dim
+  -> t
+
+val from_user : t -> string -> unit Deferred.t
