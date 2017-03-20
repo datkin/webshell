@@ -34,21 +34,25 @@ let run ~ws_port ~http_port =
       let from_ws_r, from_ws_w = Pipe.create () in
       let to_ws_r, to_ws_w = Pipe.create () in
       don't_wait_for (
-        Pipe.iter_without_pushback from_ws_r ~f:(fun frame ->
+        Pipe.iter from_ws_r ~f:(fun frame ->
           let chr = Char.of_string frame.content in
-          Core.Std.printf "Got '%c'\n%!" chr;
+          let data = String.of_char_list [ chr ] in
+          Odditty.Pty.from_user pty data
         )
       );
-      begin
+      Deferred.forever () (fun () ->
+        Odditty.Pty.changed pty
+        >>= fun () ->
+        let chrs = Odditty.Pty.window pty |> Odditty_kernel.Window.to_lists in
         let frame : Websocket_async.Frame.t = {
           opcode = Text;
           extension = 0;
           final = true;
-          content = Time.to_string (Time.now ());
+          content = Sexp.to_string ([%sexp_of: char list list] chrs);
         }
         in
-        Pipe.write_without_pushback to_ws_w frame
-      end;
+        Pipe.write to_ws_w frame
+      );
       Log.Global.set_level `Debug;
       Websocket_async.server
         ~log:(force Log.Global.log)
