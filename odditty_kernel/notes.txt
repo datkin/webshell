@@ -22,7 +22,7 @@
    * `man terminfo` and `infocmp`
 
  - An interesting example command to run:
-   $ (exe=bash; term=xterm; ./main.native tty -html /tmp/x.html -dim 50x30 -cwd "/tm -env TERM=$term -env HOME=/Users/datkin -exe $(which $exe) -- $exe) 2>&1
+   $ (exe=bash; term=xterm; ./main.native tty -html /tmp/x.html -dim 50x30 -cwd "/tmp -env TERM=$term -env HOME=/Users/datkin -exe $(which $exe) -- $exe) 2>&1
 
  - To investigate issues on OS X, I've been tracing via `dtruss`. Let's say we
    want to start by trace on a "normal" nano process. First, weirdly, dtruss

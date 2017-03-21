@@ -22,7 +22,7 @@ type frame = Websocket_async.Frame.t = {
 let run ~ws_port ~http_port =
   let pty =
     Odditty.Pty.create
-      ~cwd:"/home/datkin"
+      ~cwd:"/Users/datkin"
       ~exe:"/bin/bash"
       ~argv:[| "bash"; |]
       ~env:[| "TERM=xterm"; "HOME=/Users/datkin"; |]
