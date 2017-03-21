@@ -10,12 +10,11 @@ let view (rows : char list list) =
   let br = Node.create "br" [] [] in
   let rows : Virtual_dom.Vdom.Node.t list =
     List.concat_map rows ~f:(fun row ->
-      (br
-      :: List.map row ~f:(fun chr ->
+      List.map row ~f:(fun chr ->
         if Char.(=) chr '\000'
         then Node.text "\xC2\xA0"
         else Node.text (Char.to_string chr))
-      ) |> List.rev
+      @ [br]
     )
   in
   Node.div [

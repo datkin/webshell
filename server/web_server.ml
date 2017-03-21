@@ -26,7 +26,7 @@ let run ~ws_port ~http_port =
       ~exe:"/bin/bash"
       ~argv:[| "bash"; |]
       ~env:[| "TERM=xterm"; "HOME=/Users/datkin"; |]
-      { Odditty_kernel.Window. width = 20; height = 20; }
+      { Odditty_kernel.Window. width = 20; height = 15; }
   in
   Tcp.Server.create
     (Tcp.on_port ws_port)
