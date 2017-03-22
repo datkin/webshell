@@ -32,6 +32,11 @@ let run ~ws_port ~http_port =
   in
   Tcp.Server.create
     (Tcp.on_port ws_port)
+    ~on_handler_error:(`Call (fun addr exn ->
+      (* CR datkin: Should presumably send signal to the process? Or save it for
+       * reconnection? *)
+      Log.Global.sexp [%message "Connection error" (addr : Socket.Address.Inet.t) (exn : Exn.t)]
+    ))
     (fun address reader writer ->
       let from_ws_r, from_ws_w = Pipe.create () in
       let to_ws_r, to_ws_w = Pipe.create () in
@@ -46,11 +51,25 @@ let run ~ws_port ~http_port =
         Odditty.Pty.changed pty
         >>= fun () ->
         let chrs = Odditty.Pty.window pty |> Odditty_kernel.Window.to_lists in
+        let size =
+          Bin_prot.Utils.size_header_length
+          + [%bin_writer: char list list].size chrs
+        in
+        let buf = Bigstring.create size in
+        let len =
+          Bigstring.write_bin_prot
+          buf ~pos:0 [%bin_writer: char list list] chrs
+        in
+        assert (len = size);
+        printf !"sending data length %d\n%!" size;
         let frame : Websocket_async.Frame.t = {
           opcode = Text;
           extension = 0;
           final = true;
-          content = Sexp.to_string ([%sexp_of: char list list] chrs);
+          content = B64.encode (Bigstring.to_string buf);
+            (*
+            Sexp.to_string ([%sexp_of: char list list] chrs);
+            *)
         }
         in
         Pipe.write to_ws_w frame

@@ -8,10 +8,10 @@
     (direct_deps ((packages (async core)) (libs (odditty_kernel)))))
    ((dir web) (modules (main))
     (direct_deps
-     ((packages (async_kernel core_kernel js_of_ocaml.async virtual_dom))
+     ((packages (async_kernel core_kernel js_of_ocaml.async virtual_dom base64))
       (libs ()))))
    ((dir server) (modules (web_server))
-    (direct_deps ((packages (async websocket.async)) (libs (odditty_kernel odditty)))))))
+    (direct_deps ((packages (async websocket.async base64)) (libs (odditty_kernel odditty)))))))
  (binaries
   (((module_name inline_test_runner)
     (direct_deps

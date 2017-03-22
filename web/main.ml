@@ -1,6 +1,10 @@
 open Core_kernel.Std
 open Async_kernel.Std
 
+let log msg =
+  Firebug.console##log (Js.string msg);
+;;
+
 let view (rows : char list list) =
   (* Per
    * http://stackoverflow.com/questions/19810122/how-do-i-add-a-non-breaking-whitespace-in-javascript-without-using-innerhtml
@@ -29,6 +33,7 @@ let make_ws ~url =
   ws##.onmessage :=
     Dom.handler (fun message ->
       let data = (message##.data) |> Js.to_string in
+      log (sprintf "data length %d" (String.length data));
       Pipe.write_without_pushback from_ws_w data;
       Js._true);
   Deferred.create (fun connected ->
@@ -81,7 +86,15 @@ let run () : unit Deferred.t =
       let elt  = ref (Virtual_dom.Vdom.Node.to_dom !vdom :> Dom.element Js.t) in
       Dom.appendChild Dom_html.document##.body !elt;
       Pipe.iter_without_pushback from_ws ~f:(fun str ->
+        (*
         let chrs = [%of_sexp: char list list] (Sexp.of_string str) in
+*)
+        let (chrs, _num_bytes_read) =
+          Bigstring.of_string (B64.decode str)
+          |> (fun buf ->
+              Bigstring.read_bin_prot buf ~pos:0 [%bin_reader: char list list])
+          |> Or_error.ok_exn
+        in
         let new_vdom = view chrs in
         elt := Node.Patch.apply (Node.Patch.create ~previous:!vdom ~current:new_vdom) !elt;
         vdom := new_vdom;
