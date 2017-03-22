@@ -28,7 +28,7 @@ let run ~ws_port ~http_port =
       ~env:[| "TERM=xterm"; "HOME=/Users/datkin"; |]
       (* CR datkin: Increasing window size leads to async kernel stack
        * overflows... *)
-      { Odditty_kernel.Window. width = 20; height = 15; }
+      { Odditty_kernel.Window. width = 50; height = 30; }
   in
   Tcp.Server.create
     (Tcp.on_port ws_port)

@@ -85,7 +85,9 @@ let run () : unit Deferred.t =
         let new_vdom = view chrs in
         elt := Node.Patch.apply (Node.Patch.create ~previous:!vdom ~current:new_vdom) !elt;
         vdom := new_vdom;
+        (*
         Firebug.console##log (Js.string (sprintf !"received %{sexp:char list list}" chrs))
+      *)
       )
     );
     Js._false

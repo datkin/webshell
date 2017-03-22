@@ -191,7 +191,7 @@ module Build_graph = struct
   } [@@deriving sexp, fields]
 
   module Node = struct
-    type t = node
+    type t = node [@@deriving sexp]
 
     let output_with ({ outputs; _ } as t) ~ext =
       let suffix = "." ^ ext in
@@ -873,12 +873,24 @@ end = struct
       | `runtime _ ->
         File_name.of_string "/dev/null", [ "--runtime" ]
     in
+    let source_map_root, extra_output =
+      match target with
+      | `runtime _ -> [], []
+      | `file file ->
+        [ "--source-map-root"; Core.Std.Unix.getcwd (); ],
+        [ File_name.of_string
+            (sprintf !"%s/%s.make-sourcemap-links.sh"
+              (build_dir Js `modules js_lib)
+              (Filename.basename (File_name.to_string file)))
+        ]
+    in
     let cmd = {
       Cmd.
       opam_switch = Some opam_js;
       exe = "js_of_ocaml";
       args = [
         [ "--no-runtime"; "--source-map-inline"; "--pretty"; ];
+        source_map_root;
         [ "-o"; File_name.to_string output_file; ];
         (match target with
         | `file _ -> []
@@ -891,7 +903,7 @@ end = struct
     in
     { Build_graph.
       inputs = File_name.Set.singleton input_file;
-      outputs = File_name.Set.singleton output_file;
+      outputs = File_name.Set.of_list (output_file :: extra_output);
       action = Cmd cmd;
     }
 
@@ -901,6 +913,7 @@ end = struct
       opam_switch = Some opam_js;
       exe = "jsoo_link";
       args = [
+        [ "--source-map-inline"; ];
         [ "-o"; File_name.to_string dst; ];
         (List.map js_files_in_order ~f:File_name.to_string);
       ];
@@ -1584,13 +1597,13 @@ let%expect_test "dependency summary" =
       .dbuild/native/server/archive/server.a
       .dbuild/native/server/archive/server.cmxa
 
-    .dbuild/js/js/modules/core_kernel.cma.js
+    .dbuild/js/js/modules/core_kernel.cma.js, .dbuild/js/js/modules/core_kernel.cma.make-sourcemap-links.sh
       ~/.opam/4.03.0+for-js/core_kernel/core_kernel.cma
 
-    .dbuild/js/js/modules/ocaml.cma.js
+    .dbuild/js/js/modules/ocaml.cma.js, .dbuild/js/js/modules/ocaml.cma.make-sourcemap-links.sh
       ~/.opam/4.03.0+for-js/ocaml/ocaml.cma
 
-    .dbuild/js/js/modules/stdlib.cma.js
+    .dbuild/js/js/modules/stdlib.cma.js, .dbuild/js/js/modules/stdlib.cma.make-sourcemap-links.sh
       /Users/datkin/.opam/4.03.0+for-js/lib/ocaml/stdlib.cma
 
     .dbuild/js/web/generated/web.ml
@@ -1608,7 +1621,7 @@ let%expect_test "dependency summary" =
       .dbuild/js/web/modules/web.cmo
       .dbuild/js/web/modules/web__main.cmo
 
-    .dbuild/js/js/modules/web.cma.js
+    .dbuild/js/js/modules/web.cma.js, .dbuild/js/js/modules/web.cma.make-sourcemap-links.sh
       .dbuild/js/web/archive/web.cma
 
     .dbuild/js/bin/modules/web_main.cmi, .dbuild/js/bin/modules/web_main.cmo
@@ -1616,7 +1629,7 @@ let%expect_test "dependency summary" =
       .dbuild/js/web/modules/web__main.cmi
       bin/web_main.ml
 
-    .dbuild/js/js/modules/web_main.cmo.js
+    .dbuild/js/js/modules/web_main.cmo.js, .dbuild/js/js/modules/web_main.cmo.make-sourcemap-links.sh
       .dbuild/js/bin/modules/web_main.cmo
 
     .dbuild/js/js/modules/web_main.runtime.js
@@ -1659,7 +1672,7 @@ let%expect_test "dependency summary" =
       (Cmd
        ((exe js_of_ocaml)
         (args
-         ((--no-runtime --source-map-inline --pretty)
+         ((--no-runtime --source-map-inline --pretty) ()
           (-o .dbuild/js/js/modules/web_main.runtime.js)
           (+predefined_exceptions.js +weak.js +nat.js)
           (+base/runtime.js +bin_prot/runtime.js +core_kernel/runtime.js
@@ -2018,12 +2031,13 @@ let run_node ~working_dir { Build_graph. action; inputs = _; outputs; } : Node_r
       Ok (Node_result.Ran { elapsed; output; })
   end
 
-let assert_empty ~sandbox =
+let assert_empty which ~sandbox =
   let cmd = sprintf "find %s -type f" sandbox in
   match Core.Unix.open_process_in cmd |> In_channel.input_lines with
   | [] -> ()
   | files ->
     raise_s [%message "Sandbox not empty"
+      (which : [ `before_build | `after of Build_graph.Node.t ])
       (sandbox : string)
       (files : string list)
     ]
@@ -2035,7 +2049,7 @@ let prep_sandbox =
     let sandbox = sprintf ".dbuild-sandbox/%d" !n in (* For parallel build, ensure sandboxes are unique. *)
     incr n;
     Core.Unix.mkdir_p sandbox;
-    assert_empty ~sandbox; (* It may have already existed and left unclean *)
+    assert_empty `before_build ~sandbox; (* It may have already existed and left unclean *)
     let sandbox_inputs = File_name.Set.map inputs ~f:(sandbox_file ~sandbox) in
     mkdirs sandbox_inputs;
     Set.iter inputs ~f:(fun file ->
@@ -2080,7 +2094,7 @@ let run_in_sandbox ~sandbox ({ Build_graph. action = _; inputs; outputs; } as no
       if file_exists (File_name.to_string file)
       then Core.Unix.unlink (File_name.to_string file)
       else ());
-    assert_empty ~sandbox;
+    assert_empty (`after node) ~sandbox;
     Deferred.unit)
 ;;
 
