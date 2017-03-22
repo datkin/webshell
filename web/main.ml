@@ -53,14 +53,17 @@ let keys =
   let r, w = Pipe.create () in
   Dom_html.document##.onkeyup := Dom_html.handler (fun ev ->
     let key =
-      let code =
-        match Js.Optdef.to_option ev##.charCode with
-        | Some code -> code
-        | None -> ev##.keyCode
-      in
-      try
-        Char.of_int_exn (ev##.keyCode)
-      with Invalid_argument _ -> '\000'
+      match Js.Optdef.to_option ev##.key |> Option.map ~f:Js.to_string with
+      | Some key when 1 = String.length key -> String.get key 0
+      | _ ->
+        let code =
+          match Js.Optdef.to_option ev##.charCode with
+          | Some code -> code
+          | None -> ev##.keyCode
+        in
+        try
+          Char.of_int_exn (ev##.keyCode)
+        with Invalid_argument _ -> '\000'
     in
     Pipe.write_without_pushback w key;
     Js._true);
@@ -77,7 +80,7 @@ let run () : unit Deferred.t =
       don't_wait_for (
         Pipe.iter_without_pushback keys ~f:(fun key ->
           let message = Char.to_string key in
-          Firebug.console##log (Js.string ("sending: " ^ message));
+          log (sprintf "sending %d" (Char.to_int key));
           Pipe.write_without_pushback to_ws message;
         )
       );
