@@ -48,8 +48,6 @@ let run ~ws_port ~http_port =
         )
       );
       Deferred.forever () (fun () ->
-        Odditty.Pty.changed pty
-        >>= fun () ->
         let chrs = Odditty.Pty.window pty |> Odditty_kernel.Window.to_lists in
         let size =
           Bin_prot.Utils.size_header_length
@@ -73,6 +71,8 @@ let run ~ws_port ~http_port =
         }
         in
         Pipe.write to_ws_w frame
+        >>= fun () ->
+        Odditty.Pty.changed pty
       );
       Log.Global.set_level `Debug;
       Websocket_async.server
