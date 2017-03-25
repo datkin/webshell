@@ -20,24 +20,32 @@
       }
     </style>
 
+    <!--
     <script src="../.datkin-js-build/bin/exe/web_main.js"></script>
+    -->
 
     <script type="text/javascript">
       window.onload = function () {
 
         console.log("loaded");
 
-      document.body.onkeydown = function (event) {
-        console.log("Key Down");
-        console.log(event);
-        console.log(event.location);
-      };
+        document.body.onkeypress = function (event) {
+          console.log("Key Press");
+          console.log(event);
+          console.log(event.location);
+        };
 
-      document.body.onkeyup = function (event) {
-        console.log("Key Up");
-        console.log(event);
-        console.log(event.location);
-      };
+        document.body.onkeydown = function (event) {
+          console.log("Key Down");
+          console.log(event);
+          console.log(event.location);
+        };
+
+        document.body.onkeyup = function (event) {
+          console.log("Key Up");
+          console.log(event);
+          console.log(event.location);
+        };
 
       };
     </script>
