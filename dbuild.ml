@@ -989,19 +989,21 @@ let spec_to_nodes
       Lib_name.Set.to_map libs ~f:(Map.find_exn modules_by_lib)
     in
     let mli =
-      List.filter_map modules ~f:(fun module_name ->
-        let mli = file module_name "mli" in
-        if not (file_exists mli)
-        then None
-        else
-          let module_deps =
-            Map.find module_deps_by_module module_name
-            |> Option.value ~default:[]
-            |> Module_name.Set.of_list
-          in
-          (* CR-someday datkin: Can we share the compiled cmi between 4.03.0 and
-           * 4.03.0+for-js (32 bit)? *)
-          Some (Ocaml_compiler.compile Native packages libs dir module_deps module_name `mli `lib_code))
+      List.concat_map [Native; Js;] ~f:(fun kind ->
+        List.filter_map modules ~f:(fun module_name ->
+          let mli = file module_name "mli" in
+          if not (file_exists mli)
+          then None
+          else
+            let module_deps =
+              Map.find module_deps_by_module module_name
+              |> Option.value ~default:[]
+              |> Module_name.Set.of_list
+            in
+            (* CR-someday datkin: Can we share the compiled cmi between 4.03.0 and
+             * 4.03.0+for-js (32 bit)? *)
+            Some (Ocaml_compiler.compile kind packages libs dir module_deps module_name `mli `lib_code))
+      )
     in
     let ml =
       List.concat_map [Native; Js;] ~f:(fun kind ->
@@ -1610,6 +1612,10 @@ let%expect_test "dependency summary" =
 
     .dbuild/js/web/modules/web.cmi, .dbuild/js/web/modules/web.cmo
       .dbuild/js/web/generated/web.ml
+
+    .dbuild/js/web/modules/web__main.cmi
+      .dbuild/js/web/modules/web.cmi
+      web/main.mli
 
     .dbuild/js/web/modules/web__main.cmo
       .dbuild/js/web/modules/web.cmi

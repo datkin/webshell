@@ -5,7 +5,7 @@ let log msg =
   Firebug.console##log (Js.string msg);
 ;;
 
-let view (rows : char list list) =
+let view { Odditty_kernel.Window.Rendered. chars; cursor; } =
   (* Per
    * http://stackoverflow.com/questions/19810122/how-do-i-add-a-non-breaking-whitespace-in-javascript-without-using-innerhtml
    * \xC2\xA0 = &nbsp;
@@ -13,7 +13,7 @@ let view (rows : char list list) =
   let open Virtual_dom.Vdom in
   let br = Node.create "br" [] [] in
   let rows : Virtual_dom.Vdom.Node.t list =
-    List.concat_map rows ~f:(fun row ->
+    List.concat_map chars ~f:(fun row ->
       List.map row ~f:(fun chr ->
         if Char.(=) chr '\000'
         then Node.text "\xC2\xA0"
@@ -102,21 +102,15 @@ let run () : unit Deferred.t =
       let elt  = ref (Virtual_dom.Vdom.Node.to_dom !vdom :> Dom.element Js.t) in
       Dom.appendChild Dom_html.document##.body !elt;
       Pipe.iter_without_pushback from_ws ~f:(fun str ->
-        (*
-        let chrs = [%of_sexp: char list list] (Sexp.of_string str) in
-*)
-        let (chrs, _num_bytes_read) =
+        let (rendered, _num_bytes_read) =
           Bigstring.of_string (B64.decode str)
           |> (fun buf ->
-              Bigstring.read_bin_prot buf ~pos:0 [%bin_reader: char list list])
+              Bigstring.read_bin_prot buf ~pos:0 [%bin_reader: Odditty_kernel.Window.Rendered.t])
           |> Or_error.ok_exn
         in
         let new_vdom = view chrs in
         elt := Node.Patch.apply (Node.Patch.create ~previous:!vdom ~current:new_vdom) !elt;
         vdom := new_vdom;
-        (*
-        Firebug.console##log (Js.string (sprintf !"received %{sexp:char list list}" chrs))
-      *)
       )
     );
     Js._false

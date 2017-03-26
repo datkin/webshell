@@ -52,4 +52,11 @@ val get : t -> coord -> Char.t
 val render : t -> string
 val render_html : t -> string
 
-val to_lists : t -> char list list
+module Rendered : sig
+  type t = {
+    cursor : coord;
+    chars : char list list;
+  } [@@deriving bin_io]
+end
+
+val render : t -> Rendered.t

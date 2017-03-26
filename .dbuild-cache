@@ -1,6 +1,6 @@
 ((.dbuild/js/bin/linked/web_main.js-linked
   ((file_digest (6aaed90dde3c90aa21eb41d7524dfaaa))
-   (action_digest (1003171879))))
+   (action_digest (755107347))))
  (.dbuild/js/bin/modules/web_main.cmi
   ((file_digest (c9b297b2db099acf260cbdc63ae463f9))
    (action_digest (307825579))))
@@ -119,6 +119,10 @@
  (.dbuild/js/js/modules/nums.cma.make-sourcemap-links.sh
   ((file_digest (d34b51246c80822217e2d6ea0d55e063))
    (action_digest (137323089))))
+ (.dbuild/js/js/modules/odditty_kernel.cma.js
+  ((file_digest ()) (action_digest (399288716))))
+ (.dbuild/js/js/modules/odditty_kernel.cma.make-sourcemap-links.sh
+  ((file_digest ()) (action_digest (399288716))))
  (.dbuild/js/js/modules/ppx_assert_lib.cma.js
   ((file_digest (d396f129ee9159c0296cd1b29e0f6334))
    (action_digest (259465019))))
@@ -236,6 +240,52 @@
  (.dbuild/js/js/modules/web_main.runtime.js
   ((file_digest (6083710d5715326717f4bbf118752005))
    (action_digest (643433104))))
+ (.dbuild/js/odditty_kernel/archive/odditty_kernel.cma
+  ((file_digest ()) (action_digest (1028315946))))
+ (.dbuild/js/odditty_kernel/generated/odditty_kernel.ml
+  ((file_digest (d51dc268d19639bfcd4a7b55c1677a23))
+   (action_digest (497973212))))
+ (.dbuild/js/odditty_kernel/modules/odditty_kernel.cmi
+  ((file_digest (3bdd67fcf32443a48d82eb499dfcef10))
+   (action_digest (201931767))))
+ (.dbuild/js/odditty_kernel/modules/odditty_kernel.cmo
+  ((file_digest (9d32b50ad4dedebafeea6837f35c9ed4))
+   (action_digest (201931767))))
+ (.dbuild/js/odditty_kernel/modules/odditty_kernel__character_attributes.cmi
+  ((file_digest (1781e7a8f32ace9d9d216ce2cbebbadb))
+   (action_digest (109007645))))
+ (.dbuild/js/odditty_kernel/modules/odditty_kernel__character_attributes.cmo
+  ((file_digest (718623024e9bc9a386330ee5b388c481))
+   (action_digest (109007645))))
+ (.dbuild/js/odditty_kernel/modules/odditty_kernel__character_set.cmi
+  ((file_digest (83c0fba92cc3d547e5789d4cc97fd63f))
+   (action_digest (911229691))))
+ (.dbuild/js/odditty_kernel/modules/odditty_kernel__character_set.cmo
+  ((file_digest (cdf94b97297d6c3216c3b6b85c2a4c72))
+   (action_digest (911229691))))
+ (.dbuild/js/odditty_kernel/modules/odditty_kernel__control_functions.cmi
+  ((file_digest (c020df4984fee6d303f264c81633dab2))
+   (action_digest (722038128))))
+ (.dbuild/js/odditty_kernel/modules/odditty_kernel__control_functions.cmo
+  ((file_digest (b44601d90362569edc66874c76f1bb8a))
+   (action_digest (172341353))))
+ (.dbuild/js/odditty_kernel/modules/odditty_kernel__dec_private_mode.cmi
+  ((file_digest (7927feeca29244be5f416216b8511934))
+   (action_digest (431589552))))
+ (.dbuild/js/odditty_kernel/modules/odditty_kernel__dec_private_mode.cmo
+  ((file_digest (c58bcc12af703e49db500ff0709c7a7f))
+   (action_digest (431589552))))
+ (.dbuild/js/odditty_kernel/modules/odditty_kernel__terminfo.cmi
+  ((file_digest (2d9638ef1d2a6049151a772dc8bbe261))
+   (action_digest (1061517945))))
+ (.dbuild/js/odditty_kernel/modules/odditty_kernel__terminfo.cmo
+  ((file_digest (a683b2d201237113aa526ed3466f6688))
+   (action_digest (945478141))))
+ (.dbuild/js/odditty_kernel/modules/odditty_kernel__window.cmi
+  ((file_digest (9c8dea437e0718e8e06fb743e031f2af))
+   (action_digest (114257040))))
+ (.dbuild/js/odditty_kernel/modules/odditty_kernel__window.cmo
+  ((file_digest ()) (action_digest (86101313))))
  (.dbuild/js/web/archive/web.cma
   ((file_digest (c86c87375fef9b7704f404a94cdd165c))
    (action_digest (73739495))))
@@ -250,27 +300,27 @@
    (action_digest (925375758))))
  (.dbuild/js/web/modules/web__main.cmi
   ((file_digest (31633a95f569064cca94c8a86a70b4cf))
-   (action_digest (670994490))))
+   (action_digest (364729697))))
  (.dbuild/js/web/modules/web__main.cmo
   ((file_digest (83466dc1a3d7143af38aafeca80b0812))
-   (action_digest (670994490))))
+   (action_digest (364729697))))
  (.dbuild/native/bin/linked/main.native
   ((file_digest (af0f402b64ff961641e1e9707e4a2bb7))
    (action_digest (633446446))))
  (.dbuild/native/bin/modules/main.cmi
-  ((file_digest (9b6e3169cb6d87707356b36b538b711b))
+  ((file_digest (7de91584ca36f882c026cb5c883bab73))
    (action_digest (580580659))))
  (.dbuild/native/bin/modules/main.cmx
-  ((file_digest (d26a97f36811de18974e5e25061bdcff))
+  ((file_digest (8f5b2d24b07114eae2e5073597724442))
    (action_digest (580580659))))
  (.dbuild/native/bin/modules/main.o
-  ((file_digest (4aafb9472a598a5debed1354732dd16c))
+  ((file_digest (608353edbe91165276638ec0fce2e60b))
    (action_digest (580580659))))
  (.dbuild/native/odditty/archive/odditty.a
-  ((file_digest (979f3c5d83759eff92b5ed543115b50c))
+  ((file_digest (bea2d9336652de7bcb7972aa4bb67c91))
    (action_digest (521995527))))
  (.dbuild/native/odditty/archive/odditty.cmxa
-  ((file_digest (c9c5561bf6fcc4ccb1ed43bbd913a36d))
+  ((file_digest (a52ef85257f27816a141e99cfc579a66))
    (action_digest (521995527))))
  (.dbuild/native/odditty/c/libodditty.a
   ((file_digest (c620a1371e945433c412fba41f2145a8))
@@ -291,13 +341,13 @@
   ((file_digest (99acaf025df503d8d00c2ba1c94ea556))
    (action_digest (627131342))))
  (.dbuild/native/odditty/modules/odditty__pty.cmi
-  ((file_digest (08585124c70c9c532138b1b512d62d92))
+  ((file_digest (06c4ce2387f462adf0a0e7bc2963fa05))
    (action_digest (334471138))))
  (.dbuild/native/odditty/modules/odditty__pty.cmx
-  ((file_digest (ed390fc3d4cea6b8a2773a9fe8be806e))
+  ((file_digest (1ae2d556626f5c29b5729ad80dd001ff))
    (action_digest (881626295))))
  (.dbuild/native/odditty/modules/odditty__pty.o
-  ((file_digest (b746605f5bb9b0a977c028500911e878))
+  ((file_digest (faace0ce1385934b75965ea54b5cd394))
    (action_digest (881626295))))
  (.dbuild/native/odditty/modules/odditty__terminfo.cmi
   ((file_digest (e035955a5bf90862bd8ae46810d61671))
@@ -306,7 +356,7 @@
   ((file_digest (70c9cc38c82a2b3fcd3e098e288ed6c2))
    (action_digest (957463091))))
  (.dbuild/native/odditty/modules/odditty__terminfo.o
-  ((file_digest (eefddad80951b4145d0b31faeaf507f3))
+  ((file_digest (0374e6936d664d06790c64c5861c6c13))
    (action_digest (957463091))))
  (.dbuild/native/odditty_kernel/archive/odditty_kernel.a
   ((file_digest (fe0eaafd1657487adf809c10df91e408))
@@ -372,7 +422,7 @@
   ((file_digest (07632a7b43bb3b99ef306b28b184257a))
    (action_digest (1037062052))))
  (.dbuild/native/odditty_kernel/modules/odditty_kernel__window.cmi
-  ((file_digest (156d98d933d4db6077f4b655d418c103))
+  ((file_digest (a068d467d2515976fc7ee482fba57b65))
    (action_digest (970899848))))
  (.dbuild/native/odditty_kernel/modules/odditty_kernel__window.cmx
   ((file_digest (95b0b28b9f91a2b4606f48a592288aee))
@@ -381,10 +431,10 @@
   ((file_digest (889fb15107c697f7bb84ab5540488d76))
    (action_digest (628996501))))
  (.dbuild/native/server/archive/server.a
-  ((file_digest (259ba5beae7a4905e58686416b500baa))
+  ((file_digest (083af7df6176ac48b0cc3707a635044d))
    (action_digest (920557072))))
  (.dbuild/native/server/archive/server.cmxa
-  ((file_digest (1a51f7f32c580b8eaf2873195c1a4f4a))
+  ((file_digest (2dfee4e47dbfc17687ce39839f777648))
    (action_digest (920557072))))
  (.dbuild/native/server/generated/server.ml
   ((file_digest (f9d6a02d372f642e17238d2d190db4a0))
@@ -402,10 +452,10 @@
   ((file_digest (7ce49405653225f8b17a223c72cb4e74))
    (action_digest (664269487))))
  (.dbuild/native/server/modules/server__web_server.cmx
-  ((file_digest (73317cf89eeb6a6d56c2ac08df3565d0))
+  ((file_digest (88d2d2c6db8963940e2cbea84ec6adcb))
    (action_digest (691631412))))
  (.dbuild/native/server/modules/server__web_server.o
-  ((file_digest (7ca44717bf97bea8a4d145109910b03e))
+  ((file_digest (a10938c256720686efbf374ee7dc136c))
    (action_digest (691631412))))
  (/Users/datkin/.opam/4.03.0+for-js/lib/async_kernel/async_kernel.cma
   ((file_digest (9a7c504103b315d8fe0b576e08fd121f)) (action_digest ())))
@@ -510,12 +560,12 @@
  (odditty_kernel/terminfo.mli
   ((file_digest (c3402944e6ab0d83724e6c871ac3ee9c)) (action_digest ())))
  (odditty_kernel/window.ml
-  ((file_digest (305b2c1d9084ce1c0dec8c1165ef0aba)) (action_digest ())))
+  ((file_digest (f8dedacdb2a59cdb7b434b5e15eaee3d)) (action_digest ())))
  (odditty_kernel/window.mli
-  ((file_digest (c01c68211ec400a10ec8caa40735af1b)) (action_digest ())))
+  ((file_digest (4b1eeb147a52d0d327f0069e8c80eb93)) (action_digest ())))
  (server/web_server.ml
-  ((file_digest (bb0429978fa698ed1d248c5dc5d85312)) (action_digest ())))
+  ((file_digest (9add7b3f264f1d8a406a255e05f48e89)) (action_digest ())))
  (server/web_server.mli
   ((file_digest (9dc3916b4bd336eb5b83aa3084c66a0a)) (action_digest ())))
  (web/main.ml
-  ((file_digest (77e64722f3b2dd2b63a39ce9fd2d561b)) (action_digest ()))))
+  ((file_digest (2abfaa4663b9c1ae3e3b1113241a65dd)) (action_digest ()))))

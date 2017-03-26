@@ -9,7 +9,7 @@
    ((dir web) (modules (main))
     (direct_deps
      ((packages (async_kernel core_kernel js_of_ocaml.async virtual_dom base64))
-      (libs ()))))
+      (libs (odditty_kernel)))))
    ((dir server) (modules (web_server))
     (direct_deps ((packages (async websocket.async base64)) (libs (odditty_kernel odditty)))))))
  (binaries

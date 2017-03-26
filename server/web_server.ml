@@ -48,15 +48,15 @@ let run ~ws_port ~http_port =
         )
       );
       Deferred.forever () (fun () ->
-        let chrs = Odditty.Pty.window pty |> Odditty_kernel.Window.to_lists in
+        let rendered = Odditty.Pty.window pty |> Odditty_kernel.Window.render in
         let size =
           Bin_prot.Utils.size_header_length
-          + [%bin_writer: char list list].size chrs
+          + [%bin_writer: Odditty_kernel.Window.Rendered.t].size rendered
         in
         let buf = Bigstring.create size in
         let len =
           Bigstring.write_bin_prot
-          buf ~pos:0 [%bin_writer: char list list] chrs
+          buf ~pos:0 [%bin_writer: Odditty_kernel.Window.Rendered.t] rendered
         in
         assert (len = size);
         printf !"sending data length %d\n%!" size;
@@ -65,9 +65,6 @@ let run ~ws_port ~http_port =
           extension = 0;
           final = true;
           content = B64.encode (Bigstring.to_string buf);
-            (*
-            Sexp.to_string ([%sexp_of: char list list] chrs);
-            *)
         }
         in
         Pipe.write to_ws_w frame
