@@ -15,7 +15,11 @@ let dim_of_string str =
 type coord = Control_functions.coord = {
   y : int;
   x : int;
-} [@@deriving sexp, compare]
+} [@@deriving sexp, bin_io, compare]
+
+(*
+let x = 5
+*)
 
 let%test_unit _ =
   let coords = [
@@ -535,7 +539,7 @@ let cursor t = t.cursor
 let height t = (Grid.dim t.grid).height
 let width t = (Grid.dim t.grid).width
 
-let render t =
+let render_string t =
   (* Each line will be 1 + 5*width + 1 (for '|' + 5 * '    |' + '\n') *)
   let buf = String.create ((height t) * (1 + 3 * (width t) + 1)) in
   let idx = ref 0 in
@@ -568,32 +572,32 @@ let render t =
 
 let%expect_test _ =
   let t = create { width = 5; height = 3; } Control_functions.Parser.default in
-  printf !"%s" (render t);
+  printf !"%s" (render_string t);
   [%expect {|
     [  ]  |  |  |  |
     |  |  |  |  |  |
     |  |  |  |  |  | |}];
   putc t 'A';
-  printf !"%s" (render t);
+  printf !"%s" (render_string t);
   [%expect {|
     | A[  ]  |  |  |
     |  |  |  |  |  |
     |  |  |  |  |  | |}];
   putc t '\n';
   putc t '\n';
-  printf !"%s" (render t);
+  printf !"%s" (render_string t);
   [%expect {|
     | A|  |  |  |  |
     |  |  |  |  |  |
     |  [  ]  |  |  | |}];
   t.cursor <- { x = 4; y = 1; };
-  printf !"%s" (render t);
+  printf !"%s" (render_string t);
   [%expect {|
     | A|  |  |  |  |
     |  |  |  |  [  ]
     |  |  |  |  |  | |}];
   putc t 'A';
-  printf !"%s" (render t);
+  printf !"%s" (render_string t);
   [%expect {|
     | A|  |  |  |  |
     |  |  |  |  | A|
@@ -603,40 +607,40 @@ let%expect_test _ =
 let%expect_test "Erase Display (ED)" =
   let t = create { width = 5; height = 3; } Control_functions.Parser.default in
   paint t 'X';
-  printf !"%s" (render t);
+  printf !"%s" (render_string t);
   [%expect {|
     [ X] X| X| X| X|
     | X| X| X| X| X|
     | X| X| X| X| X| |}];
   t.cursor <- { y = 1; x = 2; };
   erase_in_display t `From_start;
-  printf !"%s" (render t);
+  printf !"%s" (render_string t);
   [%expect {|
     |  |  |  |  |  |
     |  |  [  ] X| X|
     | X| X| X| X| X| |}];
   paint t 'X';
-  printf !"%s" (render t);
+  printf !"%s" (render_string t);
   [%expect {|
     | X| X| X| X| X|
     | X| X[ X] X| X|
     | X| X| X| X| X| |}];
   t.cursor <- { y = 1; x = 2; };
   erase_in_display t `To_end;
-  printf !"%s" (render t);
+  printf !"%s" (render_string t);
   [%expect {|
     | X| X| X| X| X|
     | X| X[  ]  |  |
     |  |  |  |  |  | |}];
   paint t 'X';
-  printf !"%s" (render t);
+  printf !"%s" (render_string t);
   [%expect {|
     | X| X| X| X| X|
     | X| X[ X] X| X|
     | X| X| X| X| X| |}];
   t.cursor <- { y = 1; x = 2; };
   erase_in_display t `All;
-  printf !"%s" (render t);
+  printf !"%s" (render_string t);
   [%expect {|
     |  |  |  |  |  |
     |  |  [  ]  |  |
@@ -650,7 +654,7 @@ let%expect_test "Scrolling" =
   paint t 'X';
   let handle (cf : Control_functions.parse_result) = ignore (handle t cf : string option) in
   handle (`literal 'A');
-  printf !"%s" (render t);
+  printf !"%s" (render_string t);
   [%expect {|
     | A[ X] X|
     | X| X| X|
@@ -660,7 +664,7 @@ let%expect_test "Scrolling" =
   handle (`literal 'Y');
   handle (`literal '\n');
   handle (`literal 'Y');
-  printf !"%s" (render t);
+  printf !"%s" (render_string t);
   [%expect {|
     | X| X| X|
     | Y|  |  |
@@ -670,13 +674,13 @@ let%expect_test "Scrolling" =
   printf !"%{sexp:coord}\n%!" t.cursor;
   [%expect "((y 0) (x 0))"];
   handle (`literal 'X');
-  printf !"%s" (render t);
+  printf !"%s" (render_string t);
   [%expect {|
     | X[  ]  |
     | X| X| X|
     | Y|  |  | |}];
   handle (`func (Cursor_rel (Down, 3), ""));
-  printf !"%s" (render t);
+  printf !"%s" (render_string t);
   [%expect {|
     | X| X| X|
     | Y|  |  |

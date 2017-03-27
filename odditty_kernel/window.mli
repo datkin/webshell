@@ -12,7 +12,11 @@ val dim_of_string : string -> dim
 type coord = {
   y : int;
   x : int;
-}
+} [@@deriving sexp, bin_io]
+
+(*
+val x : int
+*)
 
 type t
 
@@ -49,7 +53,7 @@ val get : t -> coord -> Char.t
 *)
 
 (* CR-someday datkin: Perhaps this should take a write callback of some sort. *)
-val render : t -> string
+val render_string : t -> string
 val render_html : t -> string
 
 module Rendered : sig

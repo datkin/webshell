@@ -97,9 +97,14 @@ let run () : unit Deferred.t =
           Pipe.write_without_pushback to_ws message;
         )
       );
-      let k    = ref [] in
+      let k = ref {
+        Odditty_kernel.Window.Rendered.
+        cursor = { x = 0; y = 0; };
+        chars = [[]];
+      }
+      in
       let vdom = ref (view !k) in
-      let elt  = ref (Virtual_dom.Vdom.Node.to_dom !vdom :> Dom.element Js.t) in
+      let elt = ref (Virtual_dom.Vdom.Node.to_dom !vdom :> Dom.element Js.t) in
       Dom.appendChild Dom_html.document##.body !elt;
       Pipe.iter_without_pushback from_ws ~f:(fun str ->
         let (rendered, _num_bytes_read) =
@@ -108,7 +113,7 @@ let run () : unit Deferred.t =
               Bigstring.read_bin_prot buf ~pos:0 [%bin_reader: Odditty_kernel.Window.Rendered.t])
           |> Or_error.ok_exn
         in
-        let new_vdom = view chrs in
+        let new_vdom = view rendered in
         elt := Node.Patch.apply (Node.Patch.create ~previous:!vdom ~current:new_vdom) !elt;
         vdom := new_vdom;
       )

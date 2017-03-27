@@ -1694,6 +1694,14 @@ let file_exists file =
   | Error _ -> false
 ;;
 
+let relevant_target = File_name.of_string ".dbuild/native/bin/modules/main.cmx"
+let relevant_input = File_name.of_string ".dbuild/native/odditty_kernel/modules/odditty_kernel__window.cmi"
+
+let relevant_node node =
+  (*
+  Set.mem node.Build_graph.outputs relevant_input
+  || *) Set.mem node.Build_graph.outputs relevant_target
+
 module Cache : sig
   type t [@@deriving compare]
 
@@ -2234,6 +2242,9 @@ let incremental_parallel_build ~old_cache ~new_cache bg
     Job_pool.add_exn pool job
   in
   let newly_built_files =
+    (* These are the "leaf" files (i.e. ml files) that show up in the tree only
+     * as dependencies of other builds (i.e. it is not built by another command,
+     * it's just expected to exist). *)
     Build_graph.by_file bg
     |> Map.filter ~f:(fun per_file ->
         Option.is_none per_file.Build_graph.needs)
@@ -2242,9 +2253,11 @@ let incremental_parallel_build ~old_cache ~new_cache bg
   in
   let unbuilt = Build_graph.by_file bg |> Map.keys |> File_name.Set.of_list in
   let unbuilt = Set.fold newly_built_files ~init:unbuilt ~f:Set.remove in
+  (* [unbuilt] should have [newly_built_files] removed already *)
   let ready_nodes ~newly_built_files ~unbuilt =
     assert (not (Set.is_empty newly_built_files));
     Set.fold newly_built_files ~init:Set.Poly.empty ~f:(fun next file ->
+      assert (not (Set.mem unbuilt file));
       let maybe_ready =
         match Map.find (Build_graph.by_file bg) file with
         | None -> []
@@ -2257,6 +2270,7 @@ let incremental_parallel_build ~old_cache ~new_cache bg
         else Set.add next node))
   in
   begin
+    (* Rebuild files w/o inputs. *)
     Build_graph.nodes bg
     |> List.filter ~f:(fun node -> Set.is_empty node.Build_graph.inputs)
     |> List.iter ~f:(build new_cache)
@@ -2313,7 +2327,14 @@ let incremental_parallel_build ~old_cache ~new_cache bg
             let new_cache = Cache.update_node new_cache node in
             let newly_built_files = Build_graph.outputs node in
             let unbuilt = Set.fold newly_built_files ~init:unbuilt ~f:Set.remove in
-            Set.iter (ready_nodes ~newly_built_files ~unbuilt) ~f:(build new_cache);
+            let ready_nodes = ready_nodes ~newly_built_files ~unbuilt in
+            begin
+              match Set.find ready_nodes ~f:relevant_node with
+              | None -> ()
+              | Some to_build ->
+                Core.Std.printf !"Relevant node %{sexp#mach:Build_graph.Node.t} is ready b/c of %{sexp#mach:Build_graph.Node.t}\n%!" to_build node
+            end;
+            Set.iter ready_nodes ~f:(build new_cache);
             return (`Repeat (new_cache, failures, unbuilt))
     )
   )
