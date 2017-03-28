@@ -147,7 +147,7 @@ let tty_cmd =
           if List.is_empty pre_render_steps
           then Deferred.unit (* the screen didn't upgade, don't redraw it *)
           else begin
-            Core.Std.printf "=== start ===\n%s=== stop ===\n%!" (Window.render window);
+            Core.Std.printf "=== start ===\n%s=== stop ===\n%!" (Window.render_string window);
             Option.value_map html ~default:Deferred.unit ~f:(fun file ->
               Writer.save ~temp_file:(file ^ ".tmp")
                 file ~contents:(Window.render_html window))
