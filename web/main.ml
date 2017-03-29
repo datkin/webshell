@@ -57,10 +57,12 @@ let make_ws ~url =
 
 let keys =
   let r, w = Pipe.create () in
+  (* The key handlers return false to ensure the keys don't propogate elsewhere
+   * (e.g. chrome handles 'tab'). *)
   Dom_html.document##.onkeydown := Dom_html.handler (fun ev ->
     let key =
       match Js.Optdef.to_option ev##.key |> Option.map ~f:Js.to_string with
-      | Some ("Escape" | "Backspace" | "Space") ->
+      | Some ("Escape" | "Backspace" | "Space" | "Tab") ->
         let code =
           match Js.Optdef.to_option ev##.charCode with
           | Some code -> code
@@ -69,8 +71,9 @@ let keys =
         Option.try_with (fun () -> Char.of_int_exn (ev##.keyCode))
       | _ -> None
     in
-    Option.iter key ~f:(Pipe.write_without_pushback w);
-    Js._true);
+    match key with
+    | Some key -> Pipe.write_without_pushback w key; Js._false
+    | None -> Js._true);
   (* Key press only works for keys that produce a "character" (regardless of
    * what modifies are pressed, it seems? *)
   Dom_html.document##.onkeypress := Dom_html.handler (fun ev ->
@@ -95,8 +98,9 @@ let keys =
         in
         Option.try_with (fun () -> Char.of_int_exn (ev##.keyCode))
     in
-    Option.iter key ~f:(Pipe.write_without_pushback w);
-    Js._true);
+    match key with
+    | Some key -> Pipe.write_without_pushback w key; Js._false
+    | None -> Js._true);
   r
 ;;
 
