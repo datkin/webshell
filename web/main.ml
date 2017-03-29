@@ -56,19 +56,24 @@ let make_ws ~url =
 ;;
 
 let keys =
+  let chr_to_str chr = String.of_char_list [ chr ] in
   let r, w = Pipe.create () in
   (* The key handlers return false to ensure the keys don't propogate elsewhere
    * (e.g. chrome handles 'tab'). *)
   Dom_html.document##.onkeydown := Dom_html.handler (fun ev ->
     let key =
       match Js.Optdef.to_option ev##.key |> Option.map ~f:Js.to_string with
+      | Some "ArrowUp"    -> Some "\027[A"
+      | Some "ArrowDown"  -> Some "\027[B"
+      | Some "ArrowRight" -> Some "\027[C"
+      | Some "ArrowLeft"  -> Some "\027[D"
       | Some ("Escape" | "Backspace" | "Space" | "Tab") ->
         let code =
           match Js.Optdef.to_option ev##.charCode with
           | Some code -> code
           | None -> ev##.keyCode
         in
-        Option.try_with (fun () -> Char.of_int_exn (ev##.keyCode))
+        Option.try_with (fun () -> chr_to_str (Char.of_int_exn (ev##.keyCode)))
       | _ -> None
     in
     match key with
@@ -87,16 +92,16 @@ let keys =
         then
           let key = String.get (String.uppercase key) 0 in
           if Char.(<=) '@' key && Char.(<=) key '_'
-          then Some (Char.to_int key - Char.to_int '@' |> Char.of_int_exn)
+          then Some (chr_to_str (Char.to_int key - Char.to_int '@' |> Char.of_int_exn))
           else None
-        else Some (String.get key 0)
+        else Some key
       | _ ->
         let code =
           match Js.Optdef.to_option ev##.charCode with
           | Some code -> code
           | None -> ev##.keyCode
         in
-        Option.try_with (fun () -> Char.of_int_exn (ev##.keyCode))
+        Option.try_with (fun () -> chr_to_str (Char.of_int_exn (ev##.keyCode)))
     in
     match key with
     | Some key -> Pipe.write_without_pushback w key; Js._false
@@ -112,10 +117,9 @@ let run () : unit Deferred.t =
       make_ws ~url:"ws://localhost:8081"
       >>= fun (from_ws, to_ws) ->
       don't_wait_for (
-        Pipe.iter_without_pushback keys ~f:(fun key ->
-          let message = Char.to_string key in
-          log (sprintf "sending %d" (Char.to_int key));
-          Pipe.write_without_pushback to_ws message;
+        Pipe.iter_without_pushback keys ~f:(fun data ->
+          log (sprintf "sending '%S'" data);
+          Pipe.write_without_pushback to_ws data;
         )
       );
       let k = ref {

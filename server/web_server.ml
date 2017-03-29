@@ -42,9 +42,7 @@ let run ~ws_port ~http_port =
       let to_ws_r, to_ws_w = Pipe.create () in
       don't_wait_for (
         Pipe.iter from_ws_r ~f:(fun frame ->
-          let chr = Char.of_string frame.content in
-          let data = String.of_char_list [ chr ] in
-          Odditty.Pty.from_user pty data
+          Odditty.Pty.from_user pty frame.content
         )
       );
       Deferred.forever () (fun () ->

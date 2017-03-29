@@ -508,6 +508,7 @@ let handle t parse_result =
 let from_user t str =
   let rec loop chars =
     match chars with
+    (* In order: Up, Down, Right, Left *)
     | '\027' :: '[' :: ('A' | 'B' | 'C' | 'D' as x) :: chars ->
       let y =
         match t.cursor_keys with
@@ -525,6 +526,8 @@ let from_user t str =
   *  - rendering of repeated spaces
   *  - rendering of space as first character at prompt
   *  - line-wrapping too soon on the first line of the prompt
+  *  - moving back on the line to edit it (w/ either left arrow or ctrl-a) is
+  *    busted
   *)
 let update t chr =
   let parse_result = t.parse chr in
