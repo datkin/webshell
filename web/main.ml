@@ -13,11 +13,17 @@ let view { Odditty_kernel.Window.Rendered. chars; cursor; } =
   let open Virtual_dom.Vdom in
   let br = Node.create "br" [] [] in
   let rows : Virtual_dom.Vdom.Node.t list =
-    List.concat_map chars ~f:(fun row ->
-      List.map row ~f:(fun chr ->
-        if Char.(=) chr '\000'
-        then Node.text "\xC2\xA0"
-        else Node.text (Char.to_string chr))
+    List.concat_mapi chars ~f:(fun row_idx row ->
+      List.mapi row ~f:(fun col_idx chr ->
+        let node =
+          if Char.(=) chr '\000'
+          then Node.text "\xC2\xA0"
+          else Node.text (Char.to_string chr)
+        in
+        let pos : Odditty_kernel.Window.coord = { x = col_idx; y = row_idx; } in
+        if [%equal: Odditty_kernel.Window.coord] pos cursor
+        then Node.span [Attr.create "class" "cursor";] [node]
+        else node)
       @ [br]
     )
   in

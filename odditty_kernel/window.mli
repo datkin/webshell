@@ -12,7 +12,7 @@ val dim_of_string : string -> dim
 type coord = {
   y : int;
   x : int;
-} [@@deriving sexp, bin_io]
+} [@@deriving sexp, bin_io, compare]
 
 (*
 val x : int
