@@ -33,18 +33,21 @@
           console.log("Key Press");
           console.log(event);
           console.log(event.location);
+          return false;
         };
 
         document.body.onkeydown = function (event) {
           console.log("Key Down");
           console.log(event);
           console.log(event.location);
+          return false;
         };
 
         document.body.onkeyup = function (event) {
           console.log("Key Up");
           console.log(event);
           console.log(event.location);
+          return false;
         };
 
       };

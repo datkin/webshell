@@ -60,7 +60,7 @@ let keys =
   Dom_html.document##.onkeydown := Dom_html.handler (fun ev ->
     let key =
       match Js.Optdef.to_option ev##.key |> Option.map ~f:Js.to_string with
-      | Some ("Escape" | "Backspace") ->
+      | Some ("Escape" | "Backspace" | "Space") ->
         let code =
           match Js.Optdef.to_option ev##.charCode with
           | Some code -> code

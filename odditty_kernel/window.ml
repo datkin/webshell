@@ -521,6 +521,11 @@ let from_user t str =
   loop (String.to_list str) |> String.of_char_list
 ;;
 
+(* CR datkin: Issues in bash:
+  *  - rendering of repeated spaces
+  *  - rendering of space as first character at prompt
+  *  - line-wrapping too soon on the first line of the prompt
+  *)
 let update t chr =
   let parse_result = t.parse chr in
   printf !"%{sexp:Control_functions.parse_result}\n%!" parse_result;
