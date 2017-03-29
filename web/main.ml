@@ -57,7 +57,7 @@ let make_ws ~url =
 
 let keys =
   let r, w = Pipe.create () in
-  Dom_html.document##.onkeyup := Dom_html.handler (fun ev ->
+  Dom_html.document##.onkeydown := Dom_html.handler (fun ev ->
     let key =
       match Js.Optdef.to_option ev##.key |> Option.map ~f:Js.to_string with
       | Some ("Escape" | "Backspace") ->
@@ -71,11 +71,22 @@ let keys =
     in
     Option.iter key ~f:(Pipe.write_without_pushback w);
     Js._true);
+  (* Key press only works for keys that produce a "character" (regardless of
+   * what modifies are pressed, it seems? *)
   Dom_html.document##.onkeypress := Dom_html.handler (fun ev ->
     let key =
       match Js.Optdef.to_option ev##.key |> Option.map ~f:Js.to_string with
+      (*
       | Some ("Shift" | "Ctrl" | "Alt") -> None
-      | Some key when 1 = String.length key -> Some (String.get key 0)
+      *)
+      | Some key when 1 = String.length key ->
+        if Js.to_bool ev##.ctrlKey
+        then
+          let key = String.get (String.uppercase key) 0 in
+          if Char.(<=) '@' key && Char.(<=) key '_'
+          then Some (Char.to_int key - Char.to_int '@' |> Char.of_int_exn)
+          else None
+        else Some (String.get key 0)
       | _ ->
         let code =
           match Js.Optdef.to_option ev##.charCode with
