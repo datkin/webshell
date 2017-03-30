@@ -45,38 +45,51 @@ let run ~ws_port ~http_port =
           Odditty.Pty.from_user pty frame.content
         )
       );
-      Deferred.forever () (fun () ->
-        let rendered = Odditty.Pty.window pty |> Odditty_kernel.Window.render in
-        let size =
-          Bin_prot.Utils.size_header_length
-          + [%bin_writer: Odditty_kernel.Window.Rendered.t].size rendered
-        in
-        let buf = Bigstring.create size in
-        let len =
-          Bigstring.write_bin_prot
-          buf ~pos:0 [%bin_writer: Odditty_kernel.Window.Rendered.t] rendered
-        in
-        assert (len = size);
-        printf !"sending data length %d\n%!" size;
-        let frame : Websocket_async.Frame.t = {
-          opcode = Text;
-          extension = 0;
-          final = true;
-          content = B64.encode (Bigstring.to_string buf);
-        }
-        in
-        Pipe.write to_ws_w frame
-        >>= fun () ->
-        Odditty.Pty.changed pty
+      don't_wait_for (
+        Deferred.repeat_until_finished () (fun () ->
+          let rendered = Odditty.Pty.window pty |> Odditty_kernel.Window.render in
+          let size =
+            Bin_prot.Utils.size_header_length
+            + [%bin_writer: Odditty_kernel.Window.Rendered.t].size rendered
+          in
+          let buf = Bigstring.create size in
+          let len =
+            Bigstring.write_bin_prot
+            buf ~pos:0 [%bin_writer: Odditty_kernel.Window.Rendered.t] rendered
+          in
+          assert (len = size);
+          printf !"sending data length %d\n%!" size;
+          let frame : Websocket_async.Frame.t = {
+            opcode = Text;
+            extension = 0;
+            final = true;
+            content = B64.encode (Bigstring.to_string buf);
+          }
+          in
+          if Pipe.is_closed to_ws_w
+          then return (`Finished ())
+          else
+            Pipe.write to_ws_w frame
+            >>= fun () ->
+            Odditty.Pty.changed pty
+            >>= fun () ->
+            return (`Repeat ())
+        )
       );
       Log.Global.set_level `Debug;
-      Websocket_async.server
-        ~log:(force Log.Global.log)
-        ~app_to_ws:to_ws_r
-        ~ws_to_app:from_ws_w
-        ~reader
-        ~writer
-        (address :> Socket.Address.t))
+      don't_wait_for (
+        Websocket_async.server
+          ~log:(force Log.Global.log)
+          ~app_to_ws:to_ws_r
+          ~ws_to_app:from_ws_w
+          ~reader
+          ~writer
+          (address :> Socket.Address.t)
+      );
+      Reader.close_finished reader
+      >>= fun () ->
+      Pipe.close_read to_ws_r;
+      Deferred.unit)
   >>= fun server ->
   Tcp.Server.close_finished server
 
