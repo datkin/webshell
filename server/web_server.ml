@@ -26,8 +26,6 @@ let run ~ws_port ~http_port =
       ~exe:"/bin/bash"
       ~argv:[| "bash"; |]
       ~env:[| "TERM=xterm"; "HOME=/Users/datkin"; |]
-      (* CR datkin: Increasing window size leads to async kernel stack
-       * overflows... *)
       { Odditty_kernel.Window. width = 50; height = 30; }
   in
   Tcp.Server.create
