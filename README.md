@@ -74,3 +74,11 @@ On the other hand it has some glaring deficiencies:
 ## Terminal Emulation
 
 Yeah, it's coming'.
+
+To run the emulator as a web server,
+
+```
+.dbuild/native/bin/linked/main.native server run -ws-port 8081
+```
+
+Then, open `bin/index.html` in a browser to attach to the emulator.
