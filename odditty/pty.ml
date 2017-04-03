@@ -74,11 +74,8 @@ let create ~cwd ~exe ~argv ~env dim =
           | `pending -> ()
           | `literal c ->
             Bvar.broadcast changed ();
-            Core.Std.printf "'%c', %!" c;
           | _ ->
             Bvar.broadcast changed ();
-            Core.Std.printf !"%{sexp:Control_functions.parse_result}\n%!"
-              parse_result
         end;
       )
     )
