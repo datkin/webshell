@@ -11,6 +11,7 @@ let view { Odditty_kernel.Window.Rendered. chars; cursor; } =
    * \xC2\xA0 = &nbsp;
    * *)
   let open Virtual_dom.Vdom in
+  log (sprintf !"Cursor at %{sexp:Odditty_kernel.Window.coord}\n%!" cursor);
   let br = Node.create "br" [] [] in
   let rows : Virtual_dom.Vdom.Node.t list =
     List.concat_mapi chars ~f:(fun row_idx row ->

@@ -358,6 +358,7 @@ let putc t chr =
     let cell = Grid.get t.grid t.cursor in
     Cell.set_code cell chr;
     let cursor' = incr t.cursor (dim t) in
+    printf !"Proposed new cursor: %{sexp:Control_functions.coord}\n%!" cursor';
     if cursor' = origin
     then (Grid.scroll t.grid 1; t.cursor <- { t.cursor with x = 0; })
     else t.cursor <- cursor'
