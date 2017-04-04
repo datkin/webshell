@@ -523,9 +523,6 @@ let from_user t str =
 ;;
 
 (* CR datkin: Issues in bash:
-  *  - rendering of repeated spaces
-  *  - rendering of space as first character at prompt
-  *  - line-wrapping too soon on the first line of the prompt
   *  - moving back on the line to edit it (w/ either left arrow or ctrl-a) is
   *    busted
   *)
