@@ -349,7 +349,6 @@ let putc t chr =
   | '\b' ->
     let cursor' = decr t.cursor (dim t) in
     let cell = Grid.get t.grid cursor' in
-    Cell.clear_code cell;
     t.cursor <- cursor';
     (*
   | '\t' ->
@@ -607,6 +606,13 @@ let%expect_test _ =
     | A|  |  |  |  |
     |  |  |  |  | A|
     [  ]  |  |  |  | |}];
+  (* '\b' backs things up one, but doesn't rubout. *)
+  putc t '\b';
+  printf !"%s" (render_string t);
+  [%expect {|
+    | A|  |  |  |  |
+    |  |  |  |  [ A]
+    |  |  |  |  |  | |}];
 ;;
 
 let%expect_test "Erase Display (ED)" =
