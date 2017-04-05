@@ -1267,7 +1267,9 @@ let project_spec =
           character_set
         ))
         (direct_deps (
-          (packages (core_kernel async_kernel))
+          (packages (core_kernel async_kernel
+          ppx_inline_test.runner.lib
+          ppx_expect.evaluator))
         ))
       )
       (
@@ -1293,8 +1295,8 @@ let project_spec =
           ;;   async_js
           ;; Seems like async_js got folded into js_of_ocaml as js_of_ocaml.async?
           ;; See: https://ocsigen.org/js_of_ocaml/2.8.3/manual/core_async_kernel
-          (packages (js_of_ocaml.async core_kernel async_kernel virtual_dom))
-          (libs ())
+          (packages (js_of_ocaml.async core_kernel async_kernel virtual_dom base64))
+          (libs (odditty_kernel))
         ))
       )
       (
@@ -1303,8 +1305,8 @@ let project_spec =
           web_server
         ))
         (direct_deps (
-          (packages (async websocket.async))
-          (libs ())
+          (packages (async websocket.async base64))
+          (libs (odditty_kernel odditty))
         ))
       )
     ))
