@@ -37,7 +37,7 @@ An example usage of `dbuild` to build some of the project:
          -sandbox \
          -spec .dbuild-spec \
          .dbuild/js/bin/linked/web_main.js-linked \
-         .dbuild/native/bin/linked/main.native \
+         .dbuild/native/bin/linked/{main,inline_test_runner}.native \
          2>&1 \
     | tee /tmp/dbuild.log
 ```
