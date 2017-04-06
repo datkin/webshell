@@ -611,7 +611,7 @@ let%expect_test _ =
   printf !"%s" (render_string t);
   [%expect {|
     | A|  |  |  |  |
-    |  |  |  |  [ AX
+    |  |  |  |  [ A]
     |  |  |  |  |  | |}];
 ;;
 
