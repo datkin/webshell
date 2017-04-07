@@ -1128,6 +1128,7 @@ let spec_to_nodes
             `generated;
         in
         let inline_test_runner =
+          (* CR datkin: This will need a '-linkall' flag. *)
           Ocaml_compiler.link
             kind
             packages
