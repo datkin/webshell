@@ -1102,6 +1102,38 @@ let spec_to_nodes
               (`file (Build_graph.Node.output_with ~ext:"cma" archive))
           ]
         in
+        let generated_inline_test_runner =
+          let file =
+            File_name.of_string (sprintf !"%s/inline_test_runner.ml" (build_dir kind `generated dir))
+          in
+          (* CR-someday datkin: This generates the ml file twice. *)
+          { Build_graph.
+            action = Write_file {
+              file;
+              contents = "let () = Ppx_inline_test_lib.Runtime.ext ();;"
+            };
+            inputs = f [];
+            outputs = File_name.Set.singleton file;
+          };
+        in
+        let compiled_inline_test_runner =
+          Ocaml_compiler.compile
+            kind
+            packages
+            libs
+            dir
+            (Module_name.Set.of_list modules)
+            (Module_name.of_string "Inline_test_runner")
+            (`ml `no_mli)
+            `generated;
+        in
+        let inline_test_runner =
+          Ocaml_compiler.link
+            kind
+            packages
+            ~libs_in_dep_order:libs
+            (Module_name.of_string "Inline_test_runner")
+        in
         compiled_wrapper :: generated_wrapper :: archive :: mls @ js)
     in
     let c =
@@ -1393,6 +1425,7 @@ let%expect_test "dependency summary" =
       |> Build_graph.prune ~roots:[
         File_name.of_string (sprintf "%s/main.native" (build_dir Native `linked bin_lib));
         File_name.of_string (sprintf "%s/web_main.js-linked" (build_dir Js `linked bin_lib));
+        File_name.of_string (sprintf "%s/inline_test_runner.native" (build_dir Native `linked (Lib_name.of_string "odditty_kernel")));
       ]
     )
   in
