@@ -397,7 +397,7 @@ module Ocaml_compiler : sig
     -> Module_name.Set.t (* module dependencies in this lib *)
     -> Module_name.t
     -> [ `ml of [ `has_mli | `no_mli ] | `mli ]
-    -> [ `generated | `lib_code | `vanilla ]
+    -> [ `generated_wrapper | `generated_test_runner | `lib_code | `vanilla ]
     -> Build_graph.node
 
   val archive : kind -> c_stubs:string list -> Lib_name.t -> modules_in_dep_order:Module_name.t list -> Build_graph.node
@@ -408,6 +408,7 @@ module Ocaml_compiler : sig
     (* CR-someday datkin: Perhaps renamed "no_archive". *)
     (* [`no_archive] means no c archive ( *.a file ). *)
     -> libs_in_dep_order:(Lib_name.t * [ `archive | `no_archive ]) list
+    -> [ `bin | `test of Lib_name.t ]
     -> Module_name.t
     -> Build_graph.node
 end = struct
@@ -439,7 +440,7 @@ end = struct
     in
     let maybe_js_ppx =
       match context with
-      | `generated -> []
+      | `generated_wrapper | `generated_test_runner -> []
       | `vanilla | `lib_code ->
         match kind with
         | Native -> []
@@ -458,7 +459,7 @@ end = struct
     in
     let src_dir =
       match context with
-      | `generated -> build_dir kind `generated lib_name
+      | `generated_wrapper | `generated_test_runner -> build_dir kind `generated lib_name
       | `lib_code
       | `vanilla -> Lib_name.to_string lib_name
     in
@@ -466,7 +467,7 @@ end = struct
     let namespace =
       match context with
       | `vanilla
-      | `generated -> ""
+      | `generated_wrapper | `generated_test_runner -> ""
       | `lib_code -> sprintf !"%{Lib_name}__" lib_name
     in
     let output =
@@ -499,8 +500,8 @@ end = struct
     let module_deps =
       begin
         match context with
-        | `lib_code -> ()
-        | `vanilla | `generated -> assert (Set.is_empty modules)
+        | `lib_code | `generated_test_runner -> ()
+        | `vanilla | `generated_wrapper -> assert (Set.is_empty modules)
       end;
       (* The build dir needs to have the cmi's of the modules we depend on
        * compiled. *)
@@ -515,12 +516,12 @@ end = struct
       | `lib_code ->
         sprintf !"%s/%{Lib_name}.%s" build_dir lib_name (ext kind `mli)
         :: module_deps
-      | `generated | `vanilla ->
+      | `generated_wrapper | `generated_test_runner | `vanilla ->
         module_deps
     in
     let input =
       match context with
-      | `generated ->
+      | `generated_wrapper | `generated_test_runner ->
         assert (which_file = `ml);
         assert (has_mli = false);
         sprintf !"%s/%{Module_name}.ml" src_dir module_name
@@ -531,23 +532,23 @@ end = struct
     let implicit_open =
       match context with
       | `lib_code -> [ "-open"; Lib_name.to_string lib_name |> String.capitalize ]
-      | `generated -> []
+      | `generated_wrapper | `generated_test_runner -> []
       | `vanilla -> []
     in
     let ppx =
       match context with
-      | `generated -> []
+      | `generated_wrapper | `generated_test_runner -> []
       | `vanilla | `lib_code ->
         [ "-ppx"; sprintf !"ppx-jane -as-ppx -inline-test-lib %{Lib_name}" lib_name; ]
     in
     let disabled_warnings = [ 4; 40; 42; 44; 48; 58; ] in
     let disabled_warnings =
       match context with
-      | `generated ->
+      | `generated_wrapper ->
         (* The generated aliases file references modules we haven't compiled
          * yet. *)
         49 :: disabled_warnings
-      | `lib_code | `vanilla -> disabled_warnings
+      | `lib_code | `vanilla | `generated_test_runner -> disabled_warnings
     in
     let warnings =
       sprintf "+a%s"
@@ -622,7 +623,7 @@ end = struct
          .dbuild/native/foo/modules/foo__bar.o))) |}];
     printf !"%{sexp:Build_graph.node}"
       (compile Native pkgs Lib_name.Map.empty (Lib_name.of_string "foo")
-         Module_name.Set.empty (Module_name.of_string "bar") (`ml `no_mli) `generated);
+         Module_name.Set.empty (Module_name.of_string "bar") (`ml `no_mli) `generated_wrapper);
     [%expect {|
       ((action
         (Cmd
@@ -637,6 +638,10 @@ end = struct
        (outputs
         (.dbuild/native/foo/modules/bar.cmi .dbuild/native/foo/modules/bar.cmx
          .dbuild/native/foo/modules/bar.o))) |}];
+    printf !"%{sexp:Build_graph.node}"
+      (compile Native pkgs Lib_name.Map.empty (Lib_name.of_string "foo")
+         Module_name.Set.empty (Module_name.of_string "bar") (`ml `no_mli) `generated_test_runner);
+    [%expect {| |}]
   ;;
 
   let archive kind ~c_stubs lib_name ~modules_in_dep_order =
@@ -724,14 +729,19 @@ end = struct
         (.dbuild/native/foo/archive/foo.a .dbuild/native/foo/archive/foo.cmxa))) |}];
   ;;
 
-  let link kind pkgs ~libs_in_dep_order module_name =
+  let link kind pkgs ~libs_in_dep_order bin_kind module_name =
+    let module_lib =
+      match bin_kind with
+      | `bin -> bin_lib
+      | `test lib -> lib
+    in
     let output =
       let ext =
         match kind with
         | Js -> "byte"
         | Native -> "native"
       in
-      sprintf !"%s/%{Module_name}.%s" (build_dir kind `linked bin_lib) module_name ext
+      sprintf !"%s/%{Module_name}.%s" (build_dir kind `linked module_lib) module_name ext
     in
     let packages =
       Set.to_list pkgs
@@ -764,15 +774,20 @@ end = struct
             (build_dir kind `archive lib)
             lib;
           sprintf !"%s/%{Module_name}.o"
-            (build_dir kind `modules bin_lib)
+            (build_dir kind `modules module_lib)
             module_name;
         ])
     in
     let input_module =
       sprintf !"%s/%{Module_name}.%s"
-        (build_dir kind `modules bin_lib)
+        (build_dir kind `modules module_lib)
         module_name
         (ext kind `ml)
+    in
+    let extra_flags =
+      match bin_kind with
+      | `bin -> []
+      | `test _ -> [ "-linkall" ]
     in
     let cmd =
       { Cmd.
@@ -783,6 +798,7 @@ end = struct
           "-thread";
           "-linkpkg";
           ];
+          extra_flags;
           ["-package"; packages];
         ] @ [input_archives]
           @ [
@@ -804,7 +820,9 @@ end = struct
       |> List.map ~f:(fun (lib, x) -> Lib_name.of_string lib, x)
     in
     let module_name = Module_name.of_string "main" in
-    printf !"%{sexp:Build_graph.node}" (link Native pkgs ~libs_in_dep_order module_name);
+    printf !"%{sexp:Build_graph.node}" (link Native pkgs ~libs_in_dep_order `bin module_name);
+    printf !"%{sexp:Build_graph.node}"
+      (link Native pkgs ~libs_in_dep_order (`test (Lib_name.of_string "flub")) module_name);
     [%expect {|
       ((action
         (Cmd
@@ -971,6 +989,11 @@ let spec_to_nodes
     )
     |> Lib_name.Map.of_alist_exn
   in
+  let deps_by_lib_name =
+    List.map libraries ~f:(fun { Project_spec. dir; direct_deps; _ } ->
+      dir, direct_deps)
+    |> Lib_name.Map.of_alist_exn
+  in
   let of_lib { Project_spec. dir; modules; c_stub_basenames; direct_deps = { packages; libs; }; } =
     (* Instead of using module packing, we use the aliasing technique described
      * here: https://caml.inria.fr/pub/docs/manual-ocaml/extn.html#sec235
@@ -984,6 +1007,7 @@ let spec_to_nodes
         module_name, get_deps dir ~basename)
       |> Module_name.Map.of_alist_exn
     in
+    let libs_set = libs in
     let libs =
       (* CR-soon datkin: Need to also take the topo closure of libs. *)
       Lib_name.Set.to_map libs ~f:(Map.find_exn modules_by_lib)
@@ -1083,7 +1107,7 @@ let spec_to_nodes
             Module_name.Set.empty
             wrapper_module
             (`ml `no_mli)
-            `generated;
+            `generated_wrapper;
         in
         let archive =
           let modules_in_dep_order =
@@ -1123,19 +1147,42 @@ let spec_to_nodes
             libs
             dir
             (Module_name.Set.of_list modules)
-            (Module_name.of_string "Inline_test_runner")
+            (Module_name.of_string "inline_test_runner")
             (`ml `no_mli)
-            `generated;
+            `generated_test_runner;
         in
         let inline_test_runner =
-          (* CR datkin: This will need a '-linkall' flag. *)
+          let (packages, libs_in_dep_order) =
+            topological_fold
+              ~sexp_of_key:[%sexp_of: Lib_name.t]
+              ~key_set:Lib_name.Set.empty
+              ~roots:(Set.to_list libs_set)
+              ~direct_deps:(fun lib ->
+                match Map.find deps_by_lib_name lib with
+                | Some { Project_spec. packages = _; libs; } -> Set.to_list libs
+                | None -> assert false)
+              ~init:(Package_name.Set.empty, [])
+              ~f:(fun lib (packages, libs) ->
+                match Map.find deps_by_lib_name lib with
+                (* We ignore [libs] here, b/c we're traversing them later (from
+                 * [direct_deps]. *)
+                | Some { Project_spec. packages = p; libs = _; } ->
+                  (Set.union packages p, lib :: libs)
+                | None -> assert false)
+          in
+          let libs_in_dep_order =
+            List.rev libs_in_dep_order
+            |> List.map ~f:(fun lib -> lib, Map.find_exn archive_by_lib lib)
+          in
           Ocaml_compiler.link
             kind
             packages
-            ~libs_in_dep_order:libs
-            (Module_name.of_string "Inline_test_runner")
+            ~libs_in_dep_order
+            (`test dir)
+            (Module_name.of_string "inline_test_runner")
         in
-        compiled_wrapper :: generated_wrapper :: archive :: mls @ js)
+        inline_test_runner :: compiled_inline_test_runner :: generated_inline_test_runner
+        :: compiled_wrapper :: generated_wrapper :: archive :: mls @ js)
     in
     let c =
       if List.is_empty c_stub_basenames
@@ -1156,11 +1203,6 @@ let spec_to_nodes
     in
     *)
     List.concat_no_order [ mli; ml; c ]
-  in
-  let deps_by_lib_name =
-    List.map libraries ~f:(fun { Project_spec. dir; direct_deps; _ } ->
-      dir, direct_deps)
-    |> Lib_name.Map.of_alist_exn
   in
   let of_bin { Project_spec. module_name; direct_deps = { packages; libs; }; output; } =
     let (extra_pkgs, libs_in_dep_order) =
@@ -1196,7 +1238,7 @@ let spec_to_nodes
       Ocaml_compiler.compile kind packages libs bin_lib Module_name.Set.empty
         module_name (`ml `no_mli) `vanilla
     in
-    let linked_byte = Ocaml_compiler.link kind packages ~libs_in_dep_order module_name in
+    let linked_byte = Ocaml_compiler.link kind packages ~libs_in_dep_order `bin module_name in
     let linked_js =
       match output with
       | `native -> []
