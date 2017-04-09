@@ -641,7 +641,20 @@ end = struct
     printf !"%{sexp:Build_graph.node}"
       (compile Native pkgs Lib_name.Map.empty (Lib_name.of_string "foo")
          Module_name.Set.empty (Module_name.of_string "bar") (`ml `no_mli) `generated_test_runner);
-    [%expect {| |}]
+    [%expect {|
+      ((action
+        (Cmd
+         ((exe ocamlfind)
+          (args
+           ((ocamlopt -w +a-4-40-42-44-48-58 -g) () () () (-thread) (-package a,b)
+            () (-I .dbuild/native/foo/modules) (-no-alias-deps)
+            (-c -impl .dbuild/native/foo/generated/bar.ml)
+            (-o .dbuild/native/foo/modules/bar.cmx)))
+          (opam_switch (4.03.0)))))
+       (inputs (.dbuild/native/foo/generated/bar.ml))
+       (outputs
+        (.dbuild/native/foo/modules/bar.cmi .dbuild/native/foo/modules/bar.cmx
+         .dbuild/native/foo/modules/bar.o))) |}]
   ;;
 
   let archive kind ~c_stubs lib_name ~modules_in_dep_order =
@@ -828,7 +841,7 @@ end = struct
         (Cmd
          ((exe ocamlfind)
           (args
-           ((ocamlopt -thread -linkpkg) (-package a,b)
+           ((ocamlopt -thread -linkpkg) () (-package a,b)
             (.dbuild/native/x/archive/x.cmxa .dbuild/native/y/archive/y.cmxa)
             (.dbuild/native/bin/modules/main.cmx)
             (-o .dbuild/native/bin/linked/main.native)))
@@ -838,7 +851,21 @@ end = struct
          .dbuild/native/x/archive/x.a .dbuild/native/x/archive/x.cmxa
          .dbuild/native/x/c/libx.a .dbuild/native/y/archive/y.a
          .dbuild/native/y/archive/y.cmxa))
-       (outputs (.dbuild/native/bin/linked/main.native))) |}];
+       (outputs (.dbuild/native/bin/linked/main.native)))((action
+        (Cmd
+         ((exe ocamlfind)
+          (args
+           ((ocamlopt -thread -linkpkg) (-linkall) (-package a,b)
+            (.dbuild/native/x/archive/x.cmxa .dbuild/native/y/archive/y.cmxa)
+            (.dbuild/native/flub/modules/main.cmx)
+            (-o .dbuild/native/flub/linked/main.native)))
+          (opam_switch (4.03.0)))))
+       (inputs
+        (.dbuild/native/flub/modules/main.cmx .dbuild/native/flub/modules/main.o
+         .dbuild/native/x/archive/x.a .dbuild/native/x/archive/x.cmxa
+         .dbuild/native/x/c/libx.a .dbuild/native/y/archive/y.a
+         .dbuild/native/y/archive/y.cmxa))
+       (outputs (.dbuild/native/flub/linked/main.native))) |}];
   ;;
 
 end
@@ -1134,24 +1161,35 @@ let spec_to_nodes
           { Build_graph.
             action = Write_file {
               file;
-              contents = "let () = Ppx_inline_test_lib.Runtime.ext ();;"
+              contents = "let () = Ppx_inline_test_lib.Runtime.exit ();;"
             };
             inputs = f [];
             outputs = File_name.Set.singleton file;
           };
         in
         let compiled_inline_test_runner =
+          let required_modules =
+            wrapper_module
+            :: (List.map modules ~f:(add_namespace dir))
+          in
           Ocaml_compiler.compile
             kind
             packages
             libs
             dir
-            (Module_name.Set.of_list modules)
+            (Module_name.Set.of_list required_modules)
             (Module_name.of_string "inline_test_runner")
             (`ml `no_mli)
             `generated_test_runner;
         in
         let inline_test_runner =
+          let direct_package_deps =
+            [ "ppx_inline_test.runner.lib";
+              "ppx_expect.evaluator";
+            ]
+            |> List.fold ~init:packages ~f:(fun packages name ->
+                Set.add packages (Package_name.of_string name))
+          in
           let (packages, libs_in_dep_order) =
             topological_fold
               ~sexp_of_key:[%sexp_of: Lib_name.t]
@@ -1161,7 +1199,7 @@ let spec_to_nodes
                 match Map.find deps_by_lib_name lib with
                 | Some { Project_spec. packages = _; libs; } -> Set.to_list libs
                 | None -> assert false)
-              ~init:(Package_name.Set.empty, [])
+              ~init:(direct_package_deps, [])
               ~f:(fun lib (packages, libs) ->
                 match Map.find deps_by_lib_name lib with
                 (* We ignore [libs] here, b/c we're traversing them later (from
@@ -1343,8 +1381,9 @@ let project_spec =
         ))
         (direct_deps (
           (packages (core_kernel async_kernel
-          ppx_inline_test.runner.lib
-          ppx_expect.evaluator))
+          ;ppx_inline_test.runner.lib
+          ;ppx_expect.evaluator
+          ))
         ))
       )
       (
@@ -1554,6 +1593,16 @@ let%expect_test "dependency summary" =
       .dbuild/native/server/generated/server.ml
 
     .dbuild/native/server/modules/server__web_server.cmi
+      .dbuild/native/odditty/modules/odditty.cmi
+      .dbuild/native/odditty/modules/odditty__pty.cmi
+      .dbuild/native/odditty/modules/odditty__terminfo.cmi
+      .dbuild/native/odditty_kernel/modules/odditty_kernel.cmi
+      .dbuild/native/odditty_kernel/modules/odditty_kernel__character_attributes.cmi
+      .dbuild/native/odditty_kernel/modules/odditty_kernel__character_set.cmi
+      .dbuild/native/odditty_kernel/modules/odditty_kernel__control_functions.cmi
+      .dbuild/native/odditty_kernel/modules/odditty_kernel__dec_private_mode.cmi
+      .dbuild/native/odditty_kernel/modules/odditty_kernel__terminfo.cmi
+      .dbuild/native/odditty_kernel/modules/odditty_kernel__window.cmi
       .dbuild/native/server/modules/server.cmi
       server/web_server.mli
 
@@ -1655,6 +1704,16 @@ let%expect_test "dependency summary" =
       .dbuild/native/odditty_kernel/modules/odditty_kernel__window.o
 
     .dbuild/native/server/modules/server__web_server.cmx, .dbuild/native/server/modules/server__web_server.o
+      .dbuild/native/odditty/modules/odditty.cmi
+      .dbuild/native/odditty/modules/odditty__pty.cmi
+      .dbuild/native/odditty/modules/odditty__terminfo.cmi
+      .dbuild/native/odditty_kernel/modules/odditty_kernel.cmi
+      .dbuild/native/odditty_kernel/modules/odditty_kernel__character_attributes.cmi
+      .dbuild/native/odditty_kernel/modules/odditty_kernel__character_set.cmi
+      .dbuild/native/odditty_kernel/modules/odditty_kernel__control_functions.cmi
+      .dbuild/native/odditty_kernel/modules/odditty_kernel__dec_private_mode.cmi
+      .dbuild/native/odditty_kernel/modules/odditty_kernel__terminfo.cmi
+      .dbuild/native/odditty_kernel/modules/odditty_kernel__window.cmi
       .dbuild/native/server/modules/server.cmi
       .dbuild/native/server/modules/server__web_server.cmi
       server/web_server.ml
@@ -1683,6 +1742,76 @@ let%expect_test "dependency summary" =
     .dbuild/js/js/modules/ocaml.cma.js, .dbuild/js/js/modules/ocaml.cma.make-sourcemap-links.sh
       ~/.opam/4.03.0+for-js/ocaml/ocaml.cma
 
+    .dbuild/js/odditty_kernel/generated/odditty_kernel.ml
+
+    .dbuild/js/odditty_kernel/modules/odditty_kernel.cmi, .dbuild/js/odditty_kernel/modules/odditty_kernel.cmo
+      .dbuild/js/odditty_kernel/generated/odditty_kernel.ml
+
+    .dbuild/js/odditty_kernel/modules/odditty_kernel__character_attributes.cmi, .dbuild/js/odditty_kernel/modules/odditty_kernel__character_attributes.cmo
+      .dbuild/js/odditty_kernel/modules/odditty_kernel.cmi
+      odditty_kernel/character_attributes.ml
+
+    .dbuild/js/odditty_kernel/modules/odditty_kernel__character_set.cmi, .dbuild/js/odditty_kernel/modules/odditty_kernel__character_set.cmo
+      .dbuild/js/odditty_kernel/modules/odditty_kernel.cmi
+      odditty_kernel/character_set.ml
+
+    .dbuild/js/odditty_kernel/modules/odditty_kernel__dec_private_mode.cmi, .dbuild/js/odditty_kernel/modules/odditty_kernel__dec_private_mode.cmo
+      .dbuild/js/odditty_kernel/modules/odditty_kernel.cmi
+      odditty_kernel/dec_private_mode.ml
+
+    .dbuild/js/odditty_kernel/modules/odditty_kernel__terminfo.cmi
+      .dbuild/js/odditty_kernel/modules/odditty_kernel.cmi
+      odditty_kernel/terminfo.mli
+
+    .dbuild/js/odditty_kernel/modules/odditty_kernel__control_functions.cmi
+      .dbuild/js/odditty_kernel/modules/odditty_kernel.cmi
+      .dbuild/js/odditty_kernel/modules/odditty_kernel__character_set.cmi
+      .dbuild/js/odditty_kernel/modules/odditty_kernel__dec_private_mode.cmi
+      .dbuild/js/odditty_kernel/modules/odditty_kernel__terminfo.cmi
+      odditty_kernel/control_functions.mli
+
+    .dbuild/js/odditty_kernel/modules/odditty_kernel__control_functions.cmo
+      .dbuild/js/odditty_kernel/modules/odditty_kernel.cmi
+      .dbuild/js/odditty_kernel/modules/odditty_kernel__character_set.cmi
+      .dbuild/js/odditty_kernel/modules/odditty_kernel__control_functions.cmi
+      .dbuild/js/odditty_kernel/modules/odditty_kernel__dec_private_mode.cmi
+      .dbuild/js/odditty_kernel/modules/odditty_kernel__terminfo.cmi
+      odditty_kernel/control_functions.ml
+      odditty_kernel/control_functions.mli
+
+    .dbuild/js/odditty_kernel/modules/odditty_kernel__terminfo.cmo
+      .dbuild/js/odditty_kernel/modules/odditty_kernel.cmi
+      .dbuild/js/odditty_kernel/modules/odditty_kernel__terminfo.cmi
+      odditty_kernel/terminfo.ml
+      odditty_kernel/terminfo.mli
+
+    .dbuild/js/odditty_kernel/modules/odditty_kernel__window.cmi
+      .dbuild/js/odditty_kernel/modules/odditty_kernel.cmi
+      .dbuild/js/odditty_kernel/modules/odditty_kernel__control_functions.cmi
+      odditty_kernel/window.mli
+
+    .dbuild/js/odditty_kernel/modules/odditty_kernel__window.cmo
+      .dbuild/js/odditty_kernel/modules/odditty_kernel.cmi
+      .dbuild/js/odditty_kernel/modules/odditty_kernel__character_set.cmi
+      .dbuild/js/odditty_kernel/modules/odditty_kernel__control_functions.cmi
+      .dbuild/js/odditty_kernel/modules/odditty_kernel__dec_private_mode.cmi
+      .dbuild/js/odditty_kernel/modules/odditty_kernel__terminfo.cmi
+      .dbuild/js/odditty_kernel/modules/odditty_kernel__window.cmi
+      odditty_kernel/window.ml
+      odditty_kernel/window.mli
+
+    .dbuild/js/odditty_kernel/archive/odditty_kernel.cma
+      .dbuild/js/odditty_kernel/modules/odditty_kernel.cmo
+      .dbuild/js/odditty_kernel/modules/odditty_kernel__character_attributes.cmo
+      .dbuild/js/odditty_kernel/modules/odditty_kernel__character_set.cmo
+      .dbuild/js/odditty_kernel/modules/odditty_kernel__control_functions.cmo
+      .dbuild/js/odditty_kernel/modules/odditty_kernel__dec_private_mode.cmo
+      .dbuild/js/odditty_kernel/modules/odditty_kernel__terminfo.cmo
+      .dbuild/js/odditty_kernel/modules/odditty_kernel__window.cmo
+
+    .dbuild/js/js/modules/odditty_kernel.cma.js, .dbuild/js/js/modules/odditty_kernel.cma.make-sourcemap-links.sh
+      .dbuild/js/odditty_kernel/archive/odditty_kernel.cma
+
     .dbuild/js/js/modules/stdlib.cma.js, .dbuild/js/js/modules/stdlib.cma.make-sourcemap-links.sh
       /Users/datkin/.opam/4.03.0+for-js/lib/ocaml/stdlib.cma
 
@@ -1692,10 +1821,24 @@ let%expect_test "dependency summary" =
       .dbuild/js/web/generated/web.ml
 
     .dbuild/js/web/modules/web__main.cmi
+      .dbuild/js/odditty_kernel/modules/odditty_kernel.cmi
+      .dbuild/js/odditty_kernel/modules/odditty_kernel__character_attributes.cmi
+      .dbuild/js/odditty_kernel/modules/odditty_kernel__character_set.cmi
+      .dbuild/js/odditty_kernel/modules/odditty_kernel__control_functions.cmi
+      .dbuild/js/odditty_kernel/modules/odditty_kernel__dec_private_mode.cmi
+      .dbuild/js/odditty_kernel/modules/odditty_kernel__terminfo.cmi
+      .dbuild/js/odditty_kernel/modules/odditty_kernel__window.cmi
       .dbuild/js/web/modules/web.cmi
       web/main.mli
 
     .dbuild/js/web/modules/web__main.cmo
+      .dbuild/js/odditty_kernel/modules/odditty_kernel.cmi
+      .dbuild/js/odditty_kernel/modules/odditty_kernel__character_attributes.cmi
+      .dbuild/js/odditty_kernel/modules/odditty_kernel__character_set.cmi
+      .dbuild/js/odditty_kernel/modules/odditty_kernel__control_functions.cmi
+      .dbuild/js/odditty_kernel/modules/odditty_kernel__dec_private_mode.cmi
+      .dbuild/js/odditty_kernel/modules/odditty_kernel__terminfo.cmi
+      .dbuild/js/odditty_kernel/modules/odditty_kernel__window.cmi
       .dbuild/js/web/modules/web.cmi
       .dbuild/js/web/modules/web__main.cmi
       web/main.ml
@@ -1722,10 +1865,26 @@ let%expect_test "dependency summary" =
     .dbuild/js/bin/linked/web_main.js-linked
       .dbuild/js/js/modules/core_kernel.cma.js
       .dbuild/js/js/modules/ocaml.cma.js
+      .dbuild/js/js/modules/odditty_kernel.cma.js
       .dbuild/js/js/modules/stdlib.cma.js
       .dbuild/js/js/modules/web.cma.js
       .dbuild/js/js/modules/web_main.cmo.js
-      .dbuild/js/js/modules/web_main.runtime.js |}];
+      .dbuild/js/js/modules/web_main.runtime.js
+
+    .dbuild/native/odditty_kernel/generated/inline_test_runner.ml
+
+    .dbuild/native/odditty_kernel/modules/inline_test_runner.cmi, .dbuild/native/odditty_kernel/modules/inline_test_runner.cmx, .dbuild/native/odditty_kernel/modules/inline_test_runner.o
+      .dbuild/native/odditty_kernel/generated/inline_test_runner.ml
+      .dbuild/native/odditty_kernel/modules/odditty_kernel.cmi
+      .dbuild/native/odditty_kernel/modules/odditty_kernel__character_attributes.cmi
+      .dbuild/native/odditty_kernel/modules/odditty_kernel__character_set.cmi
+      .dbuild/native/odditty_kernel/modules/odditty_kernel__control_functions.cmi
+      .dbuild/native/odditty_kernel/modules/odditty_kernel__dec_private_mode.cmi
+      .dbuild/native/odditty_kernel/modules/odditty_kernel__terminfo.cmi
+      .dbuild/native/odditty_kernel/modules/odditty_kernel__window.cmi
+
+    .dbuild/native/odditty_kernel/linked/inline_test_runner.native
+      .dbuild/native/odditty_kernel/modules/inline_test_runner.cmx |}];
   let bg = Or_error.ok_exn bg in
   List.iter [
     ".dbuild/native/odditty_kernel/generated/odditty_kernel.ml";
