@@ -38,8 +38,15 @@ An example usage of `dbuild` to build some of the project:
          -spec .dbuild-spec \
          .dbuild/js/bin/linked/web_main.js-linked \
          .dbuild/native/bin/linked/{main,inline_test_runner}.native \
+         .dbuild/native/odditty_kernel/linked/inline_test_runner.native \
          2>&1 \
     | tee /tmp/dbuild.log
+```
+
+Run tests with:
+
+```bash
+./.dbuild/native/bin/linked/inline_test_runner.native inline-test-runner odditty_kernel -verbose
 ```
 
 Features of `dbuild`:
@@ -56,7 +63,7 @@ Features of `dbuild`:
   approach to building libraries (aka
   [namespaces](https://blogs.janestreet.com/better-namespaces-through-module-aliases/)).
   This improves build parallelism and executable size.  I'm unsure if this is
-  easy to do with ocamlbuild. But Jane Street
+  easy to do with ocamlbuild. But Jane Street's
   [jenga](https://github.com/janestreet/jenga-rules/blob/master/lib/root.ml) and
   [jbuilder](https://github.com/janestreet/jbuilder/blob/master/src/gen_rules.ml)
   do this.
