@@ -1175,9 +1175,9 @@ let spec_to_nodes
           Ocaml_compiler.compile
             kind
             packages
-            libs
+            (Map.add libs ~key:dir ~data:(Map.find_exn modules_by_lib dir))
             dir
-            (Module_name.Set.of_list required_modules)
+            Module_name.Set.empty (* (Module_name.Set.of_list required_modules) *)
             (Module_name.of_string "inline_test_runner")
             (`ml `no_mli)
             `generated_test_runner;
@@ -1199,7 +1199,7 @@ let spec_to_nodes
                 match Map.find deps_by_lib_name lib with
                 | Some { Project_spec. packages = _; libs; } -> Set.to_list libs
                 | None -> assert false)
-              ~init:(direct_package_deps, [])
+              ~init:(direct_package_deps, [ dir ])
               ~f:(fun lib (packages, libs) ->
                 match Map.find deps_by_lib_name lib with
                 (* We ignore [libs] here, b/c we're traversing them later (from
@@ -1884,7 +1884,10 @@ let%expect_test "dependency summary" =
       .dbuild/native/odditty_kernel/modules/odditty_kernel__window.cmi
 
     .dbuild/native/odditty_kernel/linked/inline_test_runner.native
-      .dbuild/native/odditty_kernel/modules/inline_test_runner.cmx |}];
+      .dbuild/native/odditty_kernel/archive/odditty_kernel.a
+      .dbuild/native/odditty_kernel/archive/odditty_kernel.cmxa
+      .dbuild/native/odditty_kernel/modules/inline_test_runner.cmx
+      .dbuild/native/odditty_kernel/modules/inline_test_runner.o |}];
   let bg = Or_error.ok_exn bg in
   List.iter [
     ".dbuild/native/odditty_kernel/generated/odditty_kernel.ml";
