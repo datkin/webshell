@@ -21,6 +21,7 @@ type t =
   | Cursor_rel of dir * int
   | Start_of_line_rel of [`Down] * int
   | Cursor_abs of coord
+  | Delete_chars of int
   | Erase_line_including_cursor of [ `Left | `Right | `All ] (* http://www.vt100.net/docs/vt510-rm/EL.html *)
   | Erase_display_including_cursor of [ `From_start | `To_end | `All ] (* http://www.vt100.net/docs/vt510-rm/ED.html *)
   | Set_scrolling_region of { top : int option; bottom : int option } (* http://www.vt100.net/docs/vt510-rm/DECSTBM.html *)
@@ -172,7 +173,7 @@ module Spec = struct
   let xterm_spec = [
     (* CR datkin: It would be nice to have a tool for defining variable length
      * args. *)
-    (* From http://www.xfree86.org/4.5.0/ctlseqs.html
+    (* From http://invisible-island.net/xterm/ctlseqs/ctlseqs.html
      * Some of this stuff isn't expressed in terminfo for xterm. E.g. "Send
      * Device Attributes (Secondary DA)". *)
     [c "\x06"], s Ack;
@@ -204,6 +205,7 @@ module Spec = struct
       in
       Erase_line_including_cursor which);
     [csi; pm; c "H"], n2 1 1 (fun y x -> Cursor_abs { x; y });
+    [csi; ps; c "P"], n1 1 (fun n -> Delete_chars n);
     [csi; pm; c "m"], (fun args -> Other (["SGR"], args));
     [csi; c "?"; pm; c "h"], (fun args ->
       let modes = List.filter_map args ~f:(Option.map ~f:Dec_private_mode.of_int) in

@@ -435,6 +435,19 @@ let handle t parse_result =
       Grid.scroll t.grid n; None
     | Cursor_abs { x=col; y=row; } ->
       t.cursor <- { x=col-1; y=row-1 }; None
+    | Delete_chars n ->
+      (* "DCH": Delete n chars from cursor position, shifting others back.
+       * http://vt100.net/docs/vt220-rm/chapter4.html *)
+      let x_dst = t.cursor.x + n in
+      let x_src = (Grid.dim t.grid).width - 1 in
+      for z = 1 to n; do
+        let x_dst = t.cursor.x - (n + 1) in
+        let x_src = (Grid.dim t.grid).width - (n + 1) - 1 in
+        let src = { t.cursor with x = x_src } in
+        let dst = { t.cursor with x = x_dst } in
+        Cell.set_code (Grid.get t.grid dst) (Grid.get t.grid src |> Cell.code);
+      done;
+      None
     | Erase_line_including_cursor which ->
       let (min_x, max_x) =
         match which with
@@ -613,6 +626,9 @@ let%expect_test _ =
     | A|  |  |  |  |
     |  |  |  |  [ A]
     |  |  |  |  |  | |}];
+  putc t '\b'; putc t 'A'; putc t '\b'; putc t '\x7f';
+  printf !"%s" (render_string t);
+  [%expect {| |}];
 ;;
 
 let%expect_test "Erase Display (ED)" =

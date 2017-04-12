@@ -26,6 +26,7 @@ type t =
   | Cursor_rel of dir * int
   | Start_of_line_rel of [`Down] * int
   | Cursor_abs of coord
+  | Delete_chars of int
   | Erase_line_including_cursor of [ `Left | `Right | `All ] (* http://www.vt100.net/docs/vt510-rm/EL.html *)
   | Erase_display_including_cursor of [ `From_start | `To_end | `All ] (* http://www.vt100.net/docs/vt510-rm/ED.html *)
   | Set_scrolling_region of { top : int option; bottom : int option } (* http://www.vt100.net/docs/vt510-rm/DECSTBM.html *)

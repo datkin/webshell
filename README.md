@@ -46,7 +46,7 @@ An example usage of `dbuild` to build some of the project:
 Run tests with:
 
 ```bash
-./.dbuild/native/bin/linked/inline_test_runner.native inline-test-runner odditty_kernel -verbose
+(eval $(opam config env --switch 4.03.0); .dbuild/native/odditty_kernel/linked/inline_test_runner.native inline-test-runner odditty_kernel -verbose)
 ```
 
 Features of `dbuild`:
