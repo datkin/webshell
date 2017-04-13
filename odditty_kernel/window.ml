@@ -446,6 +446,7 @@ let handle t parse_result =
         let src = { t.cursor with x = x_src } in
         let dst = { t.cursor with x = x_dst } in
         Cell.set_code (Grid.get t.grid dst) (Grid.get t.grid src |> Cell.code);
+        Cell.set_code (Grid.get t.grid src) ' ';
       done;
       None
     | Erase_line_including_cursor which ->
@@ -626,8 +627,20 @@ let%expect_test _ =
     | A|  |  |  |  |
     |  |  |  |  [ A]
     |  |  |  |  |  | |}];
-  putc t '\b'; putc t 'A'; putc t '\b'; putc t '\x7f';
-  printf !"%s" (render_string t);
+  (* CR datkin: How does the \004 from the user get translated into the delete,
+   * again? *)
+  List.iter (String.to_list "\bA\b") ~f:(fun char ->
+    ignore (update t char));
+  handle t (`func (Control_functions.Delete_chars 1, ()));
+  handle t (`func (Control_functions.Delete_chars 1, ()));
+    begin
+  Or_error.try_with (fun () ->
+    printf !"%s" (render_string t);
+  )
+    |> function
+      | Ok () -> ()
+      | Error err -> printf !"%{Error#hum}\n%!" err;
+    end;
   [%expect {| |}];
 ;;
 
