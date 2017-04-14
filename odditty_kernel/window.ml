@@ -17,10 +17,6 @@ type coord = Control_functions.coord = {
   x : int;
 } [@@deriving sexp, bin_io, compare]
 
-(*
-let x = 5
-*)
-
 let%test_unit _ =
   let coords = [
     { y = 0; x = 20; };
@@ -278,6 +274,7 @@ type t = {
   mutable scroll_region : (int * int);
   mutable keypad : [ `Application | `Numeric ];
   mutable cursor_keys : [ `Application | `Normal ];
+  mutable show_cursor : bool;
   parse : (char -> Control_functions.parse_result);
 }
 
@@ -287,6 +284,7 @@ let create dim spec = {
   scroll_region = (0, dim.height);
   keypad = `Numeric;
   cursor_keys = `Application;
+  show_cursor = true;
   parse = Control_functions.parser spec |> unstage;
 }
 
@@ -477,6 +475,8 @@ let handle t parse_result =
           t.cursor_keys <- (match set_or_clear with | `set -> `Application | `clear -> `Normal)
         | Application_keypad ->
           t.keypad <- (match set_or_clear with | `set -> `Application | `clear -> `Numeric)
+        | Show_cursor ->
+          t.show_cursor <- (match set_or_clear with | `set -> true | `clear -> false)
         | _ ->
             ());
       None
@@ -779,7 +779,7 @@ let html_post = {|
 
 module Rendered = struct
   type t = {
-    cursor : coord;
+    cursor : coord option;
     chars : char list list;
   } [@@deriving bin_io]
 end
@@ -798,7 +798,8 @@ let render t =
     done;
     List.rev !rows
   in
-  { Rendered. chars; cursor = (cursor t); }
+  let cursor = Option.some_if t.show_cursor (cursor t) in
+  { Rendered. chars; cursor; }
 ;;
 
 let render_html t =

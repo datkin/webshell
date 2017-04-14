@@ -12,4 +12,5 @@ a.out
 dbuild
 .dbuild/*
 *.js
-.dbuild-cache
+.dbuild-cache/*
+.dbuild-sandbox/*

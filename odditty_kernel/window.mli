@@ -14,10 +14,6 @@ type coord = {
   x : int;
 } [@@deriving sexp, bin_io, compare]
 
-(*
-val x : int
-*)
-
 type t
 
 val create : dim -> Control_functions.Parser.state -> t
@@ -58,7 +54,7 @@ val render_html : t -> string
 
 module Rendered : sig
   type t = {
-    cursor : coord;
+    cursor : coord option; (* None = don't render cursor *)
     chars : char list list;
   } [@@deriving bin_io]
 end

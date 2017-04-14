@@ -21,7 +21,7 @@ let view { Odditty_kernel.Window.Rendered. chars; cursor; } =
           else Node.text (Char.to_string chr)
         in
         let pos : Odditty_kernel.Window.coord = { x = col_idx; y = row_idx; } in
-        if [%equal: Odditty_kernel.Window.coord] pos cursor
+        if [%equal: Odditty_kernel.Window.coord option] (Some pos) cursor
         then Node.span [Attr.create "class" "cursor";] [node]
         else node)
       @ [br]
@@ -124,7 +124,7 @@ let run () : unit Deferred.t =
       );
       let k = ref {
         Odditty_kernel.Window.Rendered.
-        cursor = { x = 0; y = 0; };
+        cursor = None;
         chars = [[]];
       }
       in

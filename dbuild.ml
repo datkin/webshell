@@ -2721,4 +2721,12 @@ let () =
     |> Command.run
 ;;
 
+(* CR datkin: Known bugs:
+  *  - cmi inconsistent assumption errors sometimes occur. :(
+  *  - I made a change in odditty_kernel/window.mli (and window.ml) to the
+  *    [Rendered] type and it did not cause web/main.ml to be rebuilt.
+  *    (targets were .dbuild/js/bin/linked/web_main.js-linked
+  *    .dbuild/native/bin/linked/main.native)
+  *)
+
 (* CR datkin: Add unit test runners. *)

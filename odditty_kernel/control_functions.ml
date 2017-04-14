@@ -213,7 +213,8 @@ module Spec = struct
     [csi; c "?"; pm; c "l"], (fun args ->
       let modes = List.filter_map args ~f:(Option.map ~f:Dec_private_mode.of_int) in
       Dec_mode (`clear, modes));
-      [c "\x1b="], s (Dec_mode (`set, [Application_keypad]));
+    [c "\x1b="], s (Dec_mode (`set,   [Application_keypad])); (* DECKPAM *)
+    [c "\x1b>"], s (Dec_mode (`clear, [Application_keypad])); (* DECKPNM (Normal keypad) *)
     (* CR datkin: Defaults for the following are wrong. *)
     [csi; ps; c ";"; ps; c "r"], no2 (fun top bottom -> Set_scrolling_region { top; bottom; });
     (* "Send Device Attributes (Secondary DA)"
