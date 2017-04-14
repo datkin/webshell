@@ -389,6 +389,41 @@ let erase_in_display t which =
   in
   loop start
 
+let shift_chars t n direction =
+  (* See:
+    * http://vt100.net/docs/vt510-rm/ICH.html
+    * http://vt100.net/docs/vt220-rm/chapter4.html
+    *)
+  let width = (Grid.dim t.grid).width in
+  match direction with
+  | `Left ->
+    for x = t.cursor.x to width - 1; do
+      let dst = { t.cursor with x } in
+      let value, attribute_change =
+        if x + n < width
+        then Grid.get t.grid { t.cursor with x = x + n } |> Cell.code, `same_attributes
+        else '\000', `clear_attributes
+      in
+      let dst_cell = Grid.get t.grid dst in
+      Cell.set_code dst_cell value;
+      begin
+        match attribute_change with
+        | `same_attributes -> ()
+        | `clear_attributes -> Cell.attributes dst_cell |> Attributes.clear
+      end;
+    done;
+  | `Right ->
+    for x = width - 1 downto t.cursor.x; do
+      let dst = { t.cursor with x } in
+      let value =
+        if (x - t.cursor.x) < n
+        then '\000'
+        else Grid.get t.grid { t.cursor with x = x - n } |> Cell.code
+      in
+      Cell.set_code (Grid.get t.grid dst) value
+    done;
+;;
+
 let bound ~min x ~max =
   Int.max min (Int.min x max)
 
@@ -414,7 +449,6 @@ let handle t parse_result =
     match (f : Control_functions.t) with
     | Ack -> None
     | Bell -> None
-    | Insert_blank _ -> None
     | Cursor_rel (dir, n) ->
       let cursor =
         match dir with
@@ -434,20 +468,10 @@ let handle t parse_result =
       Grid.scroll t.grid n; None
     | Cursor_abs { x=col; y=row; } ->
       t.cursor <- { x=col-1; y=row-1 }; None
-    | Delete_chars n ->
-      (* "DCH": Delete n chars from cursor position, shifting others back.
-       * http://vt100.net/docs/vt220-rm/chapter4.html *)
-      let width = (Grid.dim t.grid).width in
-      for x = t.cursor.x to width - 1; do
-        let dst = { t.cursor with x } in
-        let value =
-          if x + n < width
-          then Grid.get t.grid { t.cursor with x = x + n } |> Cell.code
-          else ' '
-        in
-        Cell.set_code (Grid.get t.grid dst) value;
-      done;
-      None
+    | Insert_blank n -> (* ICH *)
+      shift_chars t n `Right; None
+    | Delete_chars n -> (* DCH *)
+      shift_chars t n `Left; None
     | Erase_line_including_cursor which ->
       let (min_x, max_x) =
         match which with
@@ -652,6 +676,12 @@ let%expect_test _ =
   [%expect {|
     | A|  |  |  |  |
     [ B] A|  |  |  |
+    |  |  |  |  |  | |}];
+  handle t (`func (Control_functions.Insert_blank 2, ()));
+  printf !"%s" (render_string t);
+  [%expect {|
+    | A|  |  |  |  |
+    [  ]  | B| A|  |
     |  |  |  |  |  | |}];
 ;;
 
