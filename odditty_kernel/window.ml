@@ -439,13 +439,15 @@ let handle t parse_result =
     | Delete_chars n ->
       (* "DCH": Delete n chars from cursor position, shifting others back.
        * http://vt100.net/docs/vt220-rm/chapter4.html *)
-      for z = 1 to n; do
-        let x_src = (Grid.dim t.grid).width - z in
-        let x_dst = t.cursor.x - z + 1 in
-        let src = { t.cursor with x = x_src } in
-        let dst = { t.cursor with x = x_dst } in
-        Cell.set_code (Grid.get t.grid dst) (Grid.get t.grid src |> Cell.code);
-        Cell.set_code (Grid.get t.grid src) ' ';
+      let width = (Grid.dim t.grid).width in
+      for x = t.cursor.x to width - 1; do
+        let dst = { t.cursor with x } in
+        let value =
+          if x + n < width
+          then Grid.get t.grid { t.cursor with x = x + n } |> Cell.code
+          else ' '
+        in
+        Cell.set_code (Grid.get t.grid dst) value;
       done;
       None
     | Erase_line_including_cursor which ->
@@ -630,25 +632,26 @@ let%expect_test _ =
    * again? *)
   List.iter (String.to_list "\bB\b") ~f:(fun char ->
     ignore (update t char));
+  t.cursor <- { t.cursor with x = 0 };
   printf !"%s" (render_string t);
   [%expect {|
     (literal "\b")
     (literal B)
     (literal "\b")
     | A|  |  |  |  |
-    |  |  |  [ B] A|
+    [  ]  |  | B| A|
     |  |  |  |  |  | |}];
   handle t (`func (Control_functions.Delete_chars 1, ()));
   printf !"%s" (render_string t);
   [%expect {|
     | A|  |  |  |  |
-    |  |  |  [ A]  |
+    [  ]  | B| A|  |
     |  |  |  |  |  | |}];
-  handle t (`func (Control_functions.Delete_chars 1, ()));
+  handle t (`func (Control_functions.Delete_chars 2, ()));
   printf !"%s" (render_string t);
   [%expect {|
     | A|  |  |  |  |
-    |  |  |  [  ]  |
+    [ B] A|  |  |  |
     |  |  |  |  |  | |}];
 ;;
 
