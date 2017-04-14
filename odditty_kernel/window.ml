@@ -299,7 +299,8 @@ let paint t chr =
     Cell.set_code cell chr)
 
 let invariant t =
-  assert (t.cursor.x <= (dim t).width && t.cursor.y <= (dim t).height);
+  (* CR datkin: Shouldn't x/y be <, not <=? *)
+  assert (t.cursor.x < (dim t).width && t.cursor.y < (dim t).height);
 ;;
 
 let%test_unit "invariant on create" =
@@ -438,11 +439,9 @@ let handle t parse_result =
     | Delete_chars n ->
       (* "DCH": Delete n chars from cursor position, shifting others back.
        * http://vt100.net/docs/vt220-rm/chapter4.html *)
-      let x_dst = t.cursor.x + n in
-      let x_src = (Grid.dim t.grid).width - 1 in
       for z = 1 to n; do
-        let x_dst = t.cursor.x - (n + 1) in
-        let x_src = (Grid.dim t.grid).width - (n + 1) - 1 in
+        let x_src = (Grid.dim t.grid).width - z in
+        let x_dst = t.cursor.x - z + 1 in
         let src = { t.cursor with x = x_src } in
         let dst = { t.cursor with x = x_dst } in
         Cell.set_code (Grid.get t.grid dst) (Grid.get t.grid src |> Cell.code);
@@ -629,19 +628,28 @@ let%expect_test _ =
     |  |  |  |  |  | |}];
   (* CR datkin: How does the \004 from the user get translated into the delete,
    * again? *)
-  List.iter (String.to_list "\bA\b") ~f:(fun char ->
+  List.iter (String.to_list "\bB\b") ~f:(fun char ->
     ignore (update t char));
+  printf !"%s" (render_string t);
+  [%expect {|
+    (literal "\b")
+    (literal B)
+    (literal "\b")
+    | A|  |  |  |  |
+    |  |  |  [ B] A|
+    |  |  |  |  |  | |}];
   handle t (`func (Control_functions.Delete_chars 1, ()));
+  printf !"%s" (render_string t);
+  [%expect {|
+    | A|  |  |  |  |
+    |  |  |  [ A]  |
+    |  |  |  |  |  | |}];
   handle t (`func (Control_functions.Delete_chars 1, ()));
-    begin
-  Or_error.try_with (fun () ->
-    printf !"%s" (render_string t);
-  )
-    |> function
-      | Ok () -> ()
-      | Error err -> printf !"%{Error#hum}\n%!" err;
-    end;
-  [%expect {| |}];
+  printf !"%s" (render_string t);
+  [%expect {|
+    | A|  |  |  |  |
+    |  |  |  [  ]  |
+    |  |  |  |  |  | |}];
 ;;
 
 let%expect_test "Erase Display (ED)" =
