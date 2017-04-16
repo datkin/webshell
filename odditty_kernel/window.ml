@@ -501,6 +501,11 @@ let handle t parse_result =
           t.keypad <- (match set_or_clear with | `set -> `Application | `clear -> `Numeric)
         | Show_cursor ->
           t.show_cursor <- (match set_or_clear with | `set -> true | `clear -> false)
+        | Save_cursor_as_in_DECSC_and_use_alternate_screen_buffer ->
+          (* CR-soon datkin: Implement the alternate buffer. *)
+          let cursor = t.cursor in
+          clear t;
+          t.cursor <- cursor;
         | _ ->
             ());
       None
