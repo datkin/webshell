@@ -80,8 +80,6 @@ On the other hand it has some glaring deficiencies:
 
 ## Terminal Emulation
 
-Yeah, it's coming'.
-
 To run the emulator as a web server,
 
 ```
@@ -89,3 +87,17 @@ To run the emulator as a web server,
 ```
 
 Then, open `bin/index.html` in a browser to attach to the emulator.
+
+user hits keys -> os(?) -> terminal (emulator) -> application
+
+application -> terminal (emulator) -> screen
+
+- sometimes the application sends characters to the terminal emulator which are just
+  instructions to be interpreted by the emulator, e.g.
+   - how to render the screen
+   - how to translate key presses into chars interpretable by the application
+   - queries to the emulator (e.g., send me the terminal ID)
+
+- the emulator can send more than just keys to the application's stdin:
+   - mouse clicks
+   - cursor positions
