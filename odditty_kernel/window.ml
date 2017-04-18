@@ -264,6 +264,7 @@ end = struct
   ;;
 end
 
+(* CR-soon datkin: We need to save scrollback in normal mode. *)
 type screen_mode =
   | Normal
   | Alternate of { normal : Grid.t; cursor : coord; }
