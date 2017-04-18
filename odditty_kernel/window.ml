@@ -268,7 +268,7 @@ type t = {
   (* Each row is an array. Last element list is always the top row. The list
    * will only have elements for the top N populated rows. So if the bottom of
    * the screen is empty, there will be no rows. *)
-  mutable grid : Grid.t;
+  grid : Grid.t;
   mutable cursor : coord;
   (* CR-soon datkin: [scroll_region] doesn't do anything at the moment. *)
   mutable scroll_region : (int * int);
