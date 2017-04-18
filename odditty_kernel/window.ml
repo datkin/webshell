@@ -264,11 +264,13 @@ end = struct
   ;;
 end
 
+type screen_mode =
+  | Normal
+  | Alternate of { normal : Grid.t; cursor : coord; }
+
 type t = {
-  (* Each row is an array. Last element list is always the top row. The list
-   * will only have elements for the top N populated rows. So if the bottom of
-   * the screen is empty, there will be no rows. *)
-  grid : Grid.t;
+  mutable grid : Grid.t;
+  mutable screen_mode : screen_mode;
   mutable cursor : coord;
   (* CR-soon datkin: [scroll_region] doesn't do anything at the moment. *)
   mutable scroll_region : (int * int);
@@ -280,6 +282,7 @@ type t = {
 
 let create dim spec = {
   grid = Grid.create dim;
+  screen_mode = Normal;
   cursor = origin;
   scroll_region = (0, dim.height);
   keypad = `Numeric;
@@ -502,10 +505,20 @@ let handle t parse_result =
         | Show_cursor ->
           t.show_cursor <- (match set_or_clear with | `set -> true | `clear -> false)
         | Save_cursor_as_in_DECSC_and_use_alternate_screen_buffer ->
+          begin
+            match set_or_clear, t.screen_mode with
+            | `set, Normal ->
+              t.screen_mode <- Alternate { normal = t.grid; cursor = t.cursor; };
+              t.grid <- Grid.create (Grid.dim t.grid);
+            | `clear, Alternate { normal; cursor } ->
+              t.grid <- normal;
+              t.cursor <- cursor;
+              t.screen_mode <- Normal;
+            | `clear, Normal
+            | `set, Alternate _
+            -> ()
+          end
           (* CR-soon datkin: Implement the alternate buffer. *)
-          let cursor = t.cursor in
-          clear t;
-          t.cursor <- cursor;
         | _ ->
             ());
       None
