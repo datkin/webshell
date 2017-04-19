@@ -88,7 +88,7 @@ end
 module Grid : sig
   type t [@@deriving sexp_of]
 
-  val create : dim -> t
+  val create : dim -> scrollback:int -> t
 
   val dim : t -> dim
   val set_dim : t -> dim -> unit
@@ -115,18 +115,20 @@ end = struct
     current_attributes : Attributes.t;
   } [@@deriving sexp_of, fields]
 
-  let create dim =
+  let create dim ~scrollback =
+    assert (scrollback >= 0);
+    let height = dim.height + scrollback in
     let t = {
       dim;
       (* This is a bit dumb/confusing. We're doing our array row-major, not column
        * major. But here [dimx] corresponds to the major dimension. *)
-      data = Array.make_matrix ~dimx:dim.height ~dimy:dim.width (Cell.init ());
+      data = Array.make_matrix ~dimx:height ~dimy:dim.width (Cell.init ());
       first_row = 0;
       num_rows = 0;
       current_attributes = Attributes.plain;
     }
     in
-    for y = 0 to t.dim.height - 1 do
+    for y = 0 to height - 1 do
       for x = 0 to t.dim.width - 1 do
         t.data.(y).(x) <- Cell.init ();
       done
@@ -134,12 +136,12 @@ end = struct
     t
 
   let invariant t =
-    assert (Array.length t.data = t.dim.height);
-    for y = 0 to t.dim.height - 1; do
+    assert (Array.length t.data >= t.dim.height); (* may be > b/c of scrollback *)
+    for y = 0 to Array.length t.data - 1; do
       assert (Array.length t.data.(y) = t.dim.width);
     done;
     assert (t.first_row >= 0);
-    assert (t.first_row < t.dim.height);
+    assert (t.first_row < Array.length t.data);
     assert (t.num_rows >= 0);
     assert (t.num_rows < t.dim.height);
   ;;
@@ -147,7 +149,7 @@ end = struct
   let set_dim _t _dim = assert false
 
   let%test_unit "invariant" =
-    invariant (create { height = 10; width = 5; })
+    invariant (create { height = 10; width = 5; } ~scrollback:0)
 
   let clear_all t =
     t.first_row <- 0;
@@ -241,7 +243,7 @@ end = struct
 
   let%test_unit _ =
     let dim = { width = 10; height = 5; } in
-    let t = create dim in
+    let t = create dim ~scrollback:1 in
     (*
     [%test_result: int]
       ~expect:(dim.width * dim.height)
@@ -281,8 +283,8 @@ type t = {
   parse : (char -> Control_functions.parse_result);
 }
 
-let create dim spec = {
-  grid = Grid.create dim;
+let create dim ~scrollback spec = {
+  grid = Grid.create dim ~scrollback;
   screen_mode = Normal;
   cursor = origin;
   scroll_region = (0, dim.height);
@@ -309,6 +311,7 @@ let%test_unit "invariant on create" =
   invariant
     (create
       { width = 10; height = 10; }
+      ~scrollback:0
       Control_functions.Parser.default)
 
 let set_dimensions t dim =
@@ -510,7 +513,7 @@ let handle t parse_result =
             match set_or_clear, t.screen_mode with
             | `set, Normal ->
               t.screen_mode <- Alternate { normal = t.grid; cursor = t.cursor; };
-              t.grid <- Grid.create (Grid.dim t.grid);
+              t.grid <- Grid.create (Grid.dim t.grid) ~scrollback:0;
             | `clear, Alternate { normal; cursor } ->
               t.grid <- normal;
               t.cursor <- cursor;
@@ -633,7 +636,7 @@ let render_string t =
 ;;
 
 let%expect_test _ =
-  let t = create { width = 5; height = 3; } Control_functions.Parser.default in
+  let t = create { width = 5; height = 3; } ~scrollback:1 Control_functions.Parser.default in
   printf !"%s" (render_string t);
   [%expect {|
     [  ]  |  |  |  |
@@ -705,7 +708,7 @@ let%expect_test _ =
 ;;
 
 let%expect_test "Erase Display (ED)" =
-  let t = create { width = 5; height = 3; } Control_functions.Parser.default in
+  let t = create { width = 5; height = 3; } ~scrollback:1 Control_functions.Parser.default in
   paint t 'X';
   printf !"%s" (render_string t);
   [%expect {|
@@ -750,7 +753,7 @@ let%expect_test "Erase Display (ED)" =
 (* CR datkin: In theory there are two screen modes, "regular"(?) and "alternate
  * buffer". We want scrollback in regular, but presumably not in alternate. *)
 let%expect_test "Scrolling" =
-  let t = create { width = 3; height = 3; } Control_functions.Parser.default in
+  let t = create { width = 3; height = 3; } ~scrollback:1 Control_functions.Parser.default in
   paint t 'X';
   let handle (cf : Control_functions.parse_result) = ignore (handle t cf : string option) in
   handle (`literal 'A');

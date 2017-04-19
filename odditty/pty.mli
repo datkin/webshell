@@ -29,6 +29,7 @@ val create
   -> argv:string array
   -> env:string array
   -> Window.dim
+  -> scrollback:int
   -> t
 
 val from_user : t -> string -> unit Deferred.t

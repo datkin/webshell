@@ -27,6 +27,7 @@ let run ~ws_port ~http_port =
       ~argv:[| "bash"; |]
       ~env:[| "TERM=xterm"; "HOME=/Users/datkin"; |]
       { Odditty_kernel.Window. width = 50; height = 30; }
+      ~scrollback:10
   in
   Tcp.Server.create
     (Tcp.on_port ws_port)

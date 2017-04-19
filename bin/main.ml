@@ -23,6 +23,7 @@ let tty_cmd =
       +> flag "term" (optional string) ~doc:"name Terminfo name"
       +> flag "html" (optional string) ~doc:"file Write html files to given location"
       +> flag "dim" (optional dim) ~doc:"<width>x<height> Dimensions of terminal"
+      +> flag "scrollback" (optional int) ~doc:"n Lines of scrollback"
       +> flag "cwd" (required string) ~doc:"dir cwd"
       +> flag "exe" (required string) ~doc:"exe exe"
       +> flag "env" (listed string)
@@ -31,8 +32,9 @@ let tty_cmd =
         ~doc:" Use the current environment as the base environment"
       +> flag "--" escape ~doc:"args"
     )
-    (fun term html dim cwd exe env include_this_env args () ->
+    (fun term html dim scrollback cwd exe env include_this_env args () ->
       let dim = Option.value dim ~default:{ Window. width = 20; height = 15; } in
+      let scrollback = Option.value scrollback ~default:0 in
       let base_env =
         if include_this_env
         then Core.Std.Unix.environment () |> Array.to_list
@@ -71,7 +73,7 @@ let tty_cmd =
           return (Control_functions.Parser.of_terminfo terminfo)
       end
       >>= fun parser ->
-      let window = Window.create dim parser in
+      let window = Window.create dim ~scrollback parser in
       don't_wait_for (
         Pipe.iter_without_pushback (Reader.lines (force Reader.stdin))
           ~f:(fun str ->

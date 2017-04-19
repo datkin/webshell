@@ -33,7 +33,7 @@ let from_user t str =
 
 let changed t = Bvar.wait t.changed;;
 
-let create ~cwd ~exe ~argv ~env dim =
+let create ~cwd ~exe ~argv ~env dim ~scrollback =
   let changed = Bvar.create () in
   let { fd; pid; name } =
     fork_in_pty
@@ -58,7 +58,7 @@ let create ~cwd ~exe ~argv ~env dim =
   let reader = Reader.create fd in
   let writer = Writer.create fd in
   let parser = Control_functions.Parser.xterm in
-  let window = Window.create dim parser in
+  let window = Window.create dim ~scrollback parser in
   don't_wait_for (
     Pipe.iter_without_pushback (Reader.pipe reader) ~f:(fun str ->
       String.to_list str
