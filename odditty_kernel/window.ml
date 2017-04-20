@@ -494,10 +494,16 @@ let handle t parse_result =
       erase_in_display t which;
       None
     | Set_scrolling_region { top; bottom } ->
-      (* http://www.vt100.net/docs/vt510-rm/DECSTBM.html *)
+      (* http://www.vt100.net/docs/vt510-rm/DECSTBM.html
+       * http://vt100.net/docs/vt220-rm/chapter4.html#S4.13
+       *)
       let top = Option.value top ~default:0 in
       let bottom = Option.value bottom ~default:(dim t).height in
+      assert (top < bottom);
+      (* CR-someday datkin: The code formerly did this, but I don't this it's
+       * part of the expected behavior. I'm not sure why I added it.
       t.cursor <- { x = top; y = 0; };
+      *)
       t.scroll_region <- (top, bottom);
       None
     | Dec_mode (set_or_clear, options) ->
