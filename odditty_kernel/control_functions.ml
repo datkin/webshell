@@ -20,7 +20,7 @@ type t =
   | Insert_blank of int
   | Cursor_rel of dir * int
   | Start_of_line_rel of [`Down] * int
-  | Cursor_abs of coord
+  | Cursor_abs of coord (* aka CUP *)
   | Delete_chars of int
   | Erase_line_including_cursor of [ `Left | `Right | `All ] (* http://www.vt100.net/docs/vt510-rm/EL.html *)
   | Erase_display_including_cursor of [ `From_start | `To_end | `All ] (* http://www.vt100.net/docs/vt510-rm/ED.html *)
@@ -29,6 +29,9 @@ type t =
   | Designate_char_set of { g : int; character_set : Character_set.t }
   | Send_device_attribute of [ `primary | `secondary ]
   | Other of (string list * int option list)
+  (* CR-someday daktin: Add "terminal modes" listed here:
+    * http://vt100.net/docs/vt220-rm/table4-6.html
+    * *)
 [@@deriving sexp, compare]
 
 (* Prefer referring to this below for clarity. *)

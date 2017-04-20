@@ -275,8 +275,7 @@ type t = {
   mutable grid : Grid.t;
   mutable screen_mode : screen_mode;
   mutable cursor : coord;
-  (* CR-soon datkin: [scroll_region] doesn't do anything at the moment. *)
-  mutable scroll_region : (int * int);
+  mutable scroll_region : (int * int); (* rows, zero indexed, inclusive *)
   mutable keypad : [ `Application | `Numeric ];
   mutable cursor_keys : [ `Application | `Normal ];
   mutable show_cursor : bool;
@@ -287,7 +286,7 @@ let create dim ~scrollback spec = {
   grid = Grid.create dim ~scrollback;
   screen_mode = Normal;
   cursor = origin;
-  scroll_region = (0, dim.height);
+  scroll_region = (0, dim.height - 1);
   keypad = `Numeric;
   cursor_keys = `Application;
   show_cursor = true;
@@ -318,7 +317,7 @@ let set_dimensions t dim =
   Grid.set_dim t.grid dim;
   (* CR-someday datkin: If someone resizes the window, this clears the scroll
    * region, which is almost certainly wrong. *)
-  t.scroll_region <- (0, dim.height);
+  t.scroll_region <- (0, dim.height - 1);
   (* CR datkin: Update cursor position. *)
 ;;
 
@@ -342,13 +341,19 @@ let%test_unit "incr coord" =
     (incr { x = 6; y = 10; } { width = 7; height = 11; })
 ;;
 
+let get_margin t which =
+  match which with
+  | `top -> fst t.scroll_region
+  | `bottom -> snd t.scroll_region
+;;
+
 (* Write char to the current cursor and move the cursor. *)
 let putc t chr =
   match chr with
   | '\n' ->
     let y = t.cursor.y + 1 in
-    if y = (dim t).height
-    then Grid.scroll t.grid 1
+    if y = get_margin t `bottom
+    then Grid.scroll t.grid 1 (* CR datkin: scroll should be limited to the scroll region! *)
     else t.cursor <- { t.cursor with y }
   | '\r' ->
     t.cursor <- { t.cursor with x = 0 }
@@ -474,6 +479,8 @@ let handle t parse_result =
     | Start_of_line_rel (`Down, n) ->
       Grid.scroll t.grid n; None
     | Cursor_abs { x=col; y=row; } ->
+      (* This allows you to move the cursor to any position, even outside the
+       * scrolling region. *)
       t.cursor <- { x=col-1; y=row-1 }; None
     | Insert_blank n -> (* ICH *)
       shift_chars t n `Right; None
@@ -497,14 +504,14 @@ let handle t parse_result =
       (* http://www.vt100.net/docs/vt510-rm/DECSTBM.html
        * http://vt100.net/docs/vt220-rm/chapter4.html#S4.13
        *)
-      let top = Option.value top ~default:0 in
+      let top = Option.value top ~default:1 in
       let bottom = Option.value bottom ~default:(dim t).height in
       assert (top < bottom);
       (* CR-someday datkin: The code formerly did this, but I don't this it's
        * part of the expected behavior. I'm not sure why I added it.
       t.cursor <- { x = top; y = 0; };
       *)
-      t.scroll_region <- (top, bottom);
+      t.scroll_region <- (top - 1, bottom - 1);
       None
     | Dec_mode (set_or_clear, options) ->
       List.iter options ~f:(function
