@@ -200,7 +200,7 @@ module Build_graph = struct
       |> Set.to_list
       |> function
       | [ x ] -> x
-      | files -> raise_s [%message "Multiple outputs with ext" ext (t : node)]
+      | _files -> raise_s [%message "Multiple outputs with ext" ext (t : node)]
     ;;
 
     let to_string { action; inputs; outputs; } =
@@ -562,6 +562,7 @@ end = struct
         args = [[
           ocamlc kind;
           "-w"; warnings;
+          "-warn-error"; warnings;
           "-g";
         ]]
           @ [implicit_open]
@@ -605,8 +606,9 @@ end = struct
         (Cmd
          ((exe ocamlfind)
           (args
-           ((ocamlopt -w +a-4-40-42-44-48-58 -g) (-open Foo) ()
-            (-ppx "ppx-jane -as-ppx -inline-test-lib foo") (-thread) (-package a,b)
+           ((ocamlopt -w +a-4-40-42-44-48-58 -warn-error +a-4-40-42-44-48-58 -g)
+            (-open Foo) () (-ppx "ppx-jane -as-ppx -inline-test-lib foo") (-thread)
+            (-package a,b)
             (-I .dbuild/native/x/modules -I .dbuild/native/y/modules)
             (-I .dbuild/native/foo/modules) (-no-alias-deps) (-c -impl foo/bar.ml)
             (-o .dbuild/native/foo/modules/foo__bar.cmx)))
@@ -629,9 +631,10 @@ end = struct
         (Cmd
          ((exe ocamlfind)
           (args
-           ((ocamlopt -w +a-49-4-40-42-44-48-58 -g) () () () (-thread)
-            (-package a,b) () (-I .dbuild/native/foo/modules) (-no-alias-deps)
-            (-c -impl .dbuild/native/foo/generated/bar.ml)
+           ((ocamlopt -w +a-49-4-40-42-44-48-58 -warn-error +a-49-4-40-42-44-48-58
+             -g)
+            () () () (-thread) (-package a,b) () (-I .dbuild/native/foo/modules)
+            (-no-alias-deps) (-c -impl .dbuild/native/foo/generated/bar.ml)
             (-o .dbuild/native/foo/modules/bar.cmx)))
           (opam_switch (4.03.0)))))
        (inputs (.dbuild/native/foo/generated/bar.ml))
@@ -646,9 +649,9 @@ end = struct
         (Cmd
          ((exe ocamlfind)
           (args
-           ((ocamlopt -w +a-4-40-42-44-48-58 -g) () () () (-thread) (-package a,b)
-            () (-I .dbuild/native/foo/modules) (-no-alias-deps)
-            (-c -impl .dbuild/native/foo/generated/bar.ml)
+           ((ocamlopt -w +a-4-40-42-44-48-58 -warn-error +a-4-40-42-44-48-58 -g) ()
+            () () (-thread) (-package a,b) () (-I .dbuild/native/foo/modules)
+            (-no-alias-deps) (-c -impl .dbuild/native/foo/generated/bar.ml)
             (-o .dbuild/native/foo/modules/bar.cmx)))
           (opam_switch (4.03.0)))))
        (inputs (.dbuild/native/foo/generated/bar.ml))
@@ -1168,7 +1171,7 @@ let spec_to_nodes
           };
         in
         let compiled_inline_test_runner =
-          let required_modules =
+          let _required_modules =
             wrapper_module
             :: (List.map modules ~f:(add_namespace dir))
           in
@@ -1935,7 +1938,7 @@ let file_exists file =
 ;;
 
 let relevant_target = File_name.of_string ".dbuild/native/bin/modules/main.cmx"
-let relevant_input = File_name.of_string ".dbuild/native/odditty_kernel/modules/odditty_kernel__window.cmi"
+let _relevant_input = File_name.of_string ".dbuild/native/odditty_kernel/modules/odditty_kernel__window.cmi"
 
 let relevant_node node =
   (*
@@ -1953,10 +1956,6 @@ module Cache : sig
    * Assumes [Buid_graph.node] was part of the [Build_graph.t] used to
    * construct [t], and may raise if not. *)
   val update_node : t -> Build_graph.node -> t
-
-  (* If [action_digest] is provided, [t]'s entry for [file] should contain the
-   * given action digest. Otherwise, raises. *)
-  val update_file : t -> ?action_digest:int option -> File_name.t -> t * [`Changed | `Same]
 
   (* CR-soon datkin: It would be nice to return a reason why we should rebuild. *)
   val should_rebuild : t -> t -> Build_graph.node -> bool
@@ -2323,7 +2322,6 @@ let prep_sandbox =
 
 let run_in_sandbox ~sandbox ({ Build_graph. action = _; inputs; outputs; } as node) =
   (* CR datkin: We should actually do this in terms of the project root... *)
-  let cwd = Core.Unix.getcwd () in
   (* Prep the output dirs so they're there before the renames.  *)
   mkdirs outputs;
   Monitor.protect (fun () ->
@@ -2585,17 +2583,12 @@ let parallel_build_cmd =
   Command.async_or_error'
     ~summary:"Build the specified targets"
     [%map_open
-      let use_sandbox = flag "sandbox" no_arg ~doc:" Build in sandbox"
-      and stop_before_build = flag "stop" no_arg ~doc:" Stop right before the target"
-      and poll = flag "poll" no_arg ~doc:" Poll continually (don't exit on first error/success)"
+      let poll = flag "poll" no_arg ~doc:" Poll continually (don't exit on first error/success)"
       and targets = anon (sequence ("target" %: file_arg))
       and project_spec = project_spec_param ()
       in
       fun () ->
-        let bg =
-          let target_set = File_name.Set.of_list targets in
-          pruned_build_graph project_spec ~roots:targets
-        in
+        let bg = pruned_build_graph project_spec ~roots:targets in
         let rec loop ~old_cache ~first_call =
           let new_cache = Cache.create bg in
           let wait =

@@ -16,6 +16,7 @@ ocamlfind ocamlopt \
   -linkpkg \
   -verbose \
   -w ${warnings} \
+  -warn-error ${warnings} \
   -thread \
   -package core \
   -package async \
