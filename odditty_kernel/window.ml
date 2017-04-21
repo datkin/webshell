@@ -40,7 +40,7 @@ module Attributes : sig
 
   val clear : t -> unit
 
-  val copy : src:t -> dst:t -> unit
+  val _copy : src:t -> dst:t -> unit
 end = struct
   type t = unit [@@deriving sexp]
 
@@ -48,7 +48,7 @@ end = struct
 
   let clear () = ()
 
-  let copy ~src:() ~dst:() = ()
+  let _copy ~src:() ~dst:() = ()
 end
 
 module Cell : sig
@@ -56,13 +56,10 @@ module Cell : sig
 
   val init : unit -> t
 
-  val create : Char.t -> Attributes.t -> t
-
   val code : t -> Char.t
   val attributes : t -> Attributes.t
 
   val clear : t -> unit
-  val clear_code : t -> unit
   val set_code : t -> Char.t -> unit
 end = struct
   type t = {
@@ -71,7 +68,6 @@ end = struct
   } [@@deriving sexp, fields]
 
   let init () = { code = null_byte; attributes = Attributes.plain; }
-  let create code attributes = { code; attributes; }
 
   let clear_code t =
     t.code <- null_byte;
@@ -105,7 +101,11 @@ module Grid : sig
 
   val fold : t -> init:'a -> f:('a -> x:int -> y:int -> Cell.t -> 'a) -> 'a
 
-  val scroll : t -> int -> unit
+  (* Scroll *down* n lines (i.e. negative numbers scroll up).
+   * Only lines within the given scroll region are scrolled (i.e. lines outside
+   * the scroll region are fixed.).
+   * *)
+  val scroll : t -> int -> scroll_region:(int * int) -> unit
 end = struct
   type t = {
     mutable dim : dim;
@@ -156,7 +156,7 @@ end = struct
     t.num_rows <- 0;
   ;;
 
-  let reset t =
+  let _reset t =
     clear_all t;
     Attributes.clear t.current_attributes;
   ;;
@@ -216,8 +216,13 @@ end = struct
 
   (* CR datkin: Check/test the scrolling logic for scrolling up (w/ scroll
    * back). *)
-  let scroll t n =
+  let scroll t n ~scroll_region:(top_margin, bottom_margin) =
+    assert (top_margin >= 0);
+    assert (bottom_margin > top_margin);
+    assert (bottom_margin < t.dim.height);
     if abs n >= t.dim.height
+    && top_margin = 0
+    && bottom_margin = t.dim.height - 1
     then clear_all t
     else begin
       (* If scrolling down, we move the pointer back, and clear earlier rows.
@@ -243,6 +248,7 @@ end = struct
 
   let%test_unit _ =
     let dim = { width = 10; height = 5; } in
+    let scroll_region = (0, 4) in
     let t = create dim ~scrollback:1 in
     (*
     [%test_result: int]
@@ -251,16 +257,16 @@ end = struct
       *)
     Cell.set_code (get t origin) 'x';
     [%test_result: coord list] ~expect:[origin] (find_all t 'x');
-    scroll t (-1);
+    scroll t (-1) ~scroll_region;
     [%test_result: coord list] ~expect:[{x = 0; y = 1}] (find_all t 'x');
     invariant t;
-    scroll t 1;
+    scroll t 1 ~scroll_region;
     [%test_result: coord list] ~expect:[{x = 0; y = 0}] (find_all t 'x');
     invariant t;
     Cell.set_code (get t { x = 2; y = 3; }) 'y';
     [%test_result: coord list] ~expect:[{x = 2; y = 3}] (find_all t 'y');
     invariant t;
-    scroll t 2;
+    scroll t 2 ~scroll_region;
     [%test_result: coord list] ~expect:[{x = 2; y = 1}] (find_all t 'y');
     invariant t;
   ;;
@@ -321,7 +327,7 @@ let set_dimensions t dim =
   (* CR datkin: Update cursor position. *)
 ;;
 
-let get t coord = Grid.get t.grid coord
+let _get t coord = Grid.get t.grid coord
 
 let incr { x; y; } { width; height; } =
   let next = (y * width) + x + 1 in
@@ -353,13 +359,15 @@ let putc t chr =
   | '\n' ->
     let y = t.cursor.y + 1 in
     if y = get_margin t `bottom
-    then Grid.scroll t.grid 1 (* CR datkin: scroll should be limited to the scroll region! *)
+    then (
+      let scroll_region = t.scroll_region in
+      Grid.scroll t.grid 1 ~scroll_region
+    )
     else t.cursor <- { t.cursor with y }
   | '\r' ->
     t.cursor <- { t.cursor with x = 0 }
   | '\b' ->
     let cursor' = decr t.cursor (dim t) in
-    let cell = Grid.get t.grid cursor' in
     t.cursor <- cursor';
     (*
   | '\t' ->
@@ -369,7 +377,11 @@ let putc t chr =
     Cell.set_code cell chr;
     let cursor' = incr t.cursor (dim t) in
     if cursor' = origin
-    then (Grid.scroll t.grid 1; t.cursor <- { t.cursor with x = 0; })
+    then (
+      let scroll_region = t.scroll_region in
+      Grid.scroll t.grid 1 ~scroll_region;
+      t.cursor <- { t.cursor with x = 0; }
+    )
     else t.cursor <- cursor'
     (*
   (* This means we wrapped, which we shouldn't have. *)
@@ -467,17 +479,20 @@ let handle t parse_result =
         | Down  ->
           let y = bound ~min:0 (t.cursor.y+n) ~max:((dim t).height - 1) in
           let scroll = (t.cursor.y+n) - y in
-          Grid.scroll t.grid scroll;
+          let scroll_region = t.scroll_region in
+          Grid.scroll t.grid scroll ~scroll_region;
           { t.cursor with y }
         | Right ->
           (* CR datkin: Line wrap? *)
           { t.cursor with
-          x = bound ~min:0 (t.cursor.x+n) ~max:((dim t).width - 1) }
+            x = bound ~min:0 (t.cursor.x+n) ~max:((dim t).width - 1) }
       in
       t.cursor <- cursor;
       None
     | Start_of_line_rel (`Down, n) ->
-      Grid.scroll t.grid n; None
+      let scroll_region = t.scroll_region in
+      Grid.scroll t.grid n ~scroll_region;
+      None
     | Cursor_abs { x=col; y=row; } ->
       (* This allows you to move the cursor to any position, even outside the
        * scrolling region. *)
@@ -700,19 +715,19 @@ let%expect_test _ =
     | A|  |  |  |  |
     [  ]  |  | B| A|
     |  |  |  |  |  | |}];
-  handle t (`func (Control_functions.Delete_chars 1, ()));
+  ignore (handle t (`func (Control_functions.Delete_chars 1, ())));
   printf !"%s" (render_string t);
   [%expect {|
     | A|  |  |  |  |
     [  ]  | B| A|  |
     |  |  |  |  |  | |}];
-  handle t (`func (Control_functions.Delete_chars 2, ()));
+  ignore (handle t (`func (Control_functions.Delete_chars 2, ())));
   printf !"%s" (render_string t);
   [%expect {|
     | A|  |  |  |  |
     [ B] A|  |  |  |
     |  |  |  |  |  | |}];
-  handle t (`func (Control_functions.Insert_blank 2, ()));
+  ignore (handle t (`func (Control_functions.Insert_blank 2, ())));
   printf !"%s" (render_string t);
   [%expect {|
     | A|  |  |  |  |
