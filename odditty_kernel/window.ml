@@ -335,6 +335,66 @@ end = struct
 end
 
 let%test_module _ = (module struct
+  let init str =
+    let lines =
+      String.strip str
+      |> String.split ~on:'\n'
+      |> List.map ~f:(fun line ->
+          match String.split line ~on:'|' with
+          | [ _; data; _ ] -> data
+          | _ -> assert false)
+      |> List.map ~f:String.to_list
+      |> List.map ~f:Array.of_list
+    in
+    let width =
+      match lines with
+      | [] -> assert false
+      | row :: _ -> Array.length row
+    in
+    let lines = Array.of_list lines in
+    assert (Array.for_all lines ~f:(fun row -> width = Array.length row));
+    let dim = { width; height = Array.length lines; } in
+    let t = Grid.create dim ~scrollback:0 in
+    for y = 0 to dim.height - 1; do
+      for x = 0 to dim.width - 1; do
+        let cell = Grid.get t { x; y; } in
+        Cell.set_code cell lines.(y).(x);
+      done
+    done;
+    t
+  ;;
+
+  let print t =
+    let dim = Grid.dim t in
+    List.init dim.height ~f:(fun y ->
+      let line =
+        List.init dim.width ~f:(fun x ->
+          let cell = Grid.get t { x; y } in
+          Cell.code cell)
+        |> String.of_char_list
+      in
+      sprintf "|%s|" line)
+    |> String.concat ~sep:"\n"
+    |> Core_kernel.Std.print_endline
+
+  let diagonal () = init {|
+      |x    |
+      | x   |
+      |  x  |
+      |   x |
+      |    x|
+  |}
+
+  let%expect_test _ =
+    print (diagonal ());
+    [%expect {|
+      |x    |
+      | x   |
+      |  x  |
+      |   x |
+      |    x|
+      |}];
+  ;;
 end)
 
 (* CR-soon datkin: We need to save scrollback in normal mode. *)
