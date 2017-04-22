@@ -262,55 +262,34 @@ end = struct
          * [t.first_row] at the very end. We don't update the num rows b/c we assume
          * we'e using the full screen both before and after (at least for now).
          * *)
-        let rec loop t ~top_margin ~n ~displaced_data ~displaced_y =
+        let rec loop t ~top_margin ~bottom_margin ~n ~displaced_data ~displaced_y =
           let dst =
-            if displaced_y >= top_margin && displaced_y <= bottom_margin
-            then
-              let shift = (1 + bottom_margin - top_margin) in (* size of the
-              scroll region, ie shift from the top of the scroll region to the
-              bottom of the future new scroll region *)
-              (displaced_y + shift) % t.dim.height
-            else (displaced_y + n) % t.dim.height
+            let shift =
+              if displaced_y >= top_margin && displaced_y <= bottom_margin
+              then
+                (* Rows from the top of the current scroll region are shifted to
+                 * the bottom of the new scroll region (where they will be
+                 * erased). *)
+                (1 + bottom_margin - top_margin)
+              else n
+            in
+            (displaced_y + shift) % t.dim.height
           in
+          (*
           Core_kernel.Std.printf !"%d -> %d: %{sexp:Cell.t_as_char Array.t}\n%!"
             displaced_y dst displaced_data;
+          *)
           let newly_displaced_data = t.data.(translate_y t ~y:dst) in
           t.data.(translate_y t ~y:dst) <- displaced_data;
           if dst = top_margin
           then () (* We've made a full circle, and [newly_displaced_data] has already been dealt with. *)
-          else loop t ~n ~top_margin ~displaced_data:newly_displaced_data ~displaced_y:dst
+          else loop t ~n ~top_margin ~bottom_margin ~displaced_data:newly_displaced_data ~displaced_y:dst
         in
-        loop t ~n ~top_margin ~displaced_data:(t.data.(translate_y t ~y:top_margin)) ~displaced_y:top_margin;
+        loop t ~n ~top_margin ~bottom_margin ~displaced_data:(t.data.(translate_y t ~y:top_margin)) ~displaced_y:top_margin;
         t.first_row <- (t.first_row + n) % t.dim.height;
         for idx = 0 to n - 1; do
           clear_row t ~y:(bottom_margin - idx);
         done
-
-
-
-
-        (*
-        let size_of_scroll_region = bottom_margin - top_margin + 1 in
-        let size_outside_scroll_region = t.dim.height - size_of_scroll_regin in
-        for idx = 0 to n; do
-          (* Clear elts from the top of the scroll region and move them to the
-           * bottom. *)
-          let 
-        done
-*)
-        (*
-        for idx = 0 to size_outside_scroll_region; do
-          (* The number of moves is everything outside the margin, plus the
-           * amount of scroll. *)
-          (* row idx below the top margin gets recycled as a cleared row at the
-           * bottom *inside* the scroll region. row idx below the bottom margin
-           * gets moved to row idx above the top margin. *)
-          clear_row t ~y
-          t.data.(translate t ~y:idx)
-        done;
-        let new_top_of_scroll_region = top_margin + n in
-        let new_top_of_screen = 
-          *)
       ) else if n < 0
       then (
         assert false;
@@ -464,6 +443,28 @@ let%test_module _ = (module struct
     let scroll_region = (1, 3) in
     show_allocation (fun () ->
       Grid.scroll t 1 ~scroll_region);
+    print t;
+    [%expect {|
+      1 -> 4: (_ x _ _ _)
+      4 -> 0: (_ _ _ _ x)
+      0 -> 1: (x _ _ _ _)
+      (allocated
+        (minor_words 1779)
+        (major_words 0))
+      |x    |
+      |  x  |
+      |   x |
+      |     |
+      |    x|
+      |}];
+  ;;
+
+  let%expect_test _ =
+    let open Expect_test_helpers_kernel in
+    let t = diagonal () in
+    let scroll_region = (1, 3) in
+    show_allocation (fun () ->
+      Grid.scroll t 2 ~scroll_region);
     print t;
     [%expect {|
       1 -> 4: (_ x _ _ _)
