@@ -168,6 +168,7 @@ end = struct
     assert (x < t.dim.width);
   ;;
 
+  (* Translate a y coordinate on the abstract grid to an actual array index. *)
   let translate_y t ~y =
     (t.first_row + y) % t.dim.height
 
@@ -214,6 +215,9 @@ end = struct
     !acc
   ;;
 
+  let scrollback t =
+    Array.length t.data - t.dim.height
+
   (* CR datkin: Check/test the scrolling logic for scrolling up (w/ scroll
    * back). *)
   let scroll t n ~scroll_region:(top_margin, bottom_margin) =
@@ -239,7 +243,61 @@ end = struct
         t.num_rows <- max 0 (min t.dim.height (t.num_rows - n));
       end
     ) else (
-      assert false
+      (* For now this assumes that we're using the whole grid... *)
+      assert (t.num_rows = t.dim.height);
+      (* ...and no scrollback (I'm not sure if this one actually matters). *)
+      assert (scrollback t = 0);
+      if n = 0
+      then ()
+      else if n > 0
+      then (
+        (* Do everything in (abstract) grid coordinates, and then update
+         * [t.first_row] at the very end. We don't update the num rows b/c we assume
+         * we'e using the full screen both before and after (at least for now).
+         * *)
+        let rec loop ~displaced_data ~displaced_y =
+          let dst = (displaced_y + n) % t.dim.height in
+          let newly_displaced_data = t.data.(translate_y t ~y:dst) in
+          t.data.(translate_y t ~y:dst) <- displaced_data;
+          if dst = top_margin
+          then () (* We've made a full circle, and [newly_displaced_data] has already been dealt with. *)
+          else loop ~displaced_data:newly_displaced_data ~displaced_y:dst
+        in
+        loop ~displaced_data:(t.data.(translate_y t ~y:top_margin)) ~displaced_y:top_margin;
+        t.first_row <- (t.first_row + n) % t.dim.height;
+        for idx = 0 to n - 1; do
+          clear_row t ~y:(bottom_margin - idx);
+        done
+
+
+
+
+        (*
+        let size_of_scroll_region = bottom_margin - top_margin + 1 in
+        let size_outside_scroll_region = t.dim.height - size_of_scroll_regin in
+        for idx = 0 to n; do
+          (* Clear elts from the top of the scroll region and move them to the
+           * bottom. *)
+          let 
+        done
+*)
+        (*
+        for idx = 0 to size_outside_scroll_region; do
+          (* The number of moves is everything outside the margin, plus the
+           * amount of scroll. *)
+          (* row idx below the top margin gets recycled as a cleared row at the
+           * bottom *inside* the scroll region. row idx below the bottom margin
+           * gets moved to row idx above the top margin. *)
+          clear_row t ~y
+          t.data.(translate t ~y:idx)
+        done;
+        let new_top_of_scroll_region = top_margin + n in
+        let new_top_of_screen = 
+          *)
+      ) else if n < 0
+      then (
+        assert false;
+      )
     )
   ;;
 
