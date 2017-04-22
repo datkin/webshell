@@ -54,6 +54,8 @@ end
 module Cell : sig
   type t [@@deriving sexp]
 
+  type t_as_char = t [@@deriving sexp_of]
+
   val init : unit -> t
 
   val code : t -> Char.t
@@ -66,6 +68,11 @@ end = struct
     mutable code : Char.t;
     attributes : Attributes.t;
   } [@@deriving sexp, fields]
+
+  type t_as_char = t
+
+  let sexp_of_t_as_char t =
+    Sexp.Atom (Char.to_string (if t.code = '\000' || t.code = ' ' then '_' else t.code))
 
   let init () = { code = null_byte; attributes = Attributes.plain; }
 
@@ -255,15 +262,25 @@ end = struct
          * [t.first_row] at the very end. We don't update the num rows b/c we assume
          * we'e using the full screen both before and after (at least for now).
          * *)
-        let rec loop ~displaced_data ~displaced_y =
-          let dst = (displaced_y + n) % t.dim.height in
+        let rec loop t ~top_margin ~n ~displaced_data ~displaced_y =
+          let dst =
+            if displaced_y >= top_margin && displaced_y <= bottom_margin
+            then
+              let shift = (1 + bottom_margin - top_margin) in (* size of the
+              scroll region, ie shift from the top of the scroll region to the
+              bottom of the future new scroll region *)
+              (displaced_y + shift) % t.dim.height
+            else (displaced_y + n) % t.dim.height
+          in
+          Core_kernel.Std.printf !"%d -> %d: %{sexp:Cell.t_as_char Array.t}\n%!"
+            displaced_y dst displaced_data;
           let newly_displaced_data = t.data.(translate_y t ~y:dst) in
           t.data.(translate_y t ~y:dst) <- displaced_data;
           if dst = top_margin
           then () (* We've made a full circle, and [newly_displaced_data] has already been dealt with. *)
-          else loop ~displaced_data:newly_displaced_data ~displaced_y:dst
+          else loop t ~n ~top_margin ~displaced_data:newly_displaced_data ~displaced_y:dst
         in
-        loop ~displaced_data:(t.data.(translate_y t ~y:top_margin)) ~displaced_y:top_margin;
+        loop t ~n ~top_margin ~displaced_data:(t.data.(translate_y t ~y:top_margin)) ~displaced_y:top_margin;
         t.first_row <- (t.first_row + n) % t.dim.height;
         for idx = 0 to n - 1; do
           clear_row t ~y:(bottom_margin - idx);
@@ -370,7 +387,10 @@ let%test_module _ = (module struct
       let line =
         List.init dim.width ~f:(fun x ->
           let cell = Grid.get t { x; y } in
-          Cell.code cell)
+          let code = Cell.code cell in
+          if code = '\000'
+          then ' '
+          else code)
         |> String.of_char_list
       in
       sprintf "|%s|" line)
@@ -392,6 +412,70 @@ let%test_module _ = (module struct
       | x   |
       |  x  |
       |   x |
+      |    x|
+      |}];
+  ;;
+
+  let%expect_test _ =
+    let open Expect_test_helpers_kernel in
+    let t = diagonal () in
+    let scroll_region = (0, 4) in
+    show_allocation (fun () ->
+      Grid.scroll t 3 ~scroll_region);
+    print t;
+    show_allocation (fun () ->
+      (* Note: No scrollback *)
+      Grid.scroll t (-3) ~scroll_region);
+    print t;
+    show_allocation (fun () ->
+      Grid.scroll t 5 ~scroll_region);
+    print t;
+    [%expect {|
+      (allocated
+        (minor_words 0)
+        (major_words 0))
+      |   x |
+      |    x|
+      |     |
+      |     |
+      |     |
+      (allocated
+        (minor_words 0)
+        (major_words 0))
+      |     |
+      |     |
+      |     |
+      |   x |
+      |    x|
+      (allocated
+        (minor_words 0)
+        (major_words 0))
+      |     |
+      |     |
+      |     |
+      |     |
+      |     |
+      |}];
+  ;;
+
+  let%expect_test _ =
+    let open Expect_test_helpers_kernel in
+    let t = diagonal () in
+    let scroll_region = (1, 3) in
+    show_allocation (fun () ->
+      Grid.scroll t 1 ~scroll_region);
+    print t;
+    [%expect {|
+      1 -> 4: (_ x _ _ _)
+      4 -> 0: (_ _ _ _ x)
+      0 -> 1: (x _ _ _ _)
+      (allocated
+        (minor_words 1779)
+        (major_words 0))
+      |x    |
+      |  x  |
+      |   x |
+      |     |
       |    x|
       |}];
   ;;

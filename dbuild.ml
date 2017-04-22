@@ -1384,6 +1384,7 @@ let project_spec =
         ))
         (direct_deps (
           (packages (core_kernel async_kernel
+          expect_test_helpers_kernel
           ;ppx_inline_test.runner.lib
           ;ppx_expect.evaluator
           ))
