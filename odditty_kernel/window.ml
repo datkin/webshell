@@ -334,6 +334,9 @@ end = struct
   ;;
 end
 
+let%test_module _ = (module struct
+end)
+
 (* CR-soon datkin: We need to save scrollback in normal mode. *)
 type screen_mode =
   | Normal
@@ -419,13 +422,15 @@ let get_margin t which =
 let putc t chr =
   match chr with
   | '\n' ->
-    let y = t.cursor.y + 1 in
-    if y = get_margin t `bottom
+    if t.cursor.y = get_margin t `bottom
     then (
       let scroll_region = t.scroll_region in
       Grid.scroll t.grid 1 ~scroll_region
     )
-    else t.cursor <- { t.cursor with y }
+    else (
+      let y = t.cursor.y + 1 in
+      t.cursor <- { t.cursor with y }
+    )
   | '\r' ->
     t.cursor <- { t.cursor with x = 0 }
   | '\b' ->
@@ -726,7 +731,7 @@ let render_string t =
 ;;
 
 let%expect_test _ =
-  let t = create { width = 5; height = 3; } ~scrollback:1 Control_functions.Parser.default in
+  let t = create { width = 5; height = 3; } ~scrollback:0 Control_functions.Parser.default in
   printf !"%s" (render_string t);
   [%expect {|
     [  ]  |  |  |  |
