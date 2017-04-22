@@ -220,23 +220,27 @@ end = struct
     assert (top_margin >= 0);
     assert (bottom_margin > top_margin);
     assert (bottom_margin < t.dim.height);
-    if abs n >= t.dim.height
-    && top_margin = 0
+    if top_margin = 0
     && bottom_margin = t.dim.height - 1
-    then clear_all t
-    else begin
-      (* If scrolling down, we move the pointer back, and clear earlier rows.
-       * Then, we increase the number of rows.
-       *
-       * If scrolling up, we just move the pointer down, and decrease the number
-       * of rows. We don't have to clear anything b/c we always clear when we
-       * allocate new rows below. *)
-      for y = n to -1 do
-        clear_row t ~y
-      done;
-      t.first_row <- (t.first_row + n) % t.dim.height;
-      t.num_rows <- max 0 (min t.dim.height (t.num_rows - n));
-    end
+    then (
+      if abs n >= t.dim.height
+      then clear_all t
+      else begin
+        (* If scrolling down, we move the pointer back, and clear earlier rows.
+         * Then, we increase the number of rows.
+         *
+         * If scrolling up, we just move the pointer down, and decrease the number
+         * of rows. We don't have to clear anything b/c we always clear when we
+         * allocate new rows below. *)
+        for y = n to -1 do
+          clear_row t ~y
+        done;
+        t.first_row <- (t.first_row + n) % t.dim.height;
+        t.num_rows <- max 0 (min t.dim.height (t.num_rows - n));
+      end
+    ) else (
+      assert false
+    )
   ;;
 
   let find_all t target =
