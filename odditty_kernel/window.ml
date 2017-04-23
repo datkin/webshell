@@ -331,7 +331,7 @@ end = struct
 end
 
 let%test_module _ = (module struct
-  let init str =
+  let init ?(scrollback=0) str =
     let lines =
       String.strip str
       |> String.split ~on:'\n'
@@ -350,7 +350,7 @@ let%test_module _ = (module struct
     let lines = Array.of_list lines in
     assert (Array.for_all lines ~f:(fun row -> width = Array.length row));
     let dim = { width; height = Array.length lines; } in
-    let t = Grid.create dim ~scrollback:0 in
+    let t = Grid.create dim ~scrollback in
     for y = 0 to dim.height - 1; do
       for x = 0 to dim.width - 1; do
         let cell = Grid.get t { x; y; } in
@@ -376,7 +376,7 @@ let%test_module _ = (module struct
     |> String.concat ~sep:"\n"
     |> Core_kernel.Std.print_endline
 
-  let diagonal () = init {|
+  let diagonal ?scrollback () = init ?scrollback {|
       |x    |
       | x   |
       |  x  |
@@ -397,13 +397,13 @@ let%test_module _ = (module struct
 
   let%expect_test _ =
     let open Expect_test_helpers_kernel in
-    let t = diagonal () in
+    let t = diagonal ~scrollback:3 () in
     let scroll_region = (0, 4) in
     show_allocation (fun () ->
       Grid.scroll t 3 ~scroll_region);
     print t;
     show_allocation (fun () ->
-      (* Note: No scrollback *)
+      (* Note: scrollback doesn't work yet *)
       Grid.scroll t (-3) ~scroll_region);
     print t;
     show_allocation (fun () ->
@@ -445,11 +445,8 @@ let%test_module _ = (module struct
       Grid.scroll t 1 ~scroll_region);
     print t;
     [%expect {|
-      1 -> 4: (_ x _ _ _)
-      4 -> 0: (_ _ _ _ x)
-      0 -> 1: (x _ _ _ _)
       (allocated
-        (minor_words 1779)
+        (minor_words 0)
         (major_words 0))
       |x    |
       |  x  |
@@ -460,25 +457,25 @@ let%test_module _ = (module struct
   ;;
 
   let%expect_test _ =
-    let open Expect_test_helpers_kernel in
-    let t = diagonal () in
-    let scroll_region = (1, 3) in
-    show_allocation (fun () ->
-      Grid.scroll t 2 ~scroll_region);
-    print t;
+    let dump scroll scroll_region =
+      let t = diagonal () in
+      Grid.scroll t scroll ~scroll_region;
+      print t;
+    in
+    dump 2 (0, 2);
     [%expect {|
-      1 -> 4: (_ x _ _ _)
-      4 -> 0: (_ _ _ _ x)
-      0 -> 1: (x _ _ _ _)
-      (allocated
-        (minor_words 1779)
-        (major_words 0))
-      |x    |
       |  x  |
-      |   x |
       |     |
+      |     |
+      |   x |
+      |    x| |}];
+    dump 2 (2, 4);
+    [%expect {|
+      |x    |
+      | x   |
       |    x|
-      |}];
+      |     |
+      |     | |}];
   ;;
 end)
 
