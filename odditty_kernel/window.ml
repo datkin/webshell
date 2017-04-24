@@ -262,7 +262,8 @@ end = struct
          * [t.first_row] at the very end. We don't update the num rows b/c we assume
          * we'e using the full screen both before and after (at least for now).
          * *)
-        let rec loop t ~top_margin ~bottom_margin ~n ~displaced_data ~displaced_y =
+        let num_moves = top_margin + (t.dim.height - bottom_margin) + n in
+        let rec loop t ~top_margin ~bottom_margin ~n ~displaced_data ~displaced_y ~moves =
           let dst =
             let shift =
               if displaced_y >= top_margin && displaced_y <= bottom_margin
@@ -275,17 +276,21 @@ end = struct
             in
             (displaced_y + shift) % t.dim.height
           in
-          (*
           Core_kernel.Std.printf !"%d -> %d: %{sexp:Cell.t_as_char Array.t}\n%!"
             displaced_y dst displaced_data;
-          *)
           let newly_displaced_data = t.data.(translate_y t ~y:dst) in
           t.data.(translate_y t ~y:dst) <- displaced_data;
           if dst = top_margin
-          then () (* We've made a full circle, and [newly_displaced_data] has already been dealt with. *)
-          else loop t ~n ~top_margin ~bottom_margin ~displaced_data:newly_displaced_data ~displaced_y:dst
+          then moves (* We've made a full circle, and [newly_displaced_data] has already been dealt with. *)
+          else loop t ~n ~top_margin ~bottom_margin ~displaced_data:newly_displaced_data ~displaced_y:dst ~moves:(moves + 1)
         in
-        loop t ~n ~top_margin ~bottom_margin ~displaced_data:(t.data.(translate_y t ~y:top_margin)) ~displaced_y:top_margin;
+        (* CR datkin: Depending on some details, you may get into a loop that
+         * doesn't actually touch all the rows we need. Maybe if we just keep
+         * touching row n+1 until we've done all the moves we need, it'll work?
+         * *)
+        let rec loop' ~moves =
+          loop t ~n ~top_margin ~bottom_margin ~displaced_data:(t.data.(translate_y t ~y:top_margin)) ~displaced_y:top_margin ~moves:1;
+        in
         t.first_row <- (t.first_row + n) % t.dim.height;
         for idx = 0 to n - 1; do
           clear_row t ~y:(bottom_margin - idx);
@@ -476,6 +481,8 @@ let%test_module _ = (module struct
       |    x|
       |     |
       |     | |}];
+    dump 2 (1, 3);
+    [%expect {| |}];
   ;;
 end)
 
