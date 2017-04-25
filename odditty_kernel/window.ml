@@ -262,7 +262,7 @@ end = struct
          * [t.first_row] at the very end. We don't update the num rows b/c we assume
          * we'e using the full screen both before and after (at least for now).
          * *)
-        let num_moves = top_margin + (t.dim.height - bottom_margin) + n in
+        let num_moves = top_margin + (t.dim.height - bottom_margin + 1) + n in
         let rec loop t ~top_margin ~bottom_margin ~n ~displaced_data ~displaced_y ~moves =
           let dst =
             let shift =
@@ -289,8 +289,17 @@ end = struct
          * touching row n+1 until we've done all the moves we need, it'll work?
          * *)
         let rec loop' ~moves =
-          loop t ~n ~top_margin ~bottom_margin ~displaced_data:(t.data.(translate_y t ~y:top_margin)) ~displaced_y:top_margin ~moves:1;
+          let moves' =
+            let y = top_margin + moves - 1 in
+            loop t ~n ~top_margin ~bottom_margin ~displaced_data:(t.data.(translate_y t ~y)) ~displaced_y:y ~moves
+          in
+          if moves = moves'
+          then ()
+          else if moves' < num_moves
+          then loop' ~moves:moves'
+          else ()
         in
+        loop' ~moves:1;
         t.first_row <- (t.first_row + n) % t.dim.height;
         for idx = 0 to n - 1; do
           clear_row t ~y:(bottom_margin - idx);
