@@ -49,6 +49,18 @@ Run tests with:
 (eval $(opam config env --switch 4.03.0); .dbuild/native/odditty_kernel/linked/inline_test_runner.native inline-test-runner odditty_kernel -verbose)
 ```
 
+Or, using `jbuilder`:
+
+```bash
+$ jbuilder build bin/main.exe bin/inline_test_runner.exe
+```
+
+And to run tests:
+
+```bash
+$./_build/default/bin/inline_test_runner.exe inline-test-runner odditty_kernel -verbose
+```
+
 Features of `dbuild`:
 - Parallel builds. ocamlbuild has
   [issues](https://caml.inria.fr/mantis/view.php?id=5754) with this,
