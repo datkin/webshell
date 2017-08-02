@@ -19,7 +19,7 @@ type frame = Websocket_async.Frame.t = {
   content : string;
 } [@@deriving sexp]
 
-let run ~ws_port ~http_port =
+let run ~ws_port ~http_port:_ =
   let pty =
     Odditty.Pty.create
       ~cwd:"/Users/datkin"
@@ -36,7 +36,7 @@ let run ~ws_port ~http_port =
        * reconnection? *)
       Log.Global.sexp [%message "Connection error" (addr : Socket.Address.Inet.t) (exn : Exn.t)]
     ))
-    (fun address reader writer ->
+    (fun _address reader writer ->
       let from_ws_r, from_ws_w = Pipe.create () in
       let to_ws_r, to_ws_w = Pipe.create () in
       don't_wait_for (

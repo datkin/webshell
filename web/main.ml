@@ -68,7 +68,7 @@ let keys =
       | Some "ArrowRight" -> Some "\027[C"
       | Some "ArrowLeft"  -> Some "\027[D"
       | Some ("Escape" | "Backspace" | "Space" | "Tab") ->
-        let code =
+        let _code =
           match Js.Optdef.to_option ev##.charCode with
           | Some code -> code
           | None -> ev##.keyCode
@@ -96,7 +96,7 @@ let keys =
           else None
         else Some key
       | _ ->
-        let code =
+        let _code =
           match Js.Optdef.to_option ev##.charCode with
           | Some code -> code
           | None -> ev##.keyCode

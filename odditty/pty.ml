@@ -72,7 +72,7 @@ let create ~cwd ~exe ~argv ~env dim ~scrollback =
         begin
           match parse_result with
           | `pending -> ()
-          | `literal c ->
+          | `literal _c ->
             Bvar.broadcast changed ();
           | _ ->
             Bvar.broadcast changed ();

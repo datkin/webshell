@@ -915,7 +915,7 @@ let render_string t =
       let chr = Grid.get t.grid coord |> Cell.code in
       let chr = if chr = null_byte then ' ' else chr in
       (* output_string (sprintf "%02x" (Char.to_int chr) *)
-      output_string (sprintf "% 2s" (Char.escaped chr)
+      output_string (sprintf "%s" (Char.escaped chr)
       );
     done;
     output_bar None;

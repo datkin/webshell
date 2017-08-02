@@ -64,7 +64,7 @@ module Spec = struct
       | ns -> failwithf !"Called with %{sexp:int option list}" ns ()
   ;;
 
-  let no1 ctor =
+  let _no1 ctor =
     function
       | [n_opt] -> ctor n_opt
       | n_opts -> failwithf !"Called with %{sexp:int option list}" n_opts ()
@@ -570,7 +570,8 @@ module Parser = struct
       List.concat_map states ~f:(fun state -> step_one state chr)
       |> List.partition_map ~f:(function
         | `keep_going x -> `Fst x
-        | `ok x -> `Snd x)
+        | `ok x -> `Snd x
+        | _ -> assert false)
     in
     match final_states, next_states with
     | [], [] ->
