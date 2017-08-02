@@ -215,8 +215,6 @@ let () =
       "tty", tty_cmd;
       "terminfo", terminfo_cmd;
       "test", test_cmd;
-      (*
       "server", Server.Web_server.command;
-      *)
     ]
   |> Command.run

@@ -1,0 +1,25 @@
+(jbuild_version 1)
+
+(executables
+ ((names (main))
+  (libraries (
+    odditty_kernel
+    virtual_dom
+    base64
+    js_of_ocaml
+  ))
+  (js_of_ocaml (
+    (flags (--source-map-inline --pretty
+          ;+predefined_exceptions.js
+          +weak.js
+          +nat.js
+          ;+base/runtime.js
+          ;+bin_prot/runtime.js
+          ;+core_kernel/runtime.js
+           ;+core_kernel/strftime.js
+           ;+ppx_expect/runtime.js
+          --runtime /dev/null))
+    ;(javascript_files (+nat.js +weak.js))
+  ))
+  (preprocess (pps (ppx_jane js_of_ocaml-ppx)))
+ ))

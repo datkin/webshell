@@ -1,5 +1,5 @@
-open Core_kernel.Std
-open Async_kernel.Std
+open Core_kernel
+open Async_kernel
 
 let log msg =
   Firebug.console##log (Js.string msg);
@@ -21,7 +21,7 @@ let view { Odditty_kernel.Window.Rendered. chars; cursor; } =
           else Node.text (Char.to_string chr)
         in
         let pos : Odditty_kernel.Window.coord = { x = col_idx; y = row_idx; } in
-        if [%equal: Odditty_kernel.Window.coord option] (Some pos) cursor
+        if [%compare.equal: Odditty_kernel.Window.coord option] (Some pos) cursor
         then Node.span [Attr.create "class" "cursor";] [node]
         else node)
       @ [br]
