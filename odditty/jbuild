@@ -1,0 +1,10 @@
+(jbuild_version 1)
+
+(library
+ ((name            odditty)
+  (libraries       (odditty_kernel core async))
+  (preprocess (pps (ppx_jane)))
+  (c_names         (pty_stubs))
+  ;(c_flags         (-I/blah/include))
+  ;(c_library_flags (-lblah))
+))

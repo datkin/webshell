@@ -1,5 +1,5 @@
-open Core.Std
-open Async.Std
+open Core
+open Async
 
 type opcode = Websocket_async.Frame.Opcode.t =
   | Continuation

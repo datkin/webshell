@@ -1,4 +1,4 @@
-open Core.Std
+open Core
 open Odditty_kernel
 
 type pty_child = {
@@ -16,13 +16,13 @@ external fork_in_pty
   -> pty_child
   = "fork_in_pty"
 
-open Async.Std
+open Async
 
 type t = {
   window : Window.t;
   result : Unix.Exit_or_signal.t Deferred.t;
   writer : Writer.t;
-  changed : unit Bvar.t;
+  changed : (unit, read_write) Bvar.t;
 }
 
 let from_user t str =

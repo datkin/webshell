@@ -1,0 +1,12 @@
+(jbuild_version 1)
+
+(library
+ ((name            server)
+  (libraries       (
+    async
+    ;websocket.async
+    websocket
+    base64
+  ))
+  (preprocess (pps (ppx_jane)))
+))

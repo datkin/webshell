@@ -1,5 +1,5 @@
-open Core.Std
-open Async.Std
+open Core
+open Async
 
 open Odditty_kernel
 open Odditty
@@ -37,7 +37,7 @@ let tty_cmd =
       let scrollback = Option.value scrollback ~default:0 in
       let base_env =
         if include_this_env
-        then Core.Std.Unix.environment () |> Array.to_list
+        then Core.Unix.environment () |> Array.to_list
         else []
       in
       let { Pty. fd; pid; name } =
@@ -58,7 +58,7 @@ let tty_cmd =
        *     ("Called from file \"src/deferred1.ml\", line 20, characters 40-45"
        *       "Called from file \"src/job_queue.ml\", line 159, characters 6-47"))
        *)
-      Core.Std.printf "name: %s\n%!" name;
+      Core.printf "name: %s\n%!" name;
       (* CR datkin: Get name and return it for info. *)
       let fd = Fd.create Char fd (Info.of_string "term") in
       let reader = Reader.create fd in
@@ -86,15 +86,15 @@ let tty_cmd =
               (* In theory, the unescaped str will look identical to the
                * string we just typed... *)
 
-              Core.Std.printf "writing: %S -> %S\n%!" unescaped_str to_send;
+              Core.printf "writing: %S -> %S\n%!" unescaped_str to_send;
               (*
               String.iter str ~f:(fun char ->
-                Core.Std.printf " %02x" (Char.to_int char));
-              Core.Std.printf "\n";
+                Core.printf " %02x" (Char.to_int char));
+              Core.printf "\n";
               *)
               Writer.write writer to_send
             | exception exn ->
-              Core.Std.eprintf !"Error parsing '%s': %{Exn}\n%!" str exn
+              Core.eprintf !"Error parsing '%s': %{Exn}\n%!" str exn
           )
       );
       Pipe.iter (Reader.pipe reader) ~f:(fun str ->
@@ -113,13 +113,13 @@ let tty_cmd =
         let pre_render_steps, post_render_steps =
           String.to_list str
           |> List.map ~f:(fun chr ->
-            (* Core.Std.printf ">  '%s'\n%!" (String.escaped (Char.to_string chr)); *)
+            (* Core.printf ">  '%s'\n%!" (String.escaped (Char.to_string chr)); *)
             let (parse_result, to_send) = Window.update window chr in
             begin
               match to_send with
               | None -> ()
               | Some str ->
-                Core.Std.printf "Sending '%s'\n%!" (String.escaped str);
+                Core.printf "Sending '%s'\n%!" (String.escaped str);
                 Writer.write writer str
             end;
             chr, parse_result)
@@ -129,7 +129,7 @@ let tty_cmd =
         List.iter pre_render_steps ~f:(fun (_chr, parse_result) ->
           incr count;
           (*
-          Core.Std.printf "  %02x (%s)\n%!"
+          Core.printf "  %02x (%s)\n%!"
             (Char.to_int chr)
             (String.escaped (Char.to_string chr));
             *)
@@ -137,19 +137,19 @@ let tty_cmd =
             match parse_result with
             | `pending -> ()
             | `literal c ->
-              Core.Std.printf "'%c', %!" c;
+              Core.printf "'%c', %!" c;
               if (!count % 20) = 0
-              then Core.Std.printf "\n%!"
+              then Core.printf "\n%!"
               else ()
             | _ ->
-              Core.Std.printf !"%{sexp:Control_functions.parse_result}\n%!"
+              Core.printf !"%{sexp:Control_functions.parse_result}\n%!"
                 parse_result
           end);
         begin
           if List.is_empty pre_render_steps
           then Deferred.unit (* the screen didn't upgade, don't redraw it *)
           else begin
-            Core.Std.printf "=== start ===\n%s=== stop ===\n%!" (Window.render_string window);
+            Core.printf "=== start ===\n%s=== stop ===\n%!" (Window.render_string window);
             Option.value_map html ~default:Deferred.unit ~f:(fun file ->
               Writer.save ~temp_file:(file ^ ".tmp")
                 file ~contents:(Window.render_html window))
@@ -157,12 +157,12 @@ let tty_cmd =
         end;
         >>| fun () ->
         List.iter post_render_steps ~f:(fun chr ->
-          Core.Std.printf "  %02x (%s)\n%!"
+          Core.printf "  %02x (%s)\n%!"
             (Char.to_int chr)
             (String.escaped (Char.to_string chr)));
       )
       >>= fun () ->
-      Core.Std.printf "\n";
+      Core.printf "\n";
       Unix.waitpid_exn pid)
 
 let terminfo_cmd =
@@ -172,7 +172,7 @@ let terminfo_cmd =
     (fun term () ->
       Terminfo.load term
       >>=? fun info ->
-      Core.Std.printf !"%{sexp:Terminfo.t}\n%!" info;
+      Core.printf !"%{sexp:Terminfo.t}\n%!" info;
       return (Ok ()))
 ;;
 
@@ -185,8 +185,8 @@ let test_cmd =
         ~doc:"ctrl Control sequence to send from the application to the terminal"
     )
     (fun to_send () ->
-      Option.iter to_send ~f:(Core.Std.printf "%s%!");
-      let terminfo = Core.Std.Unix.Terminal_io.tcgetattr Core.Std.Unix.stdin in
+      Option.iter to_send ~f:(Core.printf "%s%!");
+      let terminfo = Core.Unix.Terminal_io.tcgetattr Core.Unix.stdin in
       let newterminfo =
         { terminfo with
         c_icanon = false;
@@ -196,16 +196,16 @@ let test_cmd =
         c_vmin = 0;
         c_vtime = 0;
       } in
-      Core.Std.Unix.Terminal_io.tcsetattr newterminfo Core.Std.Unix.stdin ~mode:TCSAFLUSH;
+      Core.Unix.Terminal_io.tcsetattr newterminfo Core.Unix.stdin ~mode:TCSAFLUSH;
       at_exit (fun _ ->
         (* reset stdin when you quit *)
-        Core.Std.Unix.Terminal_io.tcsetattr terminfo Core.Std.Unix.stdin ~mode:TCSAFLUSH
+        Core.Unix.Terminal_io.tcsetattr terminfo Core.Unix.stdin ~mode:TCSAFLUSH
       );
-      Core.Std.printf "Ok, waiting one second for input.\n%!";
-      Core.Std.Unix.sleep 1;
+      Core.printf "Ok, waiting one second for input.\n%!";
+      Core.Unix.sleep 1;
       (*let c = In_channel.input_char In_channel.stdin |> Option.value_exn in*)
       let data = In_channel.input_all In_channel.stdin in
-      Core.Std.printf "%s\n%!" (String.escaped data);
+      Core.printf "%s\n%!" (String.escaped data);
       )
 ;;
 
@@ -215,6 +215,8 @@ let () =
       "tty", tty_cmd;
       "terminfo", terminfo_cmd;
       "test", test_cmd;
+      (*
       "server", Server.Web_server.command;
+      *)
     ]
   |> Command.run

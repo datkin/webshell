@@ -1,4 +1,4 @@
-open Core.Std
+open Core
 open Odditty_kernel
 
 type pty_child = {
@@ -15,7 +15,7 @@ val fork_in_pty
   -> Window.dim
   -> pty_child
 
-open Async.Std
+open Async
 
 type t
 

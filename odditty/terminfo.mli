@@ -1,5 +1,5 @@
-open Core.Std
-open Async.Std
+open Core
+open Async
 
 include module type of struct include Odditty_kernel.Terminfo end
 
