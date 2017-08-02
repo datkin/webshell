@@ -1,5 +1,7 @@
 module A = Odditty_kernel
+(*
 module B = Odditty
+*)
 
 (* Run with, e.g.:
   * (eval $(opam config env --switch 4.03.0);

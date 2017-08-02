@@ -1,0 +1,7 @@
+(jbuild_version 1)
+
+(executable
+ ((name dbuild)
+  (libraries (core odditty_kernel))
+  (preprocess (pps (ppx_jane)))
+ ))

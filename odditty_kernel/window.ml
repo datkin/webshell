@@ -234,6 +234,7 @@ end = struct
     if top_margin = 0
     && bottom_margin = t.dim.height - 1
     then (
+      (* The scroll region is the whole window. *)
       if abs n >= t.dim.height
       then clear_all t
       else begin
@@ -250,6 +251,24 @@ end = struct
         t.num_rows <- max 0 (min t.dim.height (t.num_rows - n));
       end
     ) else (
+      (* Scroll region is a sub set of window.
+       *
+       * Idea behind this implementation is that in the common case (e.g., for
+       * vim) it's likely the scroll region is large compared to the total
+       * window size. Thus, it's more efficient (fewer moves) to shuffle the
+       * rows outside of the scroll region, leaving the rows in the region
+       * stationary.
+       *
+       * Here's how we implement this: For each row in the scroll region that
+       * "scrolls off", we replace it with the row N away (where N is the scroll
+       * distance). This creates another gap, which we will from the row N away
+       * from that row. Once we hit a row whose replacement must be sourced from
+       * inside the scroll region, we know that row should be cleared, and we
+       * can pick any row (the obvious choice is to pick the row we started
+       * with).
+       * *)
+      (* CR-someday datkin: Chose which approach to take (shuffle inside region
+       * or outside region) based on which touches less? *)
       (* For now this assumes that we're using the whole grid... *)
       assert (t.num_rows = t.dim.height);
       (* ...and no scrollback (I'm not sure if this one actually matters). *)
@@ -258,6 +277,7 @@ end = struct
       then ()
       else if n > 0
       then (
+        (*
         (* Do everything in (abstract) grid coordinates, and then update
          * [t.first_row] at the very end. We don't update the num rows b/c we assume
          * we'e using the full screen both before and after (at least for now).
@@ -301,9 +321,28 @@ end = struct
         in
         loop' ~moves:1;
         t.first_row <- (t.first_row + n) % t.dim.height;
-        for idx = 0 to n - 1; do
-          clear_row t ~y:(bottom_margin - idx);
-        done
+        *)
+        let shift_size = Int.abs n in
+        let is_in_scroll_region ~idx ~top_margin ~bottom_margin =
+          top_margin <= idx && idx <= bottom_margin
+        in
+        let rec shift t ~shift_size ~spare ~idx ~top_margin ~bottom_margin =
+          let replacement = (idx - shift_size) % t.dim.height in
+          match is_in_scroll_region ~idx:replacement ~top_margin ~bottom_margin with
+          | true -> t.data.(translate_y t ~y:idx) <- spare
+          | false ->
+            t.data.(translate_y t ~y:idx) <- t.data.(translate_y t ~y:replacement);
+            shift t ~shift_size ~spare ~idx:replacement ~top_margin ~bottom_margin
+        in
+        for idx = 0 to shift_size - 1; do
+          let spare_idx = top_margin + idx in
+          let spare = t.data.(translate_y t ~y:spare_idx) in
+          for x = 0 to t.dim.width - 1 do
+            Cell.clear spare.(x)
+          done;
+          shift t ~shift_size ~spare ~idx:spare_idx ~top_margin ~bottom_margin
+        done;
+        t.first_row <- translate_y t ~y:(0 + shift_size);
       ) else if n < 0
       then (
         assert false;
@@ -388,7 +427,9 @@ let%test_module _ = (module struct
       in
       sprintf "|%s|" line)
     |> String.concat ~sep:"\n"
-    |> Core_kernel.Std.print_endline
+    |> Core_kernel.Std.print_endline;
+    Core_kernel.Std.print_endline "";
+  ;;
 
   let diagonal ?scrollback () = init ?scrollback {|
       |x    |
@@ -413,36 +454,29 @@ let%test_module _ = (module struct
     let open Expect_test_helpers_kernel in
     let t = diagonal ~scrollback:3 () in
     let scroll_region = (0, 4) in
-    show_allocation (fun () ->
+    require_no_allocation [%here] (fun () ->
       Grid.scroll t 3 ~scroll_region);
     print t;
-    show_allocation (fun () ->
+    require_no_allocation [%here] (fun () ->
       (* Note: scrollback doesn't work yet *)
       Grid.scroll t (-3) ~scroll_region);
     print t;
-    show_allocation (fun () ->
+    require_no_allocation [%here] (fun () ->
       Grid.scroll t 5 ~scroll_region);
     print t;
     [%expect {|
-      (allocated
-        (minor_words 0)
-        (major_words 0))
       |   x |
       |    x|
       |     |
       |     |
       |     |
-      (allocated
-        (minor_words 0)
-        (major_words 0))
+
       |     |
       |     |
       |     |
       |   x |
       |    x|
-      (allocated
-        (minor_words 0)
-        (major_words 0))
+
       |     |
       |     |
       |     |
@@ -455,13 +489,10 @@ let%test_module _ = (module struct
     let open Expect_test_helpers_kernel in
     let t = diagonal () in
     let scroll_region = (1, 3) in
-    show_allocation (fun () ->
+    require_no_allocation [%here] (fun () ->
       Grid.scroll t 1 ~scroll_region);
     print t;
     [%expect {|
-      (allocated
-        (minor_words 0)
-        (major_words 0))
       |x    |
       |  x  |
       |   x |
@@ -491,7 +522,12 @@ let%test_module _ = (module struct
       |     |
       |     | |}];
     dump 2 (1, 3);
-    [%expect {| |}];
+    [%expect {|
+      |x    |
+      |   x |
+      |     |
+      |     |
+      |    x| |}];
   ;;
 end)
 

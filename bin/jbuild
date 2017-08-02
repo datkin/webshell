@@ -1,0 +1,7 @@
+(jbuild_version 1)
+
+(executable
+ ((name inline_test_runner)
+  (libraries (core odditty_kernel ppx_inline_test.runner.lib ppx_expect.evaluator))
+  (preprocess (pps (ppx_jane)))
+ ))

@@ -757,7 +757,7 @@ let%test_unit _ =
     "\x1b[m" (Other (["SGR"], []));
 ;;
 
-open Async_kernel.Std
+open Async_kernel
 
 let parse reader init =
   let init = [init] in

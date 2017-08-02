@@ -45,6 +45,6 @@ type parse_result = [
 
 val parser : Parser.state -> (char -> parse_result) Staged.t
 
-open Async_kernel.Std
+open Async_kernel
 
 val parse : string Pipe.Reader.t -> Parser.state -> parse_result Pipe.Reader.t

@@ -3,8 +3,10 @@ a.out
 *.dSYM
 *.swp
 *.o
+*.merlin
 *.native
 *.swo
+*.tmp_corrected
 .datkin-build
 .datkin-js-build
 **/*.corrected
