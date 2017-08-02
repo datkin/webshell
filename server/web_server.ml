@@ -77,13 +77,17 @@ let run ~ws_port ~http_port =
       );
       Log.Global.set_level `Debug;
       don't_wait_for (
+        let%bind result =
         Websocket_async.server
           ~log:(force Log.Global.log)
           ~app_to_ws:to_ws_r
           ~ws_to_app:from_ws_w
           ~reader
           ~writer
-          (address :> Socket.Address.t)
+          ()
+        in
+        Or_error.ok_exn result;
+        Deferred.unit
       );
       Reader.close_finished reader
       >>= fun () ->

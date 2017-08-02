@@ -6,7 +6,7 @@
     core
     odditty_kernel
     odditty
-    ;server
+    server
     ppx_inline_test.runner.lib
     ppx_expect.evaluator
   ))

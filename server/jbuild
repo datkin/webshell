@@ -4,9 +4,9 @@
  ((name            server)
   (libraries       (
     async
-    ;websocket.async
-    websocket
     base64
+    odditty
+    websocket.async
   ))
   (preprocess (pps (ppx_jane)))
 ))
