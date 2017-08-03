@@ -1,30 +1,13 @@
 (jbuild_version 1)
 
 (executables
- ((names (main inline_test_runner web_main))
+ ((names (main inline_test_runner))
   (libraries (
     core
-    odditty_kernel
     odditty
     server
     ppx_inline_test.runner.lib
     ppx_expect.evaluator
-    web
-    async_js
-  ))
-  (js_of_ocaml (
-    (flags (--source-map-inline --pretty
-          ;+predefined_exceptions.js
-          +weak.js
-          +nat.js
-          ;+base/runtime.js
-          ;+bin_prot/runtime.js
-          ;+core_kernel/runtime.js
-           ;+core_kernel/strftime.js
-           ;+ppx_expect/runtime.js
-          ;--runtime /dev/null
-          ))
-    ;(javascript_files (+nat.js +weak.js))
   ))
   (preprocess (pps (ppx_jane)))
  ))
