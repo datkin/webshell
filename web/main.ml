@@ -112,7 +112,7 @@ let keys =
 let run () : unit Deferred.t =
   let open Virtual_dom.Vdom in
   Dom_html.window##.onload := Dom.handler (fun _ ->
-    Firebug.console##log (Js.string "onload callback");
+    Firebug.console##log (Js.string "onload callback!");
     don't_wait_for (
       make_ws ~url:"ws://localhost:8081"
       >>= fun (from_ws, to_ws) ->

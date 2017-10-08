@@ -52,7 +52,7 @@ Run tests with:
 Or, using `jbuilder`:
 
 ```bash
-$ jbuilder build bin/main.exe bin/inline_test_runner.exe
+$ jbuilder build bin/main.exe bin/inline_test_runner.exe bin-js/web_main.bc.js --dev
 ```
 
 And to run tests:
